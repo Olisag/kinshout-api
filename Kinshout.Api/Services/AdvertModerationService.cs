@@ -46,8 +46,11 @@ public class AdvertModerationService(
     public async Task EnsureImageAllowedAsync(Stream imageStream, string contentType, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
-            throw new AdvertModerationException(
-                "La vérification des photos nécessite OpenAI. Configurez OpenAI:ApiKey sur le serveur.");
+        {
+            logger.LogWarning(
+                "OpenAI ApiKey is not configured; skipping image moderation checks for this upload.");
+            return;
+        }
 
         await using var buffer = new MemoryStream();
         await imageStream.CopyToAsync(buffer, ct);

@@ -31,15 +31,11 @@ public class AdvertModerationServiceTests
     }
 
     [Fact]
-    public async Task EnsureImageAllowedAsync_WithoutApiKey_Throws()
+    public async Task EnsureImageAllowedAsync_WithoutApiKey_AllowsUpload()
     {
         var service = CreateService();
         await using var stream = new MemoryStream([0xFF, 0xD8, 0xFF, 0x00]);
-
-        var ex = await Assert.ThrowsAsync<AdvertModerationException>(() =>
-            service.EnsureImageAllowedAsync(stream, "image/jpeg"));
-
-        Assert.Contains("OpenAI", ex.Message);
+        await service.EnsureImageAllowedAsync(stream, "image/jpeg");
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory
