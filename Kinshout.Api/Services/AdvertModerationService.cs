@@ -14,9 +14,6 @@ public class AdvertModerationService(
     IOptions<OpenAiSettings> options,
     ILogger<AdvertModerationService> logger) : IAdvertModerationService
 {
-    private const string OpenAiRequiredMessage =
-        "La vérification du contenu nécessite OpenAI. Contactez l'administrateur.";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -61,7 +58,11 @@ public class AdvertModerationService(
     public async Task EnsureImageAllowedAsync(Stream imageStream, string contentType, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
-            throw new AdvertModerationException(OpenAiRequiredMessage);
+        {
+            logger.LogWarning(
+                "OpenAI ApiKey is not configured; skipping image moderation for this upload.");
+            return;
+        }
 
         await using var buffer = new MemoryStream();
         await imageStream.CopyToAsync(buffer, ct);
