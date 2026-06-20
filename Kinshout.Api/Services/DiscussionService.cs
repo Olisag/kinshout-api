@@ -13,7 +13,11 @@ public interface IDiscussionService
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         CancellationToken ct = default);
-    Task<DiscussionDetailDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<DiscussionDetailDto?> GetByIdAsync(
+        Guid id,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
     Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default);
     Task<DiscussionReplyDto> AddReplyAsync(Guid userId, Guid discussionId, CreateReplyRequestDto request, CancellationToken ct = default);
 }
@@ -58,15 +62,39 @@ public class DiscussionService(
         return PagingHelper.Create(items.Select(ToListDto).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
-    public async Task<DiscussionDetailDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<DiscussionDetailDto?> GetByIdAsync(
+        Guid id,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default)
     {
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+
         var d = await db.Discussions
             .AsNoTracking()
             .Include(x => x.User)
-            .Include(x => x.Replies).ThenInclude(r => r.User)
             .FirstOrDefaultAsync(x => x.Id == id, ct);
 
-        if (d is null) return null;
+        if (d is null)
+            return null;
+
+        var repliesQuery = db.DiscussionReplies
+            .AsNoTracking()
+            .Include(r => r.User)
+            .Where(r => r.DiscussionId == id)
+            .OrderBy(r => r.CreatedAt);
+
+        var total = await repliesQuery.CountAsync(ct);
+        var replies = await repliesQuery
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(ct);
+
+        var thread = PagingHelper.Create(
+            replies.Select(ToReplyDto).ToList(),
+            normalizedPage,
+            normalizedPageSize,
+            total);
 
         return new DiscussionDetailDto(
             d.Id,
@@ -75,14 +103,7 @@ public class DiscussionService(
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
             TimeHelpers.FormatRelative(d.CreatedAt),
-            d.Replies.OrderBy(r => r.CreatedAt).Select(r => new DiscussionReplyDto(
-                r.Id,
-                r.User.DisplayName,
-                TimeHelpers.Initials(r.User.DisplayName),
-                TimeHelpers.FormatRelative(r.CreatedAt),
-                r.Body
-            )).ToList()
-        );
+            thread);
     }
 
     public async Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default)
@@ -133,14 +154,24 @@ public class DiscussionService(
         await db.SaveChangesAsync(ct);
 
         var user = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
-        return new DiscussionReplyDto(
+        return ToReplyDto(reply, user);
+    }
+
+    private static DiscussionReplyDto ToReplyDto(DiscussionReply reply) =>
+        new(
+            reply.Id,
+            reply.User.DisplayName,
+            TimeHelpers.Initials(reply.User.DisplayName),
+            TimeHelpers.FormatRelative(reply.CreatedAt),
+            reply.Body);
+
+    private static DiscussionReplyDto ToReplyDto(DiscussionReply reply, User user) =>
+        new(
             reply.Id,
             user.DisplayName,
             TimeHelpers.Initials(user.DisplayName),
             TimeHelpers.FormatRelative(reply.CreatedAt),
-            reply.Body
-        );
-    }
+            reply.Body);
 
     private static DiscussionDto ToListDto(Discussion d) =>
         new(

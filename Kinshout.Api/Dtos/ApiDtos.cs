@@ -96,8 +96,7 @@ public record DiscussionDetailDto(
     string Author,
     string Avatar,
     string Time,
-    IReadOnlyList<DiscussionReplyDto> Thread
-);
+    PagedResultDto<DiscussionReplyDto> Thread);
 
 public record DiscussionReplyDto(
     Guid Id,

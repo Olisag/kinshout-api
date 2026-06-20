@@ -260,16 +260,24 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
         Ok(await discussions.ListAsync(q, page, pageSize, sort, ct));
 
     /// <summary>
-    /// Get a discussion with its full reply thread.
+    /// Get a discussion with a paginated reply thread (oldest replies first).
     /// Requires frontend client token only.
     /// </summary>
+    /// <param name="id">Discussion ID.</param>
+    /// <param name="page">Reply page number (1-based).</param>
+    /// <param name="pageSize">Replies per page (max 50).</param>
+    /// <param name="ct">Cancellation token.</param>
     [HttpGet("{id:guid}")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(DiscussionDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<DiscussionDetailDto>> Get(Guid id, CancellationToken ct)
+    public async Task<ActionResult<DiscussionDetailDto>> Get(
+        Guid id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
     {
-        var item = await discussions.GetByIdAsync(id, ct);
+        var item = await discussions.GetByIdAsync(id, page, pageSize, ct);
         return item is null ? NotFound() : Ok(item);
     }
 
