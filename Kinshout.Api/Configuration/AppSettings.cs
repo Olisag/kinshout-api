@@ -26,6 +26,7 @@ public class OAuthSettings
     public const string SectionName = "OAuth";
     public GoogleOAuthSettings Google { get; set; } = new();
     public AppleOAuthSettings Apple { get; set; } = new();
+    public FacebookOAuthSettings Facebook { get; set; } = new();
 }
 
 public class GoogleOAuthSettings
@@ -42,6 +43,12 @@ public class AppleOAuthSettings
     public string PrivateKey { get; set; } = string.Empty;
 }
 
+public class FacebookOAuthSettings
+{
+    public string AppId { get; set; } = string.Empty;
+    public string AppSecret { get; set; } = string.Empty;
+}
+
 public class CorsSettings
 {
     public const string SectionName = "Cors";
@@ -54,15 +61,4 @@ public class ClientAuthSettings
     public string KinshoutWebSecret { get; set; } = string.Empty;
     /// <summary>When true, any Origin is accepted for POST /api/auth/client (dev / Swagger).</summary>
     public bool AllowAnyOrigin { get; set; } = true;
-}
-
-public class WhatsAppAuthSettings
-{
-    public const string SectionName = "WhatsAppAuth";
-    public int CodeLength { get; set; } = 6;
-    public int CodeExpirationMinutes { get; set; } = 10;
-    /// <summary>Return OTP in API response for local/dev testing.</summary>
-    public bool ExposeCodeInDevelopment { get; set; } = true;
-    /// <summary>Return OTP in API response until WhatsApp delivery is integrated.</summary>
-    public bool ExposeCodeUntilDeliveryEnabled { get; set; } = true;
 }

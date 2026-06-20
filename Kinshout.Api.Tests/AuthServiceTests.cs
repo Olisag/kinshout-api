@@ -25,6 +25,7 @@ public class AuthServiceTests
                 UserAudience = "kinshout-user",
             })),
             Options.Create(new OAuthSettings()),
+            Mock.Of<IFacebookAuthValidator>(),
             Mock.Of<ILogger<AuthService>>());
 
         var profile = await service.UpdateProfileAsync(
@@ -50,6 +51,7 @@ public class AuthServiceTests
                 UserAudience = "kinshout-user",
             })),
             Options.Create(new OAuthSettings()),
+            Mock.Of<IFacebookAuthValidator>(),
             Mock.Of<ILogger<AuthService>>());
 
         var profile = await service.GetProfileAsync(user.Id);

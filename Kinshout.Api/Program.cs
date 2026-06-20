@@ -18,7 +18,6 @@ builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(Open
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<ClientAuthSettings>(builder.Configuration.GetSection(ClientAuthSettings.SectionName));
-builder.Services.Configure<WhatsAppAuthSettings>(builder.Configuration.GetSection(WhatsAppAuthSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -35,12 +34,11 @@ builder.Services.AddDbContext<KinshoutDbContext>(options =>
         options.UseSqlServer(connectionString);
 });
 
-builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("OpenAI");
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IClientAuthService, ClientAuthService>();
-builder.Services.AddScoped<IWhatsAppAuthService, WhatsAppAuthService>();
+builder.Services.AddScoped<IFacebookAuthValidator, FacebookGraphAuthValidator>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClient>>();
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();
@@ -92,7 +90,7 @@ builder.Services.AddSwaggerGen(options =>
 
             **Security (two layers)**
             1. **Frontend client** — `X-Kinshout-Client-Token` on every `/api/*` call (except `/api/auth/client` and `/api/health`). Obtained via `POST /api/auth/client` with `clientId` + `clientSecret`.
-            2. **End user** — `Authorization: Bearer <user-jwt>` for posting, profile, and other signed-in actions. Issued after Google or Apple sign-in.
+            2. **End user** — `Authorization: Bearer <user-jwt>` for posting, profile, and other signed-in actions. Issued after Google, Apple, or Facebook sign-in.
 
             **Typical flow**
             1. Frontend calls `POST /api/auth/client` → client JWT
@@ -122,7 +120,7 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "User JWT from POST /api/auth/google or /api/auth/apple.",
+        Description = "User JWT from POST /api/auth/google, /api/auth/apple, or /api/auth/facebook.",
     });
 });
 

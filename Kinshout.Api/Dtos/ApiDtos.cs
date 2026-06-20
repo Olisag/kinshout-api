@@ -20,17 +20,7 @@ public record UpdateProfileRequestDto(string WhatsAppNumber);
 
 public record ExternalLoginRequestDto(string IdToken);
 
-public record WhatsAppCodeRequestDto(string WhatsAppNumber);
-
-public record WhatsAppCodeResponseDto(
-    string Message,
-    DateTime ExpiresAt,
-    string? DebugCode = null);
-
-public record WhatsAppVerifyRequestDto(
-    string WhatsAppNumber,
-    string Code,
-    string? DisplayName = null);
+public record FacebookLoginRequestDto(string AccessToken);
 
 public record ClientAuthRequestDto(string ClientId, string? ClientSecret);
 
@@ -133,4 +123,4 @@ public record CategorizeResponseDto(
 );
 
 public record UploadResponseDto(IReadOnlyList<string> Urls);
-
+

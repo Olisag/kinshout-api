@@ -16,11 +16,7 @@ public interface IAuthService
 {
     Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default);
     Task<AuthResponseDto> SignInWithAppleAsync(string idToken, string clientId, CancellationToken ct = default);
-    Task<AuthResponseDto> SignInWithWhatsAppAsync(
-        string whatsAppNumber,
-        string? displayName,
-        string clientId,
-        CancellationToken ct = default);
+    Task<AuthResponseDto> SignInWithFacebookAsync(string accessToken, string clientId, CancellationToken ct = default);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct = default);
 }
@@ -29,6 +25,7 @@ public class AuthService(
     KinshoutDbContext db,
     IJwtTokenService jwt,
     IOptions<OAuthSettings> oauthOptions,
+    IFacebookAuthValidator facebookAuth,
     ILogger<AuthService> logger) : IAuthService
 {
     private readonly OAuthSettings _oauth = oauthOptions.Value;
@@ -84,25 +81,19 @@ public class AuthService(
             ct);
     }
 
-    public Task<AuthResponseDto> SignInWithWhatsAppAsync(
-        string whatsAppNumber,
-        string? displayName,
+    public async Task<AuthResponseDto> SignInWithFacebookAsync(
+        string accessToken,
         string clientId,
         CancellationToken ct = default)
     {
-        var phone = WhatsAppHelper.Normalize(whatsAppNumber);
-        var label = string.IsNullOrWhiteSpace(displayName)
-            ? $"Utilisateur {phone[^4..]}"
-            : displayName.Trim();
-
-        return UpsertExternalLoginAsync(
-            AuthProvider.WhatsApp,
-            phone,
-            WhatsAppEmail(phone),
-            label,
-            null,
+        var profile = await facebookAuth.ValidateAccessTokenAsync(accessToken, ct);
+        return await UpsertExternalLoginAsync(
+            AuthProvider.Facebook,
+            profile.Id,
+            profile.Email ?? $"{profile.Id}@facebook.kinshout",
+            profile.Name,
+            profile.PictureUrl,
             clientId,
-            phone,
             ct);
     }
 
@@ -132,7 +123,6 @@ public class AuthService(
         string displayName,
         string? avatarUrl,
         string clientId,
-        string? whatsAppNumber,
         CancellationToken ct)
     {
         var login = await db.UserLogins
@@ -146,17 +136,10 @@ public class AuthService(
             user.LastLoginAt = DateTime.UtcNow;
             if (!string.IsNullOrWhiteSpace(avatarUrl))
                 user.AvatarUrl = avatarUrl;
-            if (!string.IsNullOrWhiteSpace(whatsAppNumber))
-                user.WhatsAppNumber = whatsAppNumber;
         }
         else
         {
-            var existing = provider == AuthProvider.WhatsApp
-                ? await db.Users.FirstOrDefaultAsync(
-                    u => u.WhatsAppNumber == whatsAppNumber || u.Email == email,
-                    ct)
-                : await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
-
+            var existing = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
             if (existing is null)
             {
                 user = new User
@@ -164,7 +147,6 @@ public class AuthService(
                     Email = email,
                     DisplayName = displayName,
                     AvatarUrl = avatarUrl,
-                    WhatsAppNumber = whatsAppNumber,
                     LastLoginAt = DateTime.UtcNow,
                 };
                 db.Users.Add(user);
@@ -175,8 +157,6 @@ public class AuthService(
                 user.LastLoginAt = DateTime.UtcNow;
                 if (!string.IsNullOrWhiteSpace(avatarUrl))
                     user.AvatarUrl = avatarUrl;
-                if (!string.IsNullOrWhiteSpace(whatsAppNumber))
-                    user.WhatsAppNumber = whatsAppNumber;
             }
 
             db.UserLogins.Add(new UserLogin
@@ -191,19 +171,6 @@ public class AuthService(
         var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
         return new AuthResponseDto(token, expiresAt, ToProfile(user));
     }
-
-    private static string WhatsAppEmail(string phone) =>
-        $"{phone.TrimStart('+')}@whatsapp.kinshout";
-
-    private async Task<AuthResponseDto> UpsertExternalLoginAsync(
-        AuthProvider provider,
-        string providerKey,
-        string email,
-        string displayName,
-        string? avatarUrl,
-        string clientId,
-        CancellationToken ct) =>
-        await UpsertExternalLoginAsync(provider, providerKey, email, displayName, avatarUrl, clientId, null, ct);
 
     private async Task ValidateAppleTokenAsync(string idToken, CancellationToken ct)
     {
