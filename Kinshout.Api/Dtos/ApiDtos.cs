@@ -113,6 +113,10 @@ public record CreateReplyRequestDto(string Body);
 
 public record SearchRequestDto(string Query, string Tab = "all");
 
+public record RecordSearchRequestDto(string Query);
+
+public record PopularSearchDto(string Query, int Count);
+
 public record SearchResultDto(
     IReadOnlyList<AdvertDto> Adverts,
     IReadOnlyList<DiscussionDto> Discussions,

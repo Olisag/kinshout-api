@@ -155,6 +155,31 @@ public class CategoriesController(KinshoutDbContext db) : ControllerBase
 public class SearchController(ISearchService search) : ControllerBase
 {
     /// <summary>
+    /// Top popular search queries (most searched first).
+    /// Requires frontend client token only.
+    /// </summary>
+    [HttpGet("popular")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(IReadOnlyList<PopularSearchDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<PopularSearchDto>>> Popular(
+        [FromQuery] int limit = 10,
+        CancellationToken ct = default) =>
+        Ok(await search.GetPopularSearchesAsync(limit, ct));
+
+    /// <summary>
+    /// Record a search query for popularity stats (no search results returned).
+    /// Requires frontend client token only.
+    /// </summary>
+    [HttpPost("record")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Record([FromBody] RecordSearchRequestDto request, CancellationToken ct)
+    {
+        await search.RecordSearchQueryAsync(request.Query, ct);
+        return NoContent();
+    }
+
+    /// <summary>
     /// Search adverts and discussions using OpenAI semantic matching (POST body).
     /// Requires frontend client token only.
     /// </summary>

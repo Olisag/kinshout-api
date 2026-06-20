@@ -9,6 +9,8 @@ public interface ISearchService
 {
     Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default);
     Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default);
+    Task RecordSearchQueryAsync(string query, CancellationToken ct = default);
+    Task<IReadOnlyList<PopularSearchDto>> GetPopularSearchesAsync(int limit = 10, CancellationToken ct = default);
 }
 
 public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearchService
@@ -16,6 +18,8 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
     public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default)
     {
         var query = request.Query.Trim();
+        await RecordSearchQueryAsync(query, ct);
+
         var adverts = await db.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
@@ -52,6 +56,48 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
             advertResults = [];
 
         return new SearchResultDto(advertResults, discussionResults, analysis.Summary);
+    }
+
+    public async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)
+    {
+        var normalized = SearchQueryHelper.Normalize(query);
+        if (normalized is null)
+            return;
+
+        var display = SearchQueryHelper.Display(query);
+        var existing = await db.SearchQueryStats
+            .FirstOrDefaultAsync(s => s.NormalizedQuery == normalized, ct);
+
+        if (existing is null)
+        {
+            db.SearchQueryStats.Add(new SearchQueryStat
+            {
+                NormalizedQuery = normalized,
+                DisplayQuery = display,
+            });
+        }
+        else
+        {
+            existing.SearchCount++;
+            existing.DisplayQuery = display;
+            existing.LastSearchedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<PopularSearchDto>> GetPopularSearchesAsync(
+        int limit = 10,
+        CancellationToken ct = default)
+    {
+        var capped = Math.Clamp(limit, 1, 20);
+        return await db.SearchQueryStats
+            .AsNoTracking()
+            .OrderByDescending(s => s.SearchCount)
+            .ThenByDescending(s => s.LastSearchedAt)
+            .Take(capped)
+            .Select(s => new PopularSearchDto(s.DisplayQuery, s.SearchCount))
+            .ToListAsync(ct);
     }
 
     public async Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default)
