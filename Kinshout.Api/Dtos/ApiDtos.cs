@@ -111,15 +111,23 @@ public record CreateDiscussionRequestDto(string Title, string Body);
 
 public record CreateReplyRequestDto(string Body);
 
-public record SearchRequestDto(string Query, string Tab = "all");
+public record SearchRequestDto(string Query, string Tab = "all", int Page = 1, int PageSize = 20);
 
 public record PopularSearchDto(string Query, int Count);
+
+public record SearchPaginationDto(
+    int Page,
+    int PageSize,
+    int TotalAdverts,
+    int TotalDiscussions,
+    bool HasMoreAdverts,
+    bool HasMoreDiscussions);
 
 public record SearchResultDto(
     IReadOnlyList<AdvertDto> Adverts,
     IReadOnlyList<DiscussionDto> Discussions,
-    string? AiSummary
-);
+    string? AiSummary,
+    SearchPaginationDto Pagination);
 
 public record CategorizeRequestDto(string Text);
 

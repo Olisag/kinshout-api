@@ -74,6 +74,10 @@ public class UploadsController(IUploadService uploads) : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     private Guid GetUserId() =>

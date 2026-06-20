@@ -64,6 +64,10 @@ public class UploadService(
         await using var buffer = new MemoryStream();
         await file.CopyToAsync(buffer, ct);
         buffer.Position = 0;
+
+        await moderation.EnsureDocumentAllowedAsync(buffer, file.ContentType ?? "application/octet-stream", file.FileName, ct);
+
+        buffer.Position = 0;
         return await SaveStreamAsync(userId, buffer, file.FileName, ResumeExtensions, MaxResumeBytes, "resumes", ct);
     }
 

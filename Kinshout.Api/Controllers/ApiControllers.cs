@@ -173,6 +173,7 @@ public class SearchController(ISearchService search) : ControllerBase
     /// </summary>
     /// <remarks>
     /// Set <c>tab</c> to <c>all</c>, <c>annonces</c>, or <c>discussions</c> to filter result types.
+    /// Use <c>page</c> (1-based) and <c>pageSize</c> (max 50, default 20) for pagination.
     /// Falls back to keyword matching if OpenAI is unavailable.
     /// </remarks>
     [HttpPost]
@@ -188,12 +189,19 @@ public class SearchController(ISearchService search) : ControllerBase
     /// </summary>
     /// <param name="q">Search text, e.g. "appartement à Gombe".</param>
     /// <param name="tab">Result filter: all, annonces, or discussions.</param>
+    /// <param name="page">Page number (1-based).</param>
+    /// <param name="pageSize">Results per type per page (max 50).</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(typeof(SearchResultDto), StatusCodes.Status200OK)]
-    public async Task<ActionResult<SearchResultDto>> SearchGet([FromQuery] string q, [FromQuery] string tab = "all", CancellationToken ct = default) =>
-        Ok(await search.SearchAsync(new SearchRequestDto(q, tab), ct));
+    public async Task<ActionResult<SearchResultDto>> SearchGet(
+        [FromQuery] string q,
+        [FromQuery] string tab = "all",
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await search.SearchAsync(new SearchRequestDto(q, tab, page, pageSize), ct));
 }
 
 /// <summary>AI categorization preview — classify text without publishing an advert.</summary>
@@ -257,9 +265,16 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<DiscussionDto>> Create([FromBody] CreateDiscussionRequestDto request, CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
-        var item = await discussions.CreateAsync(userId, request, ct);
-        return CreatedAtAction(nameof(Get), new { id = item.Id }, item);
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+            var item = await discussions.CreateAsync(userId, request, ct);
+            return CreatedAtAction(nameof(Get), new { id = item.Id }, item);
+        }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     /// <summary>
@@ -273,9 +288,20 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionReplyDto>> Reply(Guid id, [FromBody] CreateReplyRequestDto request, CancellationToken ct)
     {
-        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
-        var reply = await discussions.AddReplyAsync(userId, id, request, ct);
-        return Ok(reply);
+        try
+        {
+            var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub")!);
+            var reply = await discussions.AddReplyAsync(userId, id, request, ct);
+            return Ok(reply);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 }
 

@@ -25,6 +25,8 @@ public class UploadServiceTests : IDisposable
         var moderation = new Mock<IAdvertModerationService>();
         moderation.Setup(m => m.EnsureImageAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        moderation.Setup(m => m.EnsureDocumentAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
 
         _service = new UploadService(env.Object, moderation.Object, Mock.Of<ILogger<UploadService>>());
     }

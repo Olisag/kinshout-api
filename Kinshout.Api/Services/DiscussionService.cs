@@ -13,7 +13,10 @@ public interface IDiscussionService
     Task<DiscussionReplyDto> AddReplyAsync(Guid userId, Guid discussionId, CreateReplyRequestDto request, CancellationToken ct = default);
 }
 
-public class DiscussionService(KinshoutDbContext db, IOpenAiService openAi) : IDiscussionService
+public class DiscussionService(
+    KinshoutDbContext db,
+    IOpenAiService openAi,
+    IAdvertModerationService moderation) : IDiscussionService
 {
     public async Task<IReadOnlyList<DiscussionDto>> ListAsync(string? query = null, CancellationToken ct = default)
     {
@@ -65,6 +68,8 @@ public class DiscussionService(KinshoutDbContext db, IOpenAiService openAi) : ID
 
     public async Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default)
     {
+        await moderation.EnsureTextAllowedAsync($"{request.Title}\n{request.Body}", ct);
+
         var categories = await db.Categories.AsNoTracking().ToListAsync(ct);
         var analysis = await openAi.AnalyzeAdvertAsync($"{request.Title}. {request.Body}", categories, ct);
         var category = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, ct);
@@ -95,6 +100,8 @@ public class DiscussionService(KinshoutDbContext db, IOpenAiService openAi) : ID
     {
         var discussion = await db.Discussions.FirstOrDefaultAsync(d => d.Id == discussionId, ct)
             ?? throw new KeyNotFoundException("Discussion introuvable.");
+
+        await moderation.EnsureTextAllowedAsync(request.Body, ct);
 
         var reply = new DiscussionReply
         {

@@ -14,10 +14,16 @@ public interface ISearchService
 
 public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearchService
 {
+    private const int DefaultPageSize = 20;
+    private const int MaxPageSize = 50;
+
     public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default)
     {
         var query = request.Query.Trim();
-        await RecordSearchQueryAsync(query, ct);
+        var (page, pageSize) = NormalizePaging(request.Page, request.PageSize);
+
+        if (page == 1)
+            await RecordSearchQueryAsync(query, ct);
 
         var adverts = await db.Adverts
             .AsNoTracking()
@@ -39,14 +45,16 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
 
         var analysis = await openAi.SearchAsync(query, adverts, discussions, ct);
 
-        var advertResults = adverts
-            .Where(a => analysis.AdvertIds.Contains(a.Id))
-            .Select(AdvertService.ToDto)
+        var advertById = adverts.ToDictionary(a => a.Id);
+        var advertResults = analysis.AdvertIds
+            .Where(advertById.ContainsKey)
+            .Select(id => AdvertService.ToDto(advertById[id]))
             .ToList();
 
-        var discussionResults = discussions
-            .Where(d => analysis.DiscussionIds.Contains(d.Id))
-            .Select(ToDiscussionDto)
+        var discussionById = discussions.ToDictionary(d => d.Id);
+        var discussionResults = analysis.DiscussionIds
+            .Where(discussionById.ContainsKey)
+            .Select(id => ToDiscussionDto(discussionById[id]))
             .ToList();
 
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
@@ -54,8 +62,28 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         else if (request.Tab.Equals("discussions", StringComparison.OrdinalIgnoreCase))
             advertResults = [];
 
-        return new SearchResultDto(advertResults, discussionResults, analysis.Summary);
+        var totalAdverts = advertResults.Count;
+        var totalDiscussions = discussionResults.Count;
+        var skip = (page - 1) * pageSize;
+
+        var pagedAdverts = advertResults.Skip(skip).Take(pageSize).ToList();
+        var pagedDiscussions = discussionResults.Skip(skip).Take(pageSize).ToList();
+
+        return new SearchResultDto(
+            pagedAdverts,
+            pagedDiscussions,
+            analysis.Summary,
+            new SearchPaginationDto(
+                page,
+                pageSize,
+                totalAdverts,
+                totalDiscussions,
+                skip + pagedAdverts.Count < totalAdverts,
+                skip + pagedDiscussions.Count < totalDiscussions));
     }
+
+    private static (int Page, int PageSize) NormalizePaging(int page, int pageSize) =>
+        (Math.Max(1, page), Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize));
 
     private async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)
     {
