@@ -4,6 +4,7 @@ using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace Kinshout.Api.Tests;
@@ -14,7 +15,7 @@ public class AdvertServiceTests
         KinshoutDbContext db,
         AiAdvertAnalysis? analysis = null,
         Mock<IAdvertModerationService>? moderation = null,
-        IWebHostEnvironment? environment = null)
+        IUploadStorage? storage = null)
     {
         var openAi = new Mock<IOpenAiService>();
         openAi
@@ -25,9 +26,9 @@ public class AdvertServiceTests
             .ReturnsAsync(analysis ?? TestDbFactory.SampleAnalysis());
 
         var moderationMock = moderation ?? CreatePassThroughModeration();
-        var env = environment ?? CreateWebEnvironment();
+        var uploadStorage = storage ?? CreateStorage();
 
-        return new AdvertService(db, openAi.Object, moderationMock.Object, env);
+        return new AdvertService(db, openAi.Object, moderationMock.Object, uploadStorage);
     }
 
     private static Mock<IAdvertModerationService> CreatePassThroughModeration()
@@ -38,6 +39,12 @@ public class AdvertServiceTests
         mock.Setup(m => m.EnsureImageAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         return mock;
+    }
+
+    private static IUploadStorage CreateStorage(string? root = null)
+    {
+        var env = CreateWebEnvironment(root);
+        return new LocalUploadStorage(env, Mock.Of<ILogger<LocalUploadStorage>>());
     }
 
     private static IWebHostEnvironment CreateWebEnvironment(string? root = null)
@@ -127,7 +134,7 @@ public class AdvertServiceTests
         await File.WriteAllBytesAsync(Path.Combine(imagePath, "a.jpg"), [0xFF, 0xD8, 0xFF, 0x00]);
         await File.WriteAllBytesAsync(Path.Combine(imagePath, "b.jpg"), [0xFF, 0xD8, 0xFF, 0x00]);
 
-        var service = CreateService(db, environment: CreateWebEnvironment(root));
+        var service = CreateService(db, storage: CreateStorage(root));
         var created = await service.CreateAsync(
             user.Id,
             new CreateAdvertRequestDto(
@@ -190,7 +197,7 @@ public class AdvertServiceTests
         db.Adverts.Add(advert);
         await db.SaveChangesAsync();
 
-        var service = CreateService(db, environment: CreateWebEnvironment(root));
+        var service = CreateService(db, storage: CreateStorage(root));
         var updated = await service.UpdateAsync(
             user.Id,
             advert.Id,
@@ -359,7 +366,7 @@ public class AdvertServiceTests
         db.Adverts.Add(advert);
         await db.SaveChangesAsync();
 
-        var service = CreateService(db, environment: CreateWebEnvironment(root));
+        var service = CreateService(db, storage: CreateStorage(root));
         await service.DeleteAsync(user.Id, advert.Id);
 
         Assert.False(await db.Adverts.AnyAsync(a => a.Id == advert.Id));

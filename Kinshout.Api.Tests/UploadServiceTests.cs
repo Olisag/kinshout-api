@@ -22,13 +22,15 @@ public class UploadServiceTests : IDisposable
         env.Setup(e => e.ContentRootPath).Returns(_root);
         env.Setup(e => e.WebRootPath).Returns(Path.Combine(_root, "wwwroot"));
 
+        var storage = new LocalUploadStorage(env.Object, Mock.Of<ILogger<LocalUploadStorage>>());
+
         var moderation = new Mock<IAdvertModerationService>();
         moderation.Setup(m => m.EnsureImageAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         moderation.Setup(m => m.EnsureDocumentAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        _service = new UploadService(env.Object, moderation.Object, Mock.Of<ILogger<UploadService>>());
+        _service = new UploadService(storage, moderation.Object, Mock.Of<ILogger<UploadService>>());
     }
 
     [Fact]

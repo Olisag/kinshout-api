@@ -1,5 +1,4 @@
 using Kinshout.Api.Dtos;
-using Kinshout.Api.Models;
 
 namespace Kinshout.Api.Services;
 
@@ -10,7 +9,7 @@ public interface IUploadService
 }
 
 public class UploadService(
-    IWebHostEnvironment env,
+    IUploadStorage storage,
     IAdvertModerationService moderation,
     ILogger<UploadService> logger) : IUploadService
 {
@@ -44,12 +43,15 @@ public class UploadService(
         {
             await using var buffer = new MemoryStream();
             await file.CopyToAsync(buffer, ct);
-            buffer.Position = 0;
+            ValidateSize(buffer.Length, MaxImageBytes);
 
+            buffer.Position = 0;
             await moderation.EnsureImageAllowedAsync(buffer, file.ContentType ?? "image/jpeg", ct);
 
             buffer.Position = 0;
-            var url = await SaveStreamAsync(userId, buffer, file.FileName, ImageExtensions, MaxImageBytes, "images", ct);
+            var extension = ValidateExtension(file.FileName, ImageExtensions);
+            var url = await storage.SaveAsync("images", userId, buffer, extension, ct);
+            logger.LogInformation("Stored image upload {Url} for user {UserId}", url, userId);
             urls.Add(url);
         }
 
@@ -63,43 +65,37 @@ public class UploadService(
 
         await using var buffer = new MemoryStream();
         await file.CopyToAsync(buffer, ct);
-        buffer.Position = 0;
-
-        await moderation.EnsureDocumentAllowedAsync(buffer, file.ContentType ?? "application/octet-stream", file.FileName, ct);
+        ValidateSize(buffer.Length, MaxResumeBytes);
 
         buffer.Position = 0;
-        return await SaveStreamAsync(userId, buffer, file.FileName, ResumeExtensions, MaxResumeBytes, "resumes", ct);
+        await moderation.EnsureDocumentAllowedAsync(
+            buffer,
+            file.ContentType ?? "application/octet-stream",
+            file.FileName,
+            ct);
+
+        buffer.Position = 0;
+        var extension = ValidateExtension(file.FileName, ResumeExtensions);
+        var url = await storage.SaveAsync("resumes", userId, buffer, extension, ct);
+        logger.LogInformation("Stored resume upload {Url} for user {UserId}", url, userId);
+        return url;
     }
 
-    private async Task<string> SaveStreamAsync(
-        Guid userId,
-        Stream stream,
-        string originalFileName,
-        HashSet<string> allowedExtensions,
-        long maxBytes,
-        string folder,
-        CancellationToken ct)
+    private static void ValidateSize(long length, long maxBytes)
     {
-        if (stream.Length == 0)
+        if (length == 0)
             throw new ArgumentException("Fichier vide.");
 
-        if (stream.Length > maxBytes)
+        if (length > maxBytes)
             throw new ArgumentException("Fichier trop volumineux.");
+    }
 
+    private static string ValidateExtension(string originalFileName, HashSet<string> allowedExtensions)
+    {
         var extension = Path.GetExtension(originalFileName);
         if (!allowedExtensions.Contains(extension))
             throw new ArgumentException("Type de fichier non autorisé.");
 
-        var uploadsRoot = Path.Combine(env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot"), "uploads", folder, userId.ToString("N"));
-        Directory.CreateDirectory(uploadsRoot);
-
-        var fileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
-        var fullPath = Path.Combine(uploadsRoot, fileName);
-
-        await using (var output = File.Create(fullPath))
-            await stream.CopyToAsync(output, ct);
-
-        logger.LogInformation("Saved upload {Path} for user {UserId}", fullPath, userId);
-        return $"/uploads/{folder}/{userId:N}/{fileName}";
+        return extension;
     }
 }

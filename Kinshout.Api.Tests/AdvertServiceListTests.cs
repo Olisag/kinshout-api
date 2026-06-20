@@ -1,8 +1,9 @@
 using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
-using Moq;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace Kinshout.Api.Tests;
 
@@ -64,8 +65,9 @@ public class AdvertServiceListTests
         var env = new Mock<IWebHostEnvironment>();
         env.Setup(e => e.WebRootPath).Returns(Path.Combine(root, "wwwroot"));
         env.Setup(e => e.ContentRootPath).Returns(root);
+        var storage = new LocalUploadStorage(env.Object, Mock.Of<ILogger<LocalUploadStorage>>());
 
-        return new AdvertService(db, Mock.Of<IOpenAiService>(), moderation.Object, env.Object);
+        return new AdvertService(db, Mock.Of<IOpenAiService>(), moderation.Object, storage);
     }
 
     private static Advert CreateAdvert(

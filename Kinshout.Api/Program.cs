@@ -18,7 +18,7 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSett
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
-builder.Services.Configure<ClientAuthSettings>(builder.Configuration.GetSection(ClientAuthSettings.SectionName));
+builder.Services.Configure<UploadStorageSettings>(builder.Configuration.GetSection(UploadStorageSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -46,6 +46,15 @@ builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 builder.Services.AddScoped<IAdvertService, AdvertService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
+builder.Services.AddSingleton<LocalUploadStorage>();
+builder.Services.AddSingleton<AzureBlobUploadStorage>();
+builder.Services.AddSingleton<IUploadStorage>(sp =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<UploadStorageSettings>>().Value;
+    return settings.UseAzureBlob
+        ? sp.GetRequiredService<AzureBlobUploadStorage>()
+        : sp.GetRequiredService<LocalUploadStorage>();
+});
 builder.Services.AddScoped<IUploadService, UploadService>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 

@@ -25,7 +25,7 @@ public class AdvertService(
     KinshoutDbContext db,
     IOpenAiService openAi,
     IAdvertModerationService moderation,
-    IWebHostEnvironment env) : IAdvertService
+    IUploadStorage storage) : IAdvertService
 {
     private const int MaxImages = 10;
 
@@ -191,7 +191,7 @@ public class AdvertService(
             .FirstOrDefaultAsync(a => a.Id == advertId && a.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Annonce introuvable.");
 
-        DeleteUploadFiles(advert);
+        await DeleteUploadFiles(advert, ct);
 
         db.Adverts.Remove(advert);
         await db.SaveChangesAsync(ct);
@@ -225,54 +225,38 @@ public class AdvertService(
     {
         foreach (var url in imageUrls)
         {
-            var physicalPath = ResolveUploadPath(url);
-            if (!File.Exists(physicalPath))
+            if (!await storage.ExistsAsync(url, ct))
                 throw new ArgumentException("Photo introuvable. Téléversez à nouveau vos images.");
 
-            await using var stream = File.OpenRead(physicalPath);
-            var contentType = GetContentTypeFromPath(physicalPath);
-            await moderation.EnsureImageAllowedAsync(stream, contentType, ct);
+            var file = await storage.OpenReadAsync(url, ct)
+                ?? throw new ArgumentException("Photo introuvable. Téléversez à nouveau vos images.");
+
+            await using (file.Stream)
+                await moderation.EnsureImageAllowedAsync(file.Stream, file.ContentType, ct);
         }
     }
 
-    private void DeleteUploadFiles(Advert advert)
+    private async Task DeleteUploadFiles(Advert advert, CancellationToken ct)
     {
         var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
         foreach (var url in imageUrls)
-            TryDeleteUpload(url);
+            await TryDeleteUploadAsync(url, ct);
 
         if (!string.IsNullOrWhiteSpace(advert.ResumeUrl))
-            TryDeleteUpload(advert.ResumeUrl);
+            await TryDeleteUploadAsync(advert.ResumeUrl, ct);
     }
 
-    private void TryDeleteUpload(string url)
+    private async Task TryDeleteUploadAsync(string url, CancellationToken ct)
     {
         try
         {
-            var path = ResolveUploadPath(url);
-            if (File.Exists(path))
-                File.Delete(path);
+            if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+                await storage.DeleteIfExistsAsync(url, ct);
         }
         catch (ArgumentException)
         {
             // Ignore invalid or external URLs.
         }
-    }
-
-    private string ResolveUploadPath(string url)
-    {
-        if (!url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("URL de photo invalide.");
-
-        var relative = url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
-        var fullPath = Path.GetFullPath(Path.Combine(webRoot, relative));
-        var uploadsRoot = Path.GetFullPath(Path.Combine(webRoot, "uploads"));
-
-        if (!fullPath.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("URL de photo invalide.");
-
-        return fullPath;
     }
 
     private static void ValidateOwnedImageUrls(Guid userId, IReadOnlyList<string> imageUrls)
@@ -302,15 +286,6 @@ public class AdvertService(
 
         return normalized;
     }
-
-    private static string GetContentTypeFromPath(string path) =>
-        Path.GetExtension(path).ToLowerInvariant() switch
-        {
-            ".png" => "image/png",
-            ".webp" => "image/webp",
-            ".gif" => "image/gif",
-            _ => "image/jpeg",
-        };
 
     private static AdvertIntent ParseIntent(string intent) =>
         intent.ToLowerInvariant() switch
