@@ -22,6 +22,13 @@ public class OriginMatcherTests
     }
 
     [Fact]
+    public void IsAllowed_Wildcard_AllowsAnyOrigin()
+    {
+        Assert.True(OriginMatcher.IsAllowed("https://any.example.com", ["*"]));
+        Assert.True(OriginMatcher.IsAllowed(null, ["*"]));
+    }
+
+    [Fact]
     public void NormalizeOrigin_StripsRefererPath()
     {
         Assert.Equal(

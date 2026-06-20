@@ -33,7 +33,9 @@ public class ClientAuthServiceTests
             ClientExpirationMinutes = 60,
         });
 
-        return new ClientAuthService(db, jwt, hasher);
+        var clientAuth = Options.Create(new ClientAuthSettings { AllowAnyOrigin = false });
+
+        return new ClientAuthService(db, jwt, clientAuth, hasher);
     }
 
     [Fact]

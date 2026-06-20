@@ -11,6 +11,7 @@ public static class ClientSeed
 
     public static readonly string[] DefaultAllowedOrigins =
     [
+        "*",
         "https://kinshout.vercel.app",
         "https://*.vercel.app",
         "http://localhost:5173",

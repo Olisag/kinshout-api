@@ -15,11 +15,14 @@ public static class OriginMatcher
 
     public static bool IsAllowed(string? origin, IEnumerable<string> allowed)
     {
-        var normalized = NormalizeOrigin(origin);
-        if (normalized is null)
+        if (allowed.Any(o => o.Trim() == "*"))
+            return true;
+
+        if (string.IsNullOrWhiteSpace(origin))
             return false;
 
-        if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
+        var normalized = NormalizeOrigin(origin);
+        if (normalized is null || !Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
             return false;
 
         foreach (var entry in allowed)

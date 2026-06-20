@@ -17,10 +17,12 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSett
 builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(OpenAiSettings.SectionName));
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
+builder.Services.Configure<ClientAuthSettings>(builder.Configuration.GetSection(ClientAuthSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
 var corsSettings = builder.Configuration.GetSection(CorsSettings.SectionName).Get<CorsSettings>() ?? new CorsSettings();
+var clientAuthSettings = builder.Configuration.GetSection(ClientAuthSettings.SectionName).Get<ClientAuthSettings>() ?? new ClientAuthSettings();
 
 builder.Services.AddDbContext<KinshoutDbContext>(options =>
 {
@@ -93,21 +95,50 @@ builder.Services.AddSwaggerGen(options =>
             1. Frontend calls `POST /api/auth/client` → client JWT
             2. User signs in via `POST /api/auth/google` or `/apple` → user JWT
             3. Browse with client token; post/create with both tokens
+
+            **Swagger:** use **Authorize** → `ClientToken` (from step 1) for most endpoints; add `Bearer` for signed-in routes.
             """,
     });
 
     var xmlPath = Path.Combine(AppContext.BaseDirectory, "Kinshout.Api.xml");
     if (File.Exists(xmlPath))
         options.IncludeXmlComments(xmlPath);
+
+    options.AddSecurityDefinition("ClientToken", new OpenApiSecurityScheme
+    {
+        Name = AuthConstants.ClientTokenHeader,
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Description = "Frontend client JWT from POST /api/auth/client (clientId + clientSecret).",
+    });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "User JWT from POST /api/auth/google or /api/auth/apple.",
+    });
 });
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Kinshout", policy =>
     {
-        policy.SetIsOriginAllowed(origin => OriginMatcher.IsAllowed(origin, corsSettings.AllowedOrigins))
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        if (clientAuthSettings.AllowAnyOrigin)
+        {
+            policy.AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
+        else
+        {
+            policy.SetIsOriginAllowed(origin => OriginMatcher.IsAllowed(origin, corsSettings.AllowedOrigins))
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
     });
 });
 

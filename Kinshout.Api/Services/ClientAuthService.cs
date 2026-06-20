@@ -22,9 +22,11 @@ public interface IClientAuthService
 public class ClientAuthService(
     KinshoutDbContext db,
     IOptions<JwtSettings> jwtOptions,
+    IOptions<ClientAuthSettings> clientAuthOptions,
     IPasswordHasher<ApiClient> passwordHasher) : IClientAuthService
 {
     private readonly JwtSettings _jwt = jwtOptions.Value;
+    private readonly ClientAuthSettings _clientAuth = clientAuthOptions.Value;
 
     public async Task<ClientAuthResponseDto> AuthenticateAsync(
         ClientAuthRequestDto request,
@@ -37,11 +39,14 @@ public class ClientAuthService(
             ?? throw new UnauthorizedAccessException("Unknown or inactive frontend client.");
 
         var allowedOrigins = JsonSerializer.Deserialize<List<string>>(client.AllowedOriginsJson) ?? [];
-        if (allowedOrigins.Count == 0)
-            throw new UnauthorizedAccessException("Frontend client has no allowed origins.");
+        if (!_clientAuth.AllowAnyOrigin)
+        {
+            if (allowedOrigins.Count == 0)
+                throw new UnauthorizedAccessException("Frontend client has no allowed origins.");
 
-        if (!OriginMatcher.IsAllowed(origin, allowedOrigins))
-            throw new UnauthorizedAccessException("Origin not allowed for this frontend client.");
+            if (!OriginMatcher.IsAllowed(origin, allowedOrigins))
+                throw new UnauthorizedAccessException("Origin not allowed for this frontend client.");
+        }
 
         if (string.IsNullOrWhiteSpace(client.SecretHash))
             throw new UnauthorizedAccessException("Frontend client is not configured with a secret.");
