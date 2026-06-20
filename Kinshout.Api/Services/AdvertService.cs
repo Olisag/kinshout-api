@@ -18,6 +18,7 @@ public interface IAdvertService
         string sort = ListSortHelper.Recent,
         CancellationToken ct = default);
     Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default);
+    Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default);
 }
 
 public class AdvertService(
@@ -133,7 +134,7 @@ public class AdvertService(
     public async Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
         var updated = await db.Adverts
-            .Where(a => a.Id == id)
+            .Where(a => a.Id == id && a.IsPublished)
             .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.ViewCount, a => a.ViewCount + 1), ct);
         if (updated == 0)
             return null;
@@ -142,7 +143,7 @@ public class AdvertService(
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
-            .FirstAsync(a => a.Id == id, ct);
+            .FirstAsync(a => a.Id == id && a.IsPublished, ct);
         return ToDto(advert);
     }
 
@@ -184,6 +185,18 @@ public class AdvertService(
         return items.Select(ToDto).ToList();
     }
 
+    public async Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default)
+    {
+        var advert = await db.Adverts
+            .FirstOrDefaultAsync(a => a.Id == advertId && a.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Annonce introuvable.");
+
+        DeleteUploadFiles(advert);
+
+        db.Adverts.Remove(advert);
+        await db.SaveChangesAsync(ct);
+    }
+
     internal static AdvertDto ToDto(Advert advert)
     {
         var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson) ?? [];
@@ -219,6 +232,30 @@ public class AdvertService(
             await using var stream = File.OpenRead(physicalPath);
             var contentType = GetContentTypeFromPath(physicalPath);
             await moderation.EnsureImageAllowedAsync(stream, contentType, ct);
+        }
+    }
+
+    private void DeleteUploadFiles(Advert advert)
+    {
+        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
+        foreach (var url in imageUrls)
+            TryDeleteUpload(url);
+
+        if (!string.IsNullOrWhiteSpace(advert.ResumeUrl))
+            TryDeleteUpload(advert.ResumeUrl);
+    }
+
+    private void TryDeleteUpload(string url)
+    {
+        try
+        {
+            var path = ResolveUploadPath(url);
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (ArgumentException)
+        {
+            // Ignore invalid or external URLs.
         }
     }
 

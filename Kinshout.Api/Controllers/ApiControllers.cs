@@ -123,6 +123,28 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Permanently delete an advert owned by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await adverts.DeleteAsync(GetUserId(), id, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     private static Guid GetUserId(HttpContext http) =>
         Guid.Parse(http.User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? http.User.FindFirstValue("sub")

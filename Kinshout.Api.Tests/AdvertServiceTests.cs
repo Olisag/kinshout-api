@@ -331,4 +331,64 @@ public class AdvertServiceTests
         Assert.Single(results.Items);
         Assert.Equal("Annonce immo", results.Items[0].Title);
     }
+
+    [Fact]
+    public async Task DeleteAsync_RemovesAdvertAndUploadFiles()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var root = Path.Combine(Path.GetTempPath(), "kinshout-delete-tests", Guid.NewGuid().ToString("N"));
+        var uploadsRoot = Path.Combine(root, "wwwroot", "uploads", "images", user.Id.ToString("N"));
+        Directory.CreateDirectory(uploadsRoot);
+
+        var fileName = "photo.jpg";
+        var fullPath = Path.Combine(uploadsRoot, fileName);
+        await File.WriteAllBytesAsync(fullPath, [0xFF, 0xD8]);
+
+        var imageUrl = $"/uploads/images/{user.Id:N}/{fileName}";
+        var advert = new Advert
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "To delete",
+            Description = "Desc",
+            ImageUrlsJson = $"[\"{imageUrl}\"]",
+            Category = category,
+            User = user,
+        };
+        db.Adverts.Add(advert);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, environment: CreateWebEnvironment(root));
+        await service.DeleteAsync(user.Id, advert.Id);
+
+        Assert.False(await db.Adverts.AnyAsync(a => a.Id == advert.Id));
+        Assert.False(File.Exists(fullPath));
+
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_OtherUser_Throws()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var other = new User { Email = "other@test", DisplayName = "Other" };
+        db.Users.Add(other);
+
+        var advert = new Advert
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "Mine",
+            Description = "Desc",
+            Category = category,
+            User = user,
+        };
+        db.Adverts.Add(advert);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.DeleteAsync(other.Id, advert.Id));
+    }
 }
