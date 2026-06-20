@@ -5,6 +5,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Middleware;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Kinshout.Api.Swagger;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -110,7 +111,8 @@ builder.Services.AddSwaggerGen(options =>
         Name = AuthConstants.ClientTokenHeader,
         Type = SecuritySchemeType.ApiKey,
         In = ParameterLocation.Header,
-        Description = "Frontend client JWT from POST /api/auth/client (clientId + clientSecret).",
+        Description =
+            "Frontend client JWT from POST /api/auth/client. Paste the clientToken value only (no Bearer prefix).",
     });
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -122,6 +124,13 @@ builder.Services.AddSwaggerGen(options =>
         In = ParameterLocation.Header,
         Description = "User JWT from POST /api/auth/google, /api/auth/apple, or /api/auth/facebook.",
     });
+
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("ClientToken", document)] = [],
+    });
+
+    options.OperationFilter<SwaggerSecurityOperationFilter>();
 });
 
 builder.Services.AddCors(options =>
@@ -200,6 +209,7 @@ app.UseSwaggerUI(options =>
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "Kinshout API v1");
     options.RoutePrefix = "swagger";
     options.DocumentTitle = "Kinshout API — Swagger";
+    options.EnablePersistAuthorization();
 });
 
 app.UseAuthentication();
