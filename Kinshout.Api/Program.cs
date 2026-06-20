@@ -105,7 +105,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("Kinshout", policy =>
     {
-        policy.WithOrigins(corsSettings.AllowedOrigins)
+        policy.SetIsOriginAllowed(origin => OriginMatcher.IsAllowed(origin, corsSettings.AllowedOrigins))
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -138,6 +138,7 @@ try
     var clientSecret = builder.Configuration["ClientAuth:KinshoutWebSecret"];
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<ApiClient>>();
     await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
+    await ClientSeed.EnsureAllowedOriginsAsync(db);
     await DbSchemaPatcher.ApplyAsync(db);
 }
 catch (Exception ex)

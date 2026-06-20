@@ -40,7 +40,7 @@ public class ClientAuthService(
         if (allowedOrigins.Count == 0)
             throw new UnauthorizedAccessException("Frontend client has no allowed origins.");
 
-        if (string.IsNullOrWhiteSpace(origin) || !OriginAllowed(origin, allowedOrigins))
+        if (!OriginMatcher.IsAllowed(origin, allowedOrigins))
             throw new UnauthorizedAccessException("Origin not allowed for this frontend client.");
 
         if (string.IsNullOrWhiteSpace(client.SecretHash))
@@ -80,9 +80,4 @@ public class ClientAuthService(
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private static bool OriginAllowed(string origin, IEnumerable<string> allowed)
-    {
-        var normalized = origin.TrimEnd('/');
-        return allowed.Any(o => string.Equals(o.TrimEnd('/'), normalized, StringComparison.OrdinalIgnoreCase));
-    }
 }

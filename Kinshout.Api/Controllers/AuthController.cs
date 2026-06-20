@@ -29,8 +29,8 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
     {
         try
         {
-            var origin = Request.Headers.Origin.FirstOrDefault()
-                ?? Request.Headers.Referer.FirstOrDefault()?.TrimEnd('/');
+            var origin = OriginMatcher.NormalizeOrigin(Request.Headers.Origin.FirstOrDefault())
+                ?? OriginMatcher.NormalizeOrigin(Request.Headers.Referer.FirstOrDefault());
             return Ok(await clientAuth.AuthenticateAsync(request, origin, ct));
         }
         catch (Exception ex)
