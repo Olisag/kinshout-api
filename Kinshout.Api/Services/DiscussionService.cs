@@ -7,7 +7,12 @@ namespace Kinshout.Api.Services;
 
 public interface IDiscussionService
 {
-    Task<IReadOnlyList<DiscussionDto>> ListAsync(string? query = null, CancellationToken ct = default);
+    Task<PagedResultDto<DiscussionDto>> ListAsync(
+        string? query = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        string sort = ListSortHelper.Recent,
+        CancellationToken ct = default);
     Task<DiscussionDetailDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default);
     Task<DiscussionReplyDto> AddReplyAsync(Guid userId, Guid discussionId, CreateReplyRequestDto request, CancellationToken ct = default);
@@ -18,25 +23,39 @@ public class DiscussionService(
     IOpenAiService openAi,
     IAdvertModerationService moderation) : IDiscussionService
 {
-    public async Task<IReadOnlyList<DiscussionDto>> ListAsync(string? query = null, CancellationToken ct = default)
+    public async Task<PagedResultDto<DiscussionDto>> ListAsync(
+        string? query = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        string sort = ListSortHelper.Recent,
+        CancellationToken ct = default)
     {
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+
         var q = db.Discussions
             .AsNoTracking()
             .Include(d => d.User)
             .Include(d => d.Category)
             .Include(d => d.Replies)
-            .OrderByDescending(d => d.CreatedAt);
+            .AsQueryable();
 
-        var items = await q.Take(100).ToListAsync(ct);
         if (!string.IsNullOrWhiteSpace(query))
         {
             var lower = query.ToLowerInvariant();
-            items = items
-                .Where(d => d.Title.ToLowerInvariant().Contains(lower) || d.Body.ToLowerInvariant().Contains(lower))
-                .ToList();
+            q = q.Where(d => d.Title.ToLower().Contains(lower) || d.Body.ToLower().Contains(lower));
         }
 
-        return items.Select(ToListDto).ToList();
+        var ordered = ListSortHelper.IsPopular(sort)
+            ? q.OrderByDescending(d => d.Replies.Count).ThenByDescending(d => d.CreatedAt)
+            : q.OrderByDescending(d => d.CreatedAt);
+
+        var total = await ordered.CountAsync(ct);
+        var items = await ordered
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(ct);
+
+        return PagingHelper.Create(items.Select(ToListDto).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task<DiscussionDetailDto?> GetByIdAsync(Guid id, CancellationToken ct = default)

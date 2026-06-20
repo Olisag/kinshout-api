@@ -145,3 +145,10 @@ public record CategorizeResponseDto(
 
 public record UploadResponseDto(IReadOnlyList<string> Urls);
 
+public record PagedResultDto<T>(
+    IReadOnlyList<T> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    bool HasMore);
+

@@ -327,7 +327,8 @@ public class AdvertServiceTests
         var service = CreateService(db);
         var results = await service.ListAsync(category.Id);
 
-        Assert.Single(results);
-        Assert.Equal("Annonce immo", results[0].Title);
+        Assert.Equal(1, results.TotalCount);
+        Assert.Single(results.Items);
+        Assert.Equal("Annonce immo", results.Items[0].Title);
     }
 }

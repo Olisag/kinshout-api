@@ -20,12 +20,20 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
     /// Requires frontend client token only.
     /// </summary>
     /// <param name="categoryId">Optional category GUID to filter results.</param>
+    /// <param name="page">Page number (1-based).</param>
+    /// <param name="pageSize">Items per page (max 50).</param>
+    /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (view count).</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(IReadOnlyList<AdvertDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<AdvertDto>>> List([FromQuery] Guid? categoryId, CancellationToken ct) =>
-        Ok(await adverts.ListAsync(categoryId, ct));
+    [ProducesResponseType(typeof(PagedResultDto<AdvertDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResultDto<AdvertDto>>> List(
+        [FromQuery] Guid? categoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string sort = "recent",
+        CancellationToken ct = default) =>
+        Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, ct));
 
     /// <summary>
     /// List adverts published by the signed-in user.
@@ -235,11 +243,21 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
     /// List discussions, optionally filtered by a search query.
     /// Requires frontend client token only.
     /// </summary>
+    /// <param name="q">Optional text filter on title or body.</param>
+    /// <param name="page">Page number (1-based).</param>
+    /// <param name="pageSize">Items per page (max 50).</param>
+    /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (reply count).</param>
+    /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(IReadOnlyList<DiscussionDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<DiscussionDto>>> List([FromQuery] string? q, CancellationToken ct) =>
-        Ok(await discussions.ListAsync(q, ct));
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResultDto<DiscussionDto>>> List(
+        [FromQuery] string? q,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string sort = "recent",
+        CancellationToken ct = default) =>
+        Ok(await discussions.ListAsync(q, page, pageSize, sort, ct));
 
     /// <summary>
     /// Get a discussion with its full reply thread.

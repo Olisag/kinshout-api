@@ -11,7 +11,12 @@ public interface IAdvertService
     Task<AdvertDto> CreateAsync(Guid userId, CreateAdvertRequestDto request, CancellationToken ct = default);
     Task<AdvertDto> UpdateAsync(Guid userId, Guid advertId, UpdateAdvertRequestDto request, CancellationToken ct = default);
     Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
-    Task<IReadOnlyList<AdvertDto>> ListAsync(Guid? categoryId = null, CancellationToken ct = default);
+    Task<PagedResultDto<AdvertDto>> ListAsync(
+        Guid? categoryId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        string sort = ListSortHelper.Recent,
+        CancellationToken ct = default);
     Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default);
 }
 
@@ -141,14 +146,30 @@ public class AdvertService(
         return ToDto(advert);
     }
 
-    public async Task<IReadOnlyList<AdvertDto>> ListAsync(Guid? categoryId = null, CancellationToken ct = default)
+    public async Task<PagedResultDto<AdvertDto>> ListAsync(
+        Guid? categoryId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        string sort = ListSortHelper.Recent,
+        CancellationToken ct = default)
     {
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+
         var query = db.Adverts.AsNoTracking().Include(a => a.Category).Include(a => a.User).Where(a => a.IsPublished);
         if (categoryId.HasValue)
             query = query.Where(a => a.CategoryId == categoryId.Value);
 
-        var items = await query.OrderByDescending(a => a.CreatedAt).Take(100).ToListAsync(ct);
-        return items.Select(ToDto).ToList();
+        var ordered = ListSortHelper.IsPopular(sort)
+            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.CreatedAt)
+            : query.OrderByDescending(a => a.CreatedAt);
+
+        var total = await ordered.CountAsync(ct);
+        var items = await ordered
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(ct);
+
+        return PagingHelper.Create(items.Select(ToDto).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default)
