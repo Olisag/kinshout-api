@@ -1,0 +1,12 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+appsettings.*.local.json
+secrets.json
+*.db
+*.db-shm
+*.db-wal
+Kinshout.Api/wwwroot/uploads/**
+!Kinshout.Api/wwwroot/uploads/.gitkeep

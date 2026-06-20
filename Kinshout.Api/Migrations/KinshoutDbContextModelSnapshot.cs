@@ -1,0 +1,20 @@
+using Kinshout.Api.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+
+#nullable disable
+
+namespace Kinshout.Api.Migrations
+{
+    [DbContext(typeof(KinshoutDbContext))]
+    partial class KinshoutDbContextModelSnapshot : ModelSnapshot
+    {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.0");
+#pragma warning restore 612, 618
+        }
+    }
+}
