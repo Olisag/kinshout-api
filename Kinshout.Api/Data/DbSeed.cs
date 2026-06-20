@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Kinshout.Api.Models;
+using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Data;
@@ -70,7 +71,7 @@ public static class DbSeed
 
         db.SearchQueryStats.AddRange(seeds.Select((seed, index) => new SearchQueryStat
         {
-            NormalizedQuery = seed.Query.ToLowerInvariant(),
+            NormalizedQuery = SearchQueryHelper.CanonicalKey(seed.Query) ?? seed.Query.ToLowerInvariant(),
             DisplayQuery = seed.Query,
             SearchCount = seed.Count,
             LastSearchedAt = DateTime.UtcNow.AddDays(-index),

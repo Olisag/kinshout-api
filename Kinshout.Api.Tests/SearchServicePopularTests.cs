@@ -14,12 +14,27 @@ public class SearchServicePopularTests
         var service = CreateService(db);
 
         await service.SearchAsync(new SearchRequestDto("Appartement à Gombe"));
-        await service.SearchAsync(new SearchRequestDto("  appartement   à gombe  "));
+        await service.SearchAsync(new SearchRequestDto("  appart   gombe  "));
 
         var popular = await service.GetPopularSearchesAsync();
         Assert.Single(popular);
-        Assert.Equal("appartement à gombe", popular[0].Query.ToLowerInvariant());
         Assert.Equal(2, popular[0].Count);
+    }
+
+    [Fact]
+    public async Task SearchAsync_MergesSimilarQueriesWithDifferentWording()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        await service.SearchAsync(new SearchRequestDto("Je cherche un chauffeur"));
+        await service.SearchAsync(new SearchRequestDto("chauffeur VTC"));
+        await service.SearchAsync(new SearchRequestDto("chauffeur"));
+
+        var popular = await service.GetPopularSearchesAsync();
+        Assert.Equal(2, popular.Count);
+        Assert.Equal(2, popular.Single(p => p.Query.Contains("chauffeur", StringComparison.OrdinalIgnoreCase) && !p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase)).Count);
+        Assert.Single(popular, p => p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

@@ -30,7 +30,8 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
             .Include(a => a.Category)
             .Include(a => a.User)
             .Where(a => a.IsPublished)
-            .OrderByDescending(a => a.CreatedAt)
+            .OrderByDescending(a => a.ViewCount)
+            .ThenByDescending(a => a.CreatedAt)
             .Take(200)
             .ToListAsync(ct);
 
@@ -39,7 +40,8 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
             .Include(d => d.User)
             .Include(d => d.Category)
             .Include(d => d.Replies)
-            .OrderByDescending(d => d.CreatedAt)
+            .OrderByDescending(d => d.Replies.Count)
+            .ThenByDescending(d => d.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
 
@@ -48,13 +50,19 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         var advertById = adverts.ToDictionary(a => a.Id);
         var advertResults = analysis.AdvertIds
             .Where(advertById.ContainsKey)
-            .Select(id => AdvertService.ToDto(advertById[id]))
+            .Select(id => advertById[id])
+            .OrderByDescending(a => a.ViewCount)
+            .ThenByDescending(a => a.CreatedAt)
+            .Select(AdvertService.ToDto)
             .ToList();
 
         var discussionById = discussions.ToDictionary(d => d.Id);
         var discussionResults = analysis.DiscussionIds
             .Where(discussionById.ContainsKey)
-            .Select(id => ToDiscussionDto(discussionById[id]))
+            .Select(id => discussionById[id])
+            .OrderByDescending(d => d.Replies.Count)
+            .ThenByDescending(d => d.CreatedAt)
+            .Select(ToDiscussionDto)
             .ToList();
 
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))

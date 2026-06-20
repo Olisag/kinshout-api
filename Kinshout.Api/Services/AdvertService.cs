@@ -127,12 +127,18 @@ public class AdvertService(
 
     public async Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
+        var updated = await db.Adverts
+            .Where(a => a.Id == id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.ViewCount, a => a.ViewCount + 1), ct);
+        if (updated == 0)
+            return null;
+
         var advert = await db.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
-            .FirstOrDefaultAsync(a => a.Id == id, ct);
-        return advert is null ? null : ToDto(advert);
+            .FirstAsync(a => a.Id == id, ct);
+        return ToDto(advert);
     }
 
     public async Task<IReadOnlyList<AdvertDto>> ListAsync(Guid? categoryId = null, CancellationToken ct = default)
