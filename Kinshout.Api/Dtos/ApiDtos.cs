@@ -40,6 +40,15 @@ public record CreateAdvertRequestDto(
     string? Intent
 );
 
+public record UpdateAdvertRequestDto(
+    string Text,
+    string? Price,
+    string? Location,
+    IReadOnlyList<string>? ImageUrls,
+    string? ResumeUrl,
+    string? Intent
+);
+
 public record AdvertDto(
     Guid Id,
     string Title,

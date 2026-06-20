@@ -28,6 +28,17 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
         Ok(await adverts.ListAsync(categoryId, ct));
 
     /// <summary>
+    /// List adverts published by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpGet("mine")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<AdvertDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<AdvertDto>>> ListMine(CancellationToken ct) =>
+        Ok(await adverts.ListMineAsync(GetUserId(), ct));
+
+    /// <summary>
     /// Get a single advert by ID (title, price, location, category, tags, AI summary).
     /// Requires frontend client token only.
     /// </summary>
@@ -58,6 +69,41 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
             var userId = GetUserId();
             var advert = await adverts.CreateAsync(userId, request, ct);
             return CreatedAtAction(nameof(Get), new { id = advert.Id }, advert);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Update an existing advert owned by the signed-in user.
+    /// Requires client token + user JWT. Up to 10 photos; CV optional.
+    /// </summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(AdvertDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AdvertDto>> Update(
+        Guid id,
+        [FromBody] UpdateAdvertRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            var advert = await adverts.UpdateAsync(userId, id, request, ct);
+            return Ok(advert);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
         }
         catch (ArgumentException ex)
         {

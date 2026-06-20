@@ -9,8 +9,10 @@ namespace Kinshout.Api.Services;
 public interface IAdvertService
 {
     Task<AdvertDto> CreateAsync(Guid userId, CreateAdvertRequestDto request, CancellationToken ct = default);
+    Task<AdvertDto> UpdateAsync(Guid userId, Guid advertId, UpdateAdvertRequestDto request, CancellationToken ct = default);
     Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<AdvertDto>> ListAsync(Guid? categoryId = null, CancellationToken ct = default);
+    Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default);
 }
 
 public class AdvertService(
@@ -69,6 +71,60 @@ public class AdvertService(
         return ToDto(advert);
     }
 
+    public async Task<AdvertDto> UpdateAsync(
+        Guid userId,
+        Guid advertId,
+        UpdateAdvertRequestDto request,
+        CancellationToken ct = default)
+    {
+        var text = request.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("Le texte de l'annonce est requis.");
+
+        var advert = await db.Adverts
+            .Include(a => a.Category)
+            .Include(a => a.User)
+            .FirstOrDefaultAsync(a => a.Id == advertId && a.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Annonce introuvable.");
+
+        var user = advert.User
+            ?? await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new UnauthorizedAccessException("Utilisateur introuvable.");
+
+        if (string.IsNullOrWhiteSpace(user.WhatsAppNumber))
+            throw new ArgumentException("Ajoutez votre numéro WhatsApp dans votre profil avant de publier.");
+
+        await moderation.EnsureTextAllowedAsync(text, ct);
+
+        var imageUrls = NormalizeImageUrls(request.ImageUrls);
+        ValidateOwnedImageUrls(userId, imageUrls);
+        await ReModerateStoredImagesAsync(imageUrls, ct);
+
+        var categories = await db.Categories.AsNoTracking().ToListAsync(ct);
+        var analysis = await openAi.AnalyzeAdvertAsync(text, categories, ct);
+        var category = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, ct);
+        var intent = ParseIntent(request.Intent ?? analysis.Intent);
+
+        advert.CategoryId = category.Id;
+        advert.Title = analysis.Title;
+        advert.Description = analysis.Description;
+        advert.Price = request.Price ?? analysis.Price;
+        advert.Location = request.Location ?? analysis.Location;
+        advert.Intent = intent;
+        advert.ImageUrlsJson = JsonSerializer.Serialize(imageUrls);
+        advert.ResumeUrl = string.IsNullOrWhiteSpace(request.ResumeUrl) ? null : request.ResumeUrl.Trim();
+        advert.TagsJson = JsonSerializer.Serialize(analysis.Tags);
+        advert.AiConfidence = analysis.Confidence;
+        advert.AiSummary = analysis.Summary;
+        advert.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+
+        advert.Category = category;
+        advert.User = user;
+        return ToDto(advert);
+    }
+
     public async Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
         var advert = await db.Adverts
@@ -86,6 +142,18 @@ public class AdvertService(
             query = query.Where(a => a.CategoryId == categoryId.Value);
 
         var items = await query.OrderByDescending(a => a.CreatedAt).Take(100).ToListAsync(ct);
+        return items.Select(ToDto).ToList();
+    }
+
+    public async Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default)
+    {
+        var items = await db.Adverts
+            .AsNoTracking()
+            .Include(a => a.Category)
+            .Include(a => a.User)
+            .Where(a => a.UserId == userId)
+            .OrderByDescending(a => a.UpdatedAt)
+            .ToListAsync(ct);
         return items.Select(ToDto).ToList();
     }
 
@@ -159,12 +227,16 @@ public class AdvertService(
         if (imageUrls is null || imageUrls.Count == 0)
             return [];
 
-        return imageUrls
+        var normalized = imageUrls
             .Where(url => !string.IsNullOrWhiteSpace(url))
             .Select(url => url.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MaxImages)
             .ToList();
+
+        if (normalized.Count > MaxImages)
+            throw new ArgumentException($"Maximum {MaxImages} photos par annonce.");
+
+        return normalized;
     }
 
     private static string GetContentTypeFromPath(string path) =>

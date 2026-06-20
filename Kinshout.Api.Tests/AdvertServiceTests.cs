@@ -148,6 +148,147 @@ public class AdvertServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_TooManyImages_Throws()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+
+        var urls = Enumerable.Range(0, 11)
+            .Select(i => $"/uploads/images/{user.Id:N}/img{i}.jpg")
+            .ToList();
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync(
+                user.Id,
+                new CreateAdvertRequestDto("Appartement à louer", null, null, urls, null, null)));
+
+        Assert.Contains("10", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_OwnedAdvert_UpdatesFields()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var root = Path.Combine(Path.GetTempPath(), "kinshout-advert-tests", Guid.NewGuid().ToString("N"));
+        var webRoot = Path.Combine(root, "wwwroot");
+        var imagePath = Path.Combine(webRoot, "uploads", "images", user.Id.ToString("N"));
+        Directory.CreateDirectory(imagePath);
+        await File.WriteAllBytesAsync(Path.Combine(imagePath, "a.jpg"), [0xFF, 0xD8, 0xFF, 0x00]);
+
+        var advert = new Advert
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "Original",
+            Description = "Original description",
+            Category = category,
+            User = user,
+        };
+        db.Adverts.Add(advert);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, environment: CreateWebEnvironment(root));
+        var updated = await service.UpdateAsync(
+            user.Id,
+            advert.Id,
+            new UpdateAdvertRequestDto(
+                "Appartement 3 chambres à Limete",
+                "600 $",
+                "Limete",
+                [$"/uploads/images/{user.Id:N}/a.jpg"],
+                null,
+                "offre"));
+
+        Assert.Equal("Appartement à Gombe", updated.Title);
+        Assert.Equal("600 $", updated.Price);
+        Assert.Equal("Limete", updated.Location);
+        Assert.Equal("offre", updated.Intent);
+        Assert.Single(updated.ImageUrls);
+
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_NotOwned_Throws()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var other = new User
+        {
+            Email = "other@example.com",
+            DisplayName = "Other",
+            WhatsAppNumber = "+243900000002",
+        };
+        db.Users.Add(other);
+        await db.SaveChangesAsync();
+
+        var advert = new Advert
+        {
+            UserId = other.Id,
+            CategoryId = category.Id,
+            Title = "Other advert",
+            Description = "Desc",
+            Category = category,
+            User = other,
+        };
+        db.Adverts.Add(advert);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            service.UpdateAsync(
+                user.Id,
+                advert.Id,
+                new UpdateAdvertRequestDto("Updated text", null, null, null, null, null)));
+    }
+
+    [Fact]
+    public async Task ListMineAsync_ReturnsOnlyUserAdverts()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var other = new User
+        {
+            Email = "other@example.com",
+            DisplayName = "Other",
+            WhatsAppNumber = "+243900000002",
+        };
+        db.Users.Add(other);
+        await db.SaveChangesAsync();
+
+        db.Adverts.AddRange(
+            new Advert
+            {
+                UserId = user.Id,
+                CategoryId = category.Id,
+                Title = "Mine",
+                Description = "Desc",
+                Category = category,
+                User = user,
+            },
+            new Advert
+            {
+                UserId = other.Id,
+                CategoryId = category.Id,
+                Title = "Theirs",
+                Description = "Desc",
+                Category = category,
+                User = other,
+            });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListMineAsync(user.Id);
+
+        Assert.Single(results);
+        Assert.Equal("Mine", results[0].Title);
+    }
+
+    [Fact]
     public async Task ListAsync_FiltersByCategory()
     {
         await using var db = TestDbFactory.Create();
