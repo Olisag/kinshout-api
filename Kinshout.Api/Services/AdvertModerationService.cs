@@ -42,11 +42,22 @@ public class AdvertModerationService(
 
     private readonly OpenAiSettings _settings = options.Value;
 
-    public async Task EnsureTextAllowedAsync(string text, CancellationToken ct = default)
+    public Task EnsureTextAllowedAsync(string text, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return;
+        if (!_settings.ModerationEnabled)
+        {
+            logger.LogWarning("Content moderation is disabled; skipping text check.");
+            return Task.CompletedTask;
+        }
 
+        if (string.IsNullOrWhiteSpace(text))
+            return Task.CompletedTask;
+
+        return EnsureTextAllowedCoreAsync(text, ct);
+    }
+
+    private async Task EnsureTextAllowedCoreAsync(string text, CancellationToken ct)
+    {
         var result = string.IsNullOrWhiteSpace(_settings.ApiKey)
             ? FallbackTextCheck(text)
             : await ModerateTextWithOpenAiAsync(text, ct);
@@ -57,6 +68,12 @@ public class AdvertModerationService(
 
     public async Task EnsureImageAllowedAsync(Stream imageStream, string contentType, CancellationToken ct = default)
     {
+        if (!_settings.ModerationEnabled)
+        {
+            logger.LogWarning("Content moderation is disabled; skipping image check.");
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
         {
             logger.LogWarning(
@@ -80,6 +97,12 @@ public class AdvertModerationService(
         string fileName,
         CancellationToken ct = default)
     {
+        if (!_settings.ModerationEnabled)
+        {
+            logger.LogWarning("Content moderation is disabled; skipping document check.");
+            return;
+        }
+
         await using var buffer = new MemoryStream();
         await fileStream.CopyToAsync(buffer, ct);
         if (buffer.Length == 0)
@@ -94,7 +117,7 @@ public class AdvertModerationService(
         if (textToModerate.Length > 8000)
             textToModerate = textToModerate[..8000];
 
-        await EnsureTextAllowedAsync(textToModerate, ct);
+        await EnsureTextAllowedCoreAsync(textToModerate, ct);
     }
 
     private async Task<AdvertModerationCheckResult> ModerateTextWithOpenAiAsync(string text, CancellationToken ct)

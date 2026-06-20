@@ -8,10 +8,10 @@ namespace Kinshout.Api.Tests;
 
 public class AdvertModerationServiceTests
 {
-    private static AdvertModerationService CreateService(string apiKey = "") =>
+    private static AdvertModerationService CreateService(string apiKey = "", bool moderationEnabled = true) =>
         new(
             new TestHttpClientFactory(),
-            Options.Create(new OpenAiSettings { ApiKey = apiKey }),
+            Options.Create(new OpenAiSettings { ApiKey = apiKey, ModerationEnabled = moderationEnabled }),
             Mock.Of<ILogger<AdvertModerationService>>());
 
     [Fact]
@@ -46,6 +46,13 @@ public class AdvertModerationServiceTests
         await using var stream = new MemoryStream([0xFF, 0xD8, 0xFF, 0x00]);
 
         await service.EnsureImageAllowedAsync(stream, "image/jpeg");
+    }
+
+    [Fact]
+    public async Task EnsureTextAllowedAsync_WhenModerationDisabled_AllowsBlockedKeywords()
+    {
+        var service = CreateService(moderationEnabled: false);
+        await service.EnsureTextAllowedAsync("Massage érotique à domicile");
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory

@@ -19,6 +19,8 @@ public class OpenAiSettings
     public string Model { get; set; } = "gpt-4o-mini";
     public string VisionModel { get; set; } = "gpt-4o-mini";
     public string ModerationModel { get; set; } = "omni-moderation-latest";
+    /// <summary>When false, text/image/document moderation checks are skipped.</summary>
+    public bool ModerationEnabled { get; set; } = true;
 }
 
 public class OAuthSettings
