@@ -9,7 +9,6 @@ public interface ISearchService
 {
     Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default);
     Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default);
-    Task RecordSearchQueryAsync(string query, CancellationToken ct = default);
     Task<IReadOnlyList<PopularSearchDto>> GetPopularSearchesAsync(int limit = 10, CancellationToken ct = default);
 }
 
@@ -58,7 +57,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         return new SearchResultDto(advertResults, discussionResults, analysis.Summary);
     }
 
-    public async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)
+    private async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)
     {
         var normalized = SearchQueryHelper.Normalize(query);
         if (normalized is null)

@@ -167,20 +167,8 @@ public class SearchController(ISearchService search) : ControllerBase
         Ok(await search.GetPopularSearchesAsync(limit, ct));
 
     /// <summary>
-    /// Record a search query for popularity stats (no search results returned).
-    /// Requires frontend client token only.
-    /// </summary>
-    [HttpPost("record")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Record([FromBody] RecordSearchRequestDto request, CancellationToken ct)
-    {
-        await search.RecordSearchQueryAsync(request.Query, ct);
-        return NoContent();
-    }
-
-    /// <summary>
     /// Search adverts and discussions using OpenAI semantic matching (POST body).
+    /// Records the query for popularity stats.
     /// Requires frontend client token only.
     /// </summary>
     /// <remarks>
@@ -195,6 +183,7 @@ public class SearchController(ISearchService search) : ControllerBase
 
     /// <summary>
     /// Search adverts and discussions (query string). Same behaviour as POST /api/search.
+    /// Records the query for popularity stats.
     /// Requires frontend client token only.
     /// </summary>
     /// <param name="q">Search text, e.g. "appartement à Gombe".</param>
