@@ -11,7 +11,7 @@ namespace Kinshout.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 [Produces("application/json")]
-public class AuthController(IAuthService auth, IClientAuthService clientAuth) : ControllerBase
+public class AuthController(IAuthService auth, IClientAuthService clientAuth, IWhatsAppAuthService whatsAppAuth) : ControllerBase
 {
     /// <summary>
     /// Authorize a registered frontend app (layer 1).
@@ -80,6 +80,55 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
         {
             var clientId = GetClientId();
             return Ok(await auth.SignInWithAppleAsync(request.IdToken, clientId, ct));
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Request a WhatsApp sign-in code (OTP). Requires frontend client token.
+    /// </summary>
+    [HttpPost("whatsapp/code")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(WhatsAppCodeResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<WhatsAppCodeResponseDto>> WhatsAppCode(
+        [FromBody] WhatsAppCodeRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            _ = GetClientId();
+            return Ok(await whatsAppAuth.SendCodeAsync(request.WhatsAppNumber, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Verify WhatsApp OTP and sign in. Requires frontend client token.
+    /// </summary>
+    [HttpPost("whatsapp/verify")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthResponseDto>> WhatsAppVerify(
+        [FromBody] WhatsAppVerifyRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var clientId = GetClientId();
+            return Ok(await whatsAppAuth.VerifyAndSignInAsync(request, clientId, ct));
         }
         catch (Exception ex)
         {

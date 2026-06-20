@@ -18,6 +18,7 @@ builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(Open
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<ClientAuthSettings>(builder.Configuration.GetSection(ClientAuthSettings.SectionName));
+builder.Services.Configure<WhatsAppAuthSettings>(builder.Configuration.GetSection(WhatsAppAuthSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -34,10 +35,12 @@ builder.Services.AddDbContext<KinshoutDbContext>(options =>
         options.UseSqlServer(connectionString);
 });
 
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("OpenAI");
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IClientAuthService, ClientAuthService>();
+builder.Services.AddScoped<IWhatsAppAuthService, WhatsAppAuthService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClient>>();
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();

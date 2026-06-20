@@ -55,3 +55,14 @@ public class ClientAuthSettings
     /// <summary>When true, any Origin is accepted for POST /api/auth/client (dev / Swagger).</summary>
     public bool AllowAnyOrigin { get; set; } = true;
 }
+
+public class WhatsAppAuthSettings
+{
+    public const string SectionName = "WhatsAppAuth";
+    public int CodeLength { get; set; } = 6;
+    public int CodeExpirationMinutes { get; set; } = 10;
+    /// <summary>Return OTP in API response for local/dev testing.</summary>
+    public bool ExposeCodeInDevelopment { get; set; } = true;
+    /// <summary>Return OTP in API response until WhatsApp delivery is integrated.</summary>
+    public bool ExposeCodeUntilDeliveryEnabled { get; set; } = true;
+}
