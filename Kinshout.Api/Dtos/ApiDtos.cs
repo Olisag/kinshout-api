@@ -18,6 +18,8 @@ public record UserProfileDto(
 
 public record UpdateProfileRequestDto(string WhatsAppNumber);
 
+/// <summary>Google or Apple ID token (RS256 JWT from the provider). Not the Kinshout client or user JWT.</summary>
+/// <param name="IdToken">Provider-issued ID token.</param>
 public record ExternalLoginRequestDto(string IdToken);
 
 public record FacebookLoginRequestDto(string AccessToken);

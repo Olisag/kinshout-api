@@ -18,18 +18,21 @@ public class UploadsController(IUploadService uploads) : ControllerBase
     /// Returns public URLs for use in <c>POST /api/adverts</c>.
     /// </summary>
     [HttpPost("images")]
+    [Consumes("multipart/form-data")]
     [RequestSizeLimit(52_428_800)]
     [ProducesResponseType(typeof(UploadResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<UploadResponseDto>> UploadImages(CancellationToken ct)
+    public async Task<ActionResult<UploadResponseDto>> UploadImages(
+        List<IFormFile> files,
+        CancellationToken ct)
     {
         try
         {
             var userId = GetUserId();
-            if (Request.Form.Files.Count == 0)
+            if (files.Count == 0)
                 return BadRequest(new { error = "Aucune image reçue." });
 
-            var urls = await uploads.SaveImagesAsync(userId, Request.Form.Files, ct);
+            var urls = await uploads.SaveImagesAsync(userId, ToFileCollection(files), ct);
             return Ok(new UploadResponseDto(urls));
         }
         catch (ArgumentException ex)
@@ -46,16 +49,18 @@ public class UploadsController(IUploadService uploads) : ControllerBase
     /// Upload a resume/CV (optional, for job-seeking adverts). Returns a public URL for use in <c>POST /api/adverts</c>.
     /// </summary>
     [HttpPost("resume")]
+    [Consumes("multipart/form-data")]
     [RequestSizeLimit(10_485_760)]
     [ProducesResponseType(typeof(UploadResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<UploadResponseDto>> UploadResume(CancellationToken ct)
+    public async Task<ActionResult<UploadResponseDto>> UploadResume(
+        IFormFile file,
+        CancellationToken ct)
     {
         try
         {
             var userId = GetUserId();
-            var file = Request.Form.Files.FirstOrDefault();
-            if (file is null)
+            if (file is null || file.Length == 0)
                 return BadRequest(new { error = "Aucun CV reçu." });
 
             var url = await uploads.SaveResumeAsync(userId, file, ct);
@@ -65,6 +70,14 @@ public class UploadsController(IUploadService uploads) : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    private static IFormFileCollection ToFileCollection(IEnumerable<IFormFile> files)
+    {
+        var collection = new FormFileCollection();
+        foreach (var file in files)
+            collection.Add(file);
+        return collection;
     }
 
     private Guid GetUserId() =>

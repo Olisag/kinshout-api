@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json;
 using Google.Apis.Auth;
+using Kinshout.Api.Auth;
 using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
@@ -32,12 +33,27 @@ public class AuthService(
 
     public async Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default)
     {
-        var payload = await GoogleJsonWebSignature.ValidateAsync(
-            idToken,
-            new GoogleJsonWebSignature.ValidationSettings
-            {
-                Audience = string.IsNullOrWhiteSpace(_oauth.Google.ClientId) ? null : [_oauth.Google.ClientId],
-            });
+        idToken = ExternalLoginTokenHelper.NormalizeIdToken(idToken);
+        ExternalLoginTokenHelper.EnsureGoogleIdTokenFormat(idToken);
+
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            payload = await GoogleJsonWebSignature.ValidateAsync(
+                idToken,
+                new GoogleJsonWebSignature.ValidationSettings
+                {
+                    Audience = string.IsNullOrWhiteSpace(_oauth.Google.ClientId) ? null : [_oauth.Google.ClientId],
+                });
+        }
+        catch (InvalidJwtException ex)
+        {
+            logger.LogWarning(ex, "Google ID token validation failed.");
+            var hint = string.IsNullOrWhiteSpace(_oauth.Google.ClientId)
+                ? " Configure OAuth:Google:ClientId on the API so the token audience matches."
+                : " Ensure the token was issued for the configured Google OAuth client ID.";
+            throw new UnauthorizedAccessException($"Invalid Google ID token.{hint}");
+        }
 
         var email = payload.Email ?? throw new UnauthorizedAccessException("Google account has no email.");
         var name = payload.Name ?? email.Split('@')[0];
