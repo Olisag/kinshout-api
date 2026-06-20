@@ -23,16 +23,20 @@ public class UploadsController(IUploadService uploads) : ControllerBase
     [ProducesResponseType(typeof(UploadResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<UploadResponseDto>> UploadImages(
-        List<IFormFile> files,
+        IFormFile[] files,
         CancellationToken ct)
     {
         try
         {
             var userId = GetUserId();
-            if (files.Count == 0)
+            if (files.Length == 0)
                 return BadRequest(new { error = "Aucune image reçue." });
 
-            var urls = await uploads.SaveImagesAsync(userId, ToFileCollection(files), ct);
+            var collection = new FormFileCollection();
+            foreach (var file in files)
+                collection.Add(file);
+
+            var urls = await uploads.SaveImagesAsync(userId, collection, ct);
             return Ok(new UploadResponseDto(urls));
         }
         catch (ArgumentException ex)
@@ -70,14 +74,6 @@ public class UploadsController(IUploadService uploads) : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
-    }
-
-    private static IFormFileCollection ToFileCollection(IEnumerable<IFormFile> files)
-    {
-        var collection = new FormFileCollection();
-        foreach (var file in files)
-            collection.Add(file);
-        return collection;
     }
 
     private Guid GetUserId() =>

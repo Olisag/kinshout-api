@@ -131,6 +131,7 @@ builder.Services.AddSwaggerGen(options =>
     });
 
     options.OperationFilter<SwaggerSecurityOperationFilter>();
+    options.OperationFilter<SwaggerFileUploadOperationFilter>();
 });
 
 builder.Services.AddCors(options =>
