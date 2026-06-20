@@ -93,6 +93,7 @@ public record DiscussionDetailDto(
     Guid Id,
     string Title,
     string Body,
+    Guid AuthorId,
     string Author,
     string Avatar,
     string Time,
@@ -100,6 +101,7 @@ public record DiscussionDetailDto(
 
 public record DiscussionReplyDto(
     Guid Id,
+    Guid AuthorId,
     string Author,
     string Avatar,
     string Time,
@@ -108,7 +110,11 @@ public record DiscussionReplyDto(
 
 public record CreateDiscussionRequestDto(string Title, string Body);
 
+public record UpdateDiscussionRequestDto(string Title, string Body);
+
 public record CreateReplyRequestDto(string Body);
+
+public record UpdateReplyRequestDto(string Body);
 
 public record SearchRequestDto(string Query, string Tab = "all", int Page = 1, int PageSize = 20);
 

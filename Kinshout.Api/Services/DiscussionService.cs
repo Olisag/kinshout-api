@@ -19,7 +19,16 @@ public interface IDiscussionService
         int pageSize = PagingHelper.DefaultPageSize,
         CancellationToken ct = default);
     Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default);
+    Task<DiscussionDetailDto> UpdateAsync(Guid userId, Guid discussionId, UpdateDiscussionRequestDto request, CancellationToken ct = default);
+    Task DeleteAsync(Guid userId, Guid discussionId, CancellationToken ct = default);
     Task<DiscussionReplyDto> AddReplyAsync(Guid userId, Guid discussionId, CreateReplyRequestDto request, CancellationToken ct = default);
+    Task<DiscussionReplyDto> UpdateReplyAsync(
+        Guid userId,
+        Guid discussionId,
+        Guid replyId,
+        UpdateReplyRequestDto request,
+        CancellationToken ct = default);
+    Task DeleteReplyAsync(Guid userId, Guid discussionId, Guid replyId, CancellationToken ct = default);
 }
 
 public class DiscussionService(
@@ -100,10 +109,52 @@ public class DiscussionService(
             d.Id,
             d.Title,
             d.Body,
+            d.UserId,
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
             TimeHelpers.FormatRelative(d.CreatedAt),
             thread);
+    }
+
+    public async Task<DiscussionDetailDto> UpdateAsync(
+        Guid userId,
+        Guid discussionId,
+        UpdateDiscussionRequestDto request,
+        CancellationToken ct = default)
+    {
+        var title = request.Title.Trim();
+        var body = request.Body.Trim();
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
+            throw new ArgumentException("Le titre et le message sont requis.");
+
+        var discussion = await db.Discussions
+            .FirstOrDefaultAsync(d => d.Id == discussionId && d.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Discussion introuvable.");
+
+        await moderation.EnsureTextAllowedAsync($"{title}\n{body}", ct);
+
+        var categories = await db.Categories.AsNoTracking().ToListAsync(ct);
+        var analysis = await openAi.AnalyzeAdvertAsync($"{title}. {body}", categories, ct);
+        var category = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, ct);
+
+        discussion.Title = title;
+        discussion.Body = body;
+        discussion.CategoryId = category.Id;
+        discussion.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+
+        return (await GetByIdAsync(discussionId, ct: ct))!;
+    }
+
+    public async Task DeleteAsync(Guid userId, Guid discussionId, CancellationToken ct = default)
+    {
+        var discussion = await db.Discussions
+            .FirstOrDefaultAsync(d => d.Id == discussionId && d.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Discussion introuvable.");
+
+        db.Discussions.Remove(discussion);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default)
@@ -157,9 +208,44 @@ public class DiscussionService(
         return ToReplyDto(reply, user);
     }
 
+    public async Task<DiscussionReplyDto> UpdateReplyAsync(
+        Guid userId,
+        Guid discussionId,
+        Guid replyId,
+        UpdateReplyRequestDto request,
+        CancellationToken ct = default)
+    {
+        var body = request.Body.Trim();
+        if (string.IsNullOrWhiteSpace(body))
+            throw new ArgumentException("Le message est requis.");
+
+        var reply = await db.DiscussionReplies
+            .FirstOrDefaultAsync(r => r.Id == replyId && r.DiscussionId == discussionId && r.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Réponse introuvable.");
+
+        await moderation.EnsureTextAllowedAsync(body, ct);
+
+        reply.Body = body;
+        await db.SaveChangesAsync(ct);
+
+        var user = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+        return ToReplyDto(reply, user);
+    }
+
+    public async Task DeleteReplyAsync(Guid userId, Guid discussionId, Guid replyId, CancellationToken ct = default)
+    {
+        var reply = await db.DiscussionReplies
+            .FirstOrDefaultAsync(r => r.Id == replyId && r.DiscussionId == discussionId && r.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Réponse introuvable.");
+
+        db.DiscussionReplies.Remove(reply);
+        await db.SaveChangesAsync(ct);
+    }
+
     private static DiscussionReplyDto ToReplyDto(DiscussionReply reply) =>
         new(
             reply.Id,
+            reply.UserId,
             reply.User.DisplayName,
             TimeHelpers.Initials(reply.User.DisplayName),
             TimeHelpers.FormatRelative(reply.CreatedAt),
@@ -168,6 +254,7 @@ public class DiscussionService(
     private static DiscussionReplyDto ToReplyDto(DiscussionReply reply, User user) =>
         new(
             reply.Id,
+            reply.UserId,
             user.DisplayName,
             TimeHelpers.Initials(user.DisplayName),
             TimeHelpers.FormatRelative(reply.CreatedAt),

@@ -351,6 +351,126 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
             return BadRequest(new { error = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Update a discussion started by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDetailDto>> Update(
+        Guid id,
+        [FromBody] UpdateDiscussionRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            var item = await discussions.UpdateAsync(userId, id, request, ct);
+            return Ok(item);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Permanently delete a discussion started by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.DeleteAsync(GetUserId(), id, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Update a reply written by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpPut("{id:guid}/replies/{replyId:guid}")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionReplyDto>> UpdateReply(
+        Guid id,
+        Guid replyId,
+        [FromBody] UpdateReplyRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            var reply = await discussions.UpdateReplyAsync(userId, id, replyId, request, ct);
+            return Ok(reply);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Permanently delete a reply written by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}/replies/{replyId:guid}")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteReply(Guid id, Guid replyId, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.DeleteReplyAsync(GetUserId(), id, replyId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    private Guid GetUserId() =>
+        Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? User.FindFirstValue("sub")
+            ?? throw new UnauthorizedAccessException());
 }
 
 /// <summary>Service health check — no authentication required.</summary>
