@@ -41,10 +41,13 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
     /// </summary>
     [HttpGet("mine")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
-    [ProducesResponseType(typeof(IReadOnlyList<AdvertDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResultDto<AdvertDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<IReadOnlyList<AdvertDto>>> ListMine(CancellationToken ct) =>
-        Ok(await adverts.ListMineAsync(GetUserId(), ct));
+    public async Task<ActionResult<PagedResultDto<AdvertDto>>> ListMine(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await adverts.ListMineAsync(GetUserId(), page, pageSize, ct));
 
     /// <summary>
     /// Get a single advert by ID (title, price, location, category, tags, AI summary).
@@ -160,21 +163,32 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
 public class CategoriesController(KinshoutDbContext db) : ControllerBase
 {
     /// <summary>
-    /// List all categories (Immobilier, Emplois, etc., plus any created by OpenAI).
+    /// List categories (Immobilier, Emplois, etc., plus any created by OpenAI).
     /// Requires frontend client token only.
     /// </summary>
     [HttpGet]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(IReadOnlyList<CategoryDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<CategoryDto>>> List(CancellationToken ct)
+    [ProducesResponseType(typeof(PagedResultDto<CategoryDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResultDto<CategoryDto>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
     {
-        var items = await db.Categories
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+
+        var query = db.Categories
             .AsNoTracking()
             .OrderBy(c => c.IsSystem ? 0 : 1)
-            .ThenBy(c => c.Label)
+            .ThenBy(c => c.Label);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
             .Select(c => new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated))
             .ToListAsync(ct);
-        return Ok(items);
+
+        return Ok(PagingHelper.Create(items, normalizedPage, normalizedPageSize, total));
     }
 }
 
@@ -185,16 +199,17 @@ public class CategoriesController(KinshoutDbContext db) : ControllerBase
 public class SearchController(ISearchService search) : ControllerBase
 {
     /// <summary>
-    /// Top popular search queries (most searched first).
+    /// Popular search queries (most searched first).
     /// Requires frontend client token only.
     /// </summary>
     [HttpGet("popular")]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(IReadOnlyList<PopularSearchDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<PopularSearchDto>>> Popular(
-        [FromQuery] int limit = 10,
+    [ProducesResponseType(typeof(PagedResultDto<PopularSearchDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResultDto<PopularSearchDto>>> Popular(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
         CancellationToken ct = default) =>
-        Ok(await search.GetPopularSearchesAsync(limit, ct));
+        Ok(await search.GetPopularSearchesAsync(page, pageSize, ct));
 
     /// <summary>
     /// Search adverts and discussions using OpenAI semantic matching (POST body).
@@ -280,6 +295,26 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
         [FromQuery] string sort = "recent",
         CancellationToken ct = default) =>
         Ok(await discussions.ListAsync(q, page, pageSize, sort, ct));
+
+    /// <summary>
+    /// List discussions for the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    /// <param name="filter">
+    /// <c>all</c> (default) — started or replied;
+    /// <c>authored</c> — started by the user;
+    /// <c>replies</c> — replied to (excluding own threads).
+    /// </param>
+    [HttpGet("mine")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResultDto<DiscussionDto>>> ListMine(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string filter = "all",
+        CancellationToken ct = default) =>
+        Ok(await discussions.ListMineAsync(GetUserId(), page, pageSize, filter, ct));
 
     /// <summary>
     /// Get a discussion with a paginated reply thread (oldest replies first).

@@ -291,8 +291,39 @@ public class AdvertServiceTests
         var service = CreateService(db);
         var results = await service.ListMineAsync(user.Id);
 
-        Assert.Single(results);
-        Assert.Equal("Mine", results[0].Title);
+        Assert.Single(results.Items);
+        Assert.Equal("Mine", results.Items[0].Title);
+    }
+
+    [Fact]
+    public async Task ListMineAsync_PaginatesResults()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        for (var i = 0; i < 5; i++)
+        {
+            db.Adverts.Add(new Advert
+            {
+                UserId = user.Id,
+                CategoryId = category.Id,
+                Title = $"Ad {i}",
+                Description = "Desc",
+                Category = category,
+                User = user,
+            });
+        }
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var page1 = await service.ListMineAsync(user.Id, page: 1, pageSize: 2);
+        var page2 = await service.ListMineAsync(user.Id, page: 2, pageSize: 2);
+
+        Assert.Equal(2, page1.Items.Count);
+        Assert.Equal(5, page1.TotalCount);
+        Assert.True(page1.HasMore);
+        Assert.Equal(2, page2.Items.Count);
+        Assert.True(page2.HasMore);
     }
 
     [Fact]

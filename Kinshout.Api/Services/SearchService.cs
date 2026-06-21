@@ -9,7 +9,10 @@ public interface ISearchService
 {
     Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default);
     Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default);
-    Task<IReadOnlyList<PopularSearchDto>> GetPopularSearchesAsync(int limit = 10, CancellationToken ct = default);
+    Task<PagedResultDto<PopularSearchDto>> GetPopularSearchesAsync(
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
 }
 
 public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearchService
@@ -121,18 +124,26 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<IReadOnlyList<PopularSearchDto>> GetPopularSearchesAsync(
-        int limit = 10,
+    public async Task<PagedResultDto<PopularSearchDto>> GetPopularSearchesAsync(
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
         CancellationToken ct = default)
     {
-        var capped = Math.Clamp(limit, 1, 20);
-        return await db.SearchQueryStats
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+
+        var query = db.SearchQueryStats
             .AsNoTracking()
             .OrderByDescending(s => s.SearchCount)
-            .ThenByDescending(s => s.LastSearchedAt)
-            .Take(capped)
+            .ThenByDescending(s => s.LastSearchedAt);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
             .Select(s => new PopularSearchDto(s.DisplayQuery, s.SearchCount))
             .ToListAsync(ct);
+
+        return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
     }
 
     public async Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default)

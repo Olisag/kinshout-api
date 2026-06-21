@@ -13,6 +13,12 @@ public interface IDiscussionService
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         CancellationToken ct = default);
+    Task<PagedResultDto<DiscussionDto>> ListMineAsync(
+        Guid userId,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        string filter = DiscussionMineFilterHelper.All,
+        CancellationToken ct = default);
     Task<DiscussionDetailDto?> GetByIdAsync(
         Guid id,
         int page = 1,
@@ -64,6 +70,50 @@ public class DiscussionService(
 
         var total = await ordered.CountAsync(ct);
         var items = await ordered
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(ct);
+
+        return PagingHelper.Create(items.Select(ToListDto).ToList(), normalizedPage, normalizedPageSize, total);
+    }
+
+    public async Task<PagedResultDto<DiscussionDto>> ListMineAsync(
+        Guid userId,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        string filter = DiscussionMineFilterHelper.All,
+        CancellationToken ct = default)
+    {
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var normalizedFilter = DiscussionMineFilterHelper.Normalize(filter);
+
+        var query = db.Discussions
+            .AsNoTracking()
+            .Include(d => d.User)
+            .Include(d => d.Category)
+            .Include(d => d.Replies)
+            .AsQueryable();
+
+        query = normalizedFilter switch
+        {
+            DiscussionMineFilterHelper.Authored => query.Where(d => d.UserId == userId),
+            DiscussionMineFilterHelper.Replies => query.Where(d =>
+                d.UserId != userId && d.Replies.Any(r => r.UserId == userId)),
+            _ => query.Where(d => d.UserId == userId || d.Replies.Any(r => r.UserId == userId)),
+        };
+
+        query = normalizedFilter switch
+        {
+            DiscussionMineFilterHelper.Authored => query.OrderByDescending(d => d.UpdatedAt),
+            DiscussionMineFilterHelper.Replies => query.OrderByDescending(d =>
+                d.Replies.Where(r => r.UserId == userId).Select(r => (DateTime?)r.CreatedAt).Max()),
+            _ => query.OrderByDescending(d =>
+                d.Replies.Where(r => r.UserId == userId).Select(r => (DateTime?)r.CreatedAt).Max()
+                ?? d.UpdatedAt),
+        };
+
+        var total = await query.CountAsync(ct);
+        var items = await query
             .Skip((normalizedPage - 1) * normalizedPageSize)
             .Take(normalizedPageSize)
             .ToListAsync(ct);

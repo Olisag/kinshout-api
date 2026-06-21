@@ -53,8 +53,8 @@ public class SearchServicePaginationTests
         await service.SearchAsync(new SearchRequestDto("Appartement Gombe", Page: 2));
 
         var popular = await service.GetPopularSearchesAsync();
-        Assert.Single(popular);
-        Assert.Equal(1, popular[0].Count);
+        Assert.Single(popular.Items);
+        Assert.Equal(1, popular.Items[0].Count);
     }
 
     [Fact]

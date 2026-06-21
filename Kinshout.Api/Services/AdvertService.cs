@@ -17,7 +17,11 @@ public interface IAdvertService
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         CancellationToken ct = default);
-    Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default);
+    Task<PagedResultDto<AdvertDto>> ListMineAsync(
+        Guid userId,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
     Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default);
 }
 
@@ -173,16 +177,28 @@ public class AdvertService(
         return PagingHelper.Create(items.Select(ToDto).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
-    public async Task<IReadOnlyList<AdvertDto>> ListMineAsync(Guid userId, CancellationToken ct = default)
+    public async Task<PagedResultDto<AdvertDto>> ListMineAsync(
+        Guid userId,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default)
     {
-        var items = await db.Adverts
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+
+        var query = db.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
             .Where(a => a.UserId == userId)
-            .OrderByDescending(a => a.UpdatedAt)
+            .OrderByDescending(a => a.UpdatedAt);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
             .ToListAsync(ct);
-        return items.Select(ToDto).ToList();
+
+        return PagingHelper.Create(items.Select(ToDto).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default)

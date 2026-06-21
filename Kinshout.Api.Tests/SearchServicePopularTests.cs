@@ -17,8 +17,8 @@ public class SearchServicePopularTests
         await service.SearchAsync(new SearchRequestDto("  appart   gombe  "));
 
         var popular = await service.GetPopularSearchesAsync();
-        Assert.Single(popular);
-        Assert.Equal(2, popular[0].Count);
+        Assert.Single(popular.Items);
+        Assert.Equal(2, popular.Items[0].Count);
     }
 
     [Fact]
@@ -32,9 +32,9 @@ public class SearchServicePopularTests
         await service.SearchAsync(new SearchRequestDto("chauffeur"));
 
         var popular = await service.GetPopularSearchesAsync();
-        Assert.Equal(2, popular.Count);
-        Assert.Equal(2, popular.Single(p => p.Query.Contains("chauffeur", StringComparison.OrdinalIgnoreCase) && !p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase)).Count);
-        Assert.Single(popular, p => p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, popular.Items.Count);
+        Assert.Equal(2, popular.Items.Single(p => p.Query.Contains("chauffeur", StringComparison.OrdinalIgnoreCase) && !p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase)).Count);
+        Assert.Single(popular.Items, p => p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -49,10 +49,11 @@ public class SearchServicePopularTests
         for (var i = 0; i < 5; i++)
             await service.SearchAsync(new SearchRequestDto("Query 11"));
 
-        var popular = await service.GetPopularSearchesAsync(10);
-        Assert.Equal(10, popular.Count);
-        Assert.Equal("Query 11", popular[0].Query);
-        Assert.Equal(6, popular[0].Count);
+        var popular = await service.GetPopularSearchesAsync(1, 10);
+        Assert.Equal(10, popular.Items.Count);
+        Assert.Equal("Query 11", popular.Items[0].Query);
+        Assert.Equal(6, popular.Items[0].Count);
+        Assert.True(popular.HasMore);
     }
 
     [Fact]
@@ -64,7 +65,7 @@ public class SearchServicePopularTests
         await service.SearchAsync(new SearchRequestDto("a"));
 
         var popular = await service.GetPopularSearchesAsync();
-        Assert.Empty(popular);
+        Assert.Empty(popular.Items);
     }
 
     private static SearchService CreateService(KinshoutDbContext db)

@@ -26,3 +26,18 @@ public static class ListSortHelper
     public static bool IsPopular(string? sort) =>
         sort?.Equals(Popular, StringComparison.OrdinalIgnoreCase) == true;
 }
+
+public static class DiscussionMineFilterHelper
+{
+    public const string All = "all";
+    public const string Authored = "authored";
+    public const string Replies = "replies";
+
+    public static string Normalize(string? filter) =>
+        filter?.ToLowerInvariant() switch
+        {
+            Authored => Authored,
+            Replies => Replies,
+            _ => All,
+        };
+}

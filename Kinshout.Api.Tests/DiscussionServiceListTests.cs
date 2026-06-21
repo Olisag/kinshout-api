@@ -47,6 +47,102 @@ public class DiscussionServiceListTests
         Assert.True(results.HasMore);
     }
 
+    [Fact]
+    public async Task ListMineAsync_ReturnsStartedAndRepliedDiscussions()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var other = new User
+        {
+            Email = "other@example.com",
+            DisplayName = "Other",
+            WhatsAppNumber = "+243900000002",
+        };
+        db.Users.Add(other);
+        await db.SaveChangesAsync();
+
+        var mine = CreateDiscussion(user, category, "My thread", replyCount: 0, createdAt: DateTime.UtcNow.AddDays(-2));
+        var replied = CreateDiscussion(other, category, "Other thread", replyCount: 0, createdAt: DateTime.UtcNow.AddDays(-3));
+        replied.Replies.Add(new DiscussionReply
+        {
+            UserId = user.Id,
+            Body = "My reply",
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+        });
+        var unrelated = CreateDiscussion(other, category, "Unrelated", replyCount: 1, createdAt: DateTime.UtcNow);
+
+        db.Discussions.AddRange(mine, replied, unrelated);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListMineAsync(user.Id);
+
+        Assert.Equal(2, results.TotalCount);
+        Assert.Equal(["Other thread", "My thread"], results.Items.Select(d => d.Title).ToArray());
+    }
+
+    [Fact]
+    public async Task ListMineAsync_FiltersAuthoredAndReplies()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var other = new User
+        {
+            Email = "other@example.com",
+            DisplayName = "Other",
+            WhatsAppNumber = "+243900000002",
+        };
+        db.Users.Add(other);
+        await db.SaveChangesAsync();
+
+        var mine = CreateDiscussion(user, category, "My thread", replyCount: 0, createdAt: DateTime.UtcNow.AddDays(-2));
+        var replied = CreateDiscussion(other, category, "Other thread", replyCount: 0, createdAt: DateTime.UtcNow.AddDays(-3));
+        replied.Replies.Add(new DiscussionReply
+        {
+            UserId = user.Id,
+            Body = "My reply",
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+        });
+        var ownWithReply = CreateDiscussion(user, category, "My replied thread", replyCount: 0, createdAt: DateTime.UtcNow.AddDays(-4));
+        ownWithReply.Replies.Add(new DiscussionReply
+        {
+            UserId = user.Id,
+            Body = "Self reply",
+            CreatedAt = DateTime.UtcNow.AddHours(-1),
+        });
+
+        db.Discussions.AddRange(mine, replied, ownWithReply);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+
+        var authored = await service.ListMineAsync(user.Id, filter: DiscussionMineFilterHelper.Authored);
+        var replies = await service.ListMineAsync(user.Id, filter: DiscussionMineFilterHelper.Replies);
+
+        Assert.Equal(2, authored.TotalCount);
+        Assert.Equal(["My thread", "My replied thread"], authored.Items.Select(d => d.Title).ToArray());
+        Assert.Single(replies.Items);
+        Assert.Equal("Other thread", replies.Items[0].Title);
+    }
+
+    [Fact]
+    public async Task ListMineAsync_PaginatesResults()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        for (var i = 0; i < 5; i++)
+            db.Discussions.Add(CreateDiscussion(user, category, $"Thread {i}", replyCount: 0, createdAt: DateTime.UtcNow.AddDays(-i)));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var page1 = await service.ListMineAsync(user.Id, page: 1, pageSize: 2);
+
+        Assert.Equal(2, page1.Items.Count);
+        Assert.Equal(5, page1.TotalCount);
+        Assert.True(page1.HasMore);
+    }
+
     private static DiscussionService CreateService(KinshoutDbContext db)
     {
         var moderation = new Mock<IAdvertModerationService>();
