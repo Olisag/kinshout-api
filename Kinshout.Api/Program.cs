@@ -77,6 +77,24 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
             ClockSkew = TimeSpan.FromMinutes(2),
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnChallenge = context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    context.HandleResponse();
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.ContentType = "application/json";
+                    var message = context.Error == "invalid_token"
+                        ? "Invalid or expired user session token."
+                        : "User sign-in required. Send Authorization: Bearer with a user JWT.";
+                    return context.Response.WriteAsJsonAsync(new { error = message });
+                }
+
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddAuthorization(options =>
@@ -108,6 +126,7 @@ builder.Services.AddSwaggerGen(options =>
             3. Browse with client token; post/create with both tokens
 
             **Swagger:** use **Authorize** → `ClientToken` (from step 1) for most endpoints; add `Bearer` for signed-in routes.
+            Upload endpoints (`POST /api/uploads/*`) require both — Swagger auto-injects the client token into the multipart body.
             """,
     });
 
@@ -220,6 +239,7 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger";
     options.DocumentTitle = "Kinshout API — Swagger";
     options.EnablePersistAuthorization();
+    SwaggerUiConfigurator.ConfigureUploadInterceptor(options);
 });
 
 app.UseAuthentication();

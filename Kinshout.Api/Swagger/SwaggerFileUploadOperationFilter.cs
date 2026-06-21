@@ -1,10 +1,11 @@
+using Kinshout.Api.Auth;
 using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Kinshout.Api.Swagger;
 
 /// <summary>
-/// Ensures upload endpoints expose multipart file fields in Swagger UI (Choose file buttons).
+/// Ensures upload endpoints expose multipart file fields in Swagger UI.
 /// </summary>
 public sealed class SwaggerFileUploadOperationFilter : IOperationFilter
 {
@@ -18,6 +19,13 @@ public sealed class SwaggerFileUploadOperationFilter : IOperationFilter
             "/api/uploads/resume" => CreateSingleFileBody("file"),
             _ => operation.RequestBody,
         };
+
+        if (path is "/api/uploads/images" or "/api/uploads/resume")
+        {
+            operation.Description = (operation.Description ?? "") +
+                "\n\n**Swagger:** Authorize with **ClientToken** and **Bearer**, attach your file(s), then Execute. " +
+                "The client token is copied into the form body automatically (required on Azure IIS).";
+        }
     }
 
     private static OpenApiRequestBody CreateImagesBody()
@@ -32,6 +40,7 @@ public sealed class SwaggerFileUploadOperationFilter : IOperationFilter
                     Type = JsonSchemaType.Array,
                     Items = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" },
                 },
+                [AuthConstants.ClientTokenFormField] = ClientTokenFormFieldSchema(),
             },
             Required = new HashSet<string> { "files" },
         };
@@ -66,6 +75,7 @@ public sealed class SwaggerFileUploadOperationFilter : IOperationFilter
             Properties = new Dictionary<string, IOpenApiSchema>
             {
                 [fieldName] = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" },
+                [AuthConstants.ClientTokenFormField] = ClientTokenFormFieldSchema(),
             },
             Required = new HashSet<string> { fieldName },
         };
@@ -90,4 +100,12 @@ public sealed class SwaggerFileUploadOperationFilter : IOperationFilter
             },
         };
     }
+
+    private static OpenApiSchema ClientTokenFormFieldSchema() =>
+        new()
+        {
+            Type = JsonSchemaType.String,
+            Description =
+                "Client JWT fallback for multipart uploads. Swagger UI fills this from Authorize → ClientToken; leave blank unless testing manually.",
+        };
 }
