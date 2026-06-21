@@ -1,4 +1,4 @@
-function (req) {
+window.kinshoutUploadRequestInterceptor = function (req) {
   var url = (req.url || "").toLowerCase();
   if (url.indexOf("/api/uploads/") === -1) {
     return req;
@@ -8,18 +8,18 @@ function (req) {
     (req.headers && (req.headers["X-Kinshout-Client-Token"] || req.headers["x-kinshout-client-token"])) ||
     null;
 
-  if (!clientToken && window.ui) {
-    try {
-      var auth = window.ui.getState().get("auth").get("authorized");
-      if (auth && auth.ClientToken && auth.ClientToken.value) {
-        clientToken = auth.ClientToken.value;
-      } else if (auth && auth.toJS) {
-        var plain = auth.toJS();
-        if (plain.ClientToken && plain.ClientToken.value) {
-          clientToken = plain.ClientToken.value;
-        }
+  if (!clientToken && window.ui && window.ui.getState) {
+    var state = window.ui.getState();
+    var auth = state && state.get && state.get("auth");
+    var authorized = auth && auth.get && auth.get("authorized");
+    if (authorized && authorized.ClientToken && authorized.ClientToken.value) {
+      clientToken = authorized.ClientToken.value;
+    } else if (authorized && authorized.toJS) {
+      var plain = authorized.toJS();
+      if (plain && plain.ClientToken && plain.ClientToken.value) {
+        clientToken = plain.ClientToken.value;
       }
-    } catch (e) { /* ignore */ }
+    }
   }
 
   if (clientToken && req.body instanceof FormData) {
@@ -36,4 +36,4 @@ function (req) {
   }
 
   return req;
-}
+};
