@@ -53,26 +53,44 @@ public class AdvertServiceListTests
     }
 
     [Fact]
-    public async Task ListAsync_FiltersByIntent()
+    public async Task ListAsync_FiltersByIntentAndPaginates()
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
-        db.Adverts.AddRange(
-            CreateAdvert(user, category, "Offre immo", viewCount: 1, createdAt: DateTime.UtcNow, intent: AdvertIntent.Offre),
-            CreateAdvert(user, category, "Demande immo", viewCount: 1, createdAt: DateTime.UtcNow, intent: AdvertIntent.Demande));
+        for (var i = 0; i < 5; i++)
+        {
+            db.Adverts.Add(CreateAdvert(
+                user,
+                category,
+                $"Offre {i}",
+                viewCount: i,
+                createdAt: DateTime.UtcNow.AddDays(-i),
+                intent: AdvertIntent.Offre));
+        }
+
+        db.Adverts.Add(CreateAdvert(
+            user,
+            category,
+            "Demande seule",
+            viewCount: 0,
+            createdAt: DateTime.UtcNow,
+            intent: AdvertIntent.Demande));
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
-        var offres = await service.ListAsync(intent: "offre");
-        var demandes = await service.ListAsync(intent: "demande");
+        var page1 = await service.ListAsync(intent: "offre", page: 1, pageSize: 2);
+        var page2 = await service.ListAsync(intent: "offre", page: 2, pageSize: 2);
+        var page3 = await service.ListAsync(intent: "offre", page: 3, pageSize: 2);
 
-        Assert.Single(offres.Items);
-        Assert.Equal("Offre immo", offres.Items[0].Title);
-        Assert.Equal("offre", offres.Items[0].Intent);
-        Assert.Single(demandes.Items);
-        Assert.Equal("Demande immo", demandes.Items[0].Title);
-        Assert.Equal("demande", demandes.Items[0].Intent);
+        Assert.Equal(5, page1.TotalCount);
+        Assert.Equal(2, page1.Items.Count);
+        Assert.True(page1.HasMore);
+        Assert.Equal(2, page2.Items.Count);
+        Assert.True(page2.HasMore);
+        Assert.Single(page3.Items);
+        Assert.False(page3.HasMore);
+        Assert.All(page1.Items.Concat(page2.Items).Concat(page3.Items), a => Assert.Equal("offre", a.Intent));
     }
 
     private static AdvertService CreateService(KinshoutDbContext db)
