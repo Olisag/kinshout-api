@@ -16,6 +16,7 @@ public interface IAdvertService
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
+        string? intent = null,
         CancellationToken ct = default);
     Task<PagedResultDto<AdvertDto>> ListMineAsync(
         Guid userId,
@@ -156,6 +157,7 @@ public class AdvertService(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
+        string? intent = null,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
@@ -163,6 +165,9 @@ public class AdvertService(
         var query = db.Adverts.AsNoTracking().Include(a => a.Category).Include(a => a.User).Where(a => a.IsPublished);
         if (categoryId.HasValue)
             query = query.Where(a => a.CategoryId == categoryId.Value);
+
+        if (!string.IsNullOrWhiteSpace(intent))
+            query = query.Where(a => a.Intent == ParseListIntent(intent));
 
         var ordered = ListSortHelper.IsPopular(sort)
             ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.CreatedAt)
@@ -302,6 +307,14 @@ public class AdvertService(
 
         return normalized;
     }
+
+    private static AdvertIntent ParseListIntent(string intent) =>
+        intent.ToLowerInvariant() switch
+        {
+            "offre" => AdvertIntent.Offre,
+            "demande" => AdvertIntent.Demande,
+            _ => throw new ArgumentException("Le paramètre intent doit être offre ou demande."),
+        };
 
     private static AdvertIntent ParseIntent(string intent) =>
         intent.ToLowerInvariant() switch

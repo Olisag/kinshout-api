@@ -23,17 +23,37 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
     /// <param name="page">Page number (1-based).</param>
     /// <param name="pageSize">Items per page (max 50).</param>
     /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (view count).</param>
+    /// <param name="intent">Optional filter: <c>offre</c> or <c>demande</c>.</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResultDto<AdvertDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<PagedResultDto<AdvertDto>>> List(
         [FromQuery] Guid? categoryId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "recent",
-        CancellationToken ct = default) =>
-        Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, ct));
+        [FromQuery] string? intent = null,
+        CancellationToken ct = default)
+    {
+        if (!string.IsNullOrWhiteSpace(intent))
+        {
+            var normalized = intent.Trim().ToLowerInvariant();
+            if (normalized is not ("offre" or "demande"))
+                return BadRequest(new { error = "Le paramètre intent doit être offre ou demande." });
+            intent = normalized;
+        }
+
+        try
+        {
+            return Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, intent, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
 
     /// <summary>
     /// List adverts published by the signed-in user.

@@ -52,6 +52,29 @@ public class AdvertServiceListTests
         Assert.True(page2.HasMore);
     }
 
+    [Fact]
+    public async Task ListAsync_FiltersByIntent()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        db.Adverts.AddRange(
+            CreateAdvert(user, category, "Offre immo", viewCount: 1, createdAt: DateTime.UtcNow, intent: AdvertIntent.Offre),
+            CreateAdvert(user, category, "Demande immo", viewCount: 1, createdAt: DateTime.UtcNow, intent: AdvertIntent.Demande));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var offres = await service.ListAsync(intent: "offre");
+        var demandes = await service.ListAsync(intent: "demande");
+
+        Assert.Single(offres.Items);
+        Assert.Equal("Offre immo", offres.Items[0].Title);
+        Assert.Equal("offre", offres.Items[0].Intent);
+        Assert.Single(demandes.Items);
+        Assert.Equal("Demande immo", demandes.Items[0].Title);
+        Assert.Equal("demande", demandes.Items[0].Intent);
+    }
+
     private static AdvertService CreateService(KinshoutDbContext db)
     {
         var moderation = new Mock<IAdvertModerationService>();
@@ -75,7 +98,8 @@ public class AdvertServiceListTests
         Category category,
         string title,
         int viewCount,
-        DateTime createdAt) =>
+        DateTime createdAt,
+        AdvertIntent intent = AdvertIntent.Demande) =>
         new()
         {
             UserId = user.Id,
@@ -88,5 +112,6 @@ public class AdvertServiceListTests
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
             IsPublished = true,
+            Intent = intent,
         };
 }
