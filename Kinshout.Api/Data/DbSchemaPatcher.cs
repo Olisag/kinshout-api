@@ -1,4 +1,5 @@
 using System.Data;
+using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Data;
@@ -16,6 +17,13 @@ public static class DbSchemaPatcher
 
         if (!await ColumnExistsAsync(connection, "Users", "WhatsAppNumber", ct))
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE Users ADD COLUMN WhatsAppNumber TEXT", ct);
+
+        if (!await ColumnExistsAsync(connection, "Users", "DisplayPreference", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE Users ADD COLUMN DisplayPreference TEXT NOT NULL DEFAULT '{DisplayPreferenceMode.Clair}'",
+                ct);
+        }
 
         if (!await ColumnExistsAsync(connection, "Adverts", "ImageUrlsJson", ct))
             await db.Database.ExecuteSqlRawAsync(

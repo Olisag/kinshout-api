@@ -20,6 +20,11 @@ public interface IAuthService
     Task<AuthResponseDto> SignInWithFacebookAsync(string accessToken, string clientId, CancellationToken ct = default);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct = default);
+    Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default);
+    Task<DisplayPreferenceDto> UpdateDisplayPreferenceAsync(
+        Guid userId,
+        UpdateDisplayPreferenceRequestDto request,
+        CancellationToken ct = default);
 }
 
 public class AuthService(
@@ -132,6 +137,27 @@ public class AuthService(
         return ToProfile(user);
     }
 
+    public async Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        return new DisplayPreferenceDto(DisplayPreferenceMode.Normalize(user.DisplayPreference));
+    }
+
+    public async Task<DisplayPreferenceDto> UpdateDisplayPreferenceAsync(
+        Guid userId,
+        UpdateDisplayPreferenceRequestDto request,
+        CancellationToken ct = default)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        user.DisplayPreference = DisplayPreferenceMode.Normalize(request.Mode);
+        await db.SaveChangesAsync(ct);
+        return new DisplayPreferenceDto(user.DisplayPreference);
+    }
+
     private async Task<AuthResponseDto> UpsertExternalLoginAsync(
         AuthProvider provider,
         string providerKey,
@@ -227,5 +253,6 @@ public class AuthService(
             user.AvatarUrl,
             user.WhatsAppNumber,
             !string.IsNullOrWhiteSpace(user.WhatsAppNumber),
+            DisplayPreferenceMode.Normalize(user.DisplayPreference),
             $"Membre depuis {user.CreatedAt:MMM yyyy}");
 }

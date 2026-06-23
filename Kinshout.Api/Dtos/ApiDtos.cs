@@ -13,10 +13,15 @@ public record UserProfileDto(
     string? AvatarUrl,
     string? WhatsAppNumber,
     bool HasWhatsApp,
+    string DisplayPreference,
     string MemberSince
 );
 
 public record UpdateProfileRequestDto(string WhatsAppNumber);
+
+public record DisplayPreferenceDto(string Mode);
+
+public record UpdateDisplayPreferenceRequestDto(string Mode);
 
 /// <summary>Google or Apple ID token (RS256 JWT from the provider). Not the Kinshout client or user JWT.</summary>
 /// <param name="IdToken">Provider-issued ID token.</param>

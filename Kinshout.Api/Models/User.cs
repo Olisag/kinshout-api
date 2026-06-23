@@ -7,6 +7,7 @@ public class User
     public string DisplayName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public string? WhatsAppNumber { get; set; }
+    public string DisplayPreference { get; set; } = DisplayPreferenceMode.Clair;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
 

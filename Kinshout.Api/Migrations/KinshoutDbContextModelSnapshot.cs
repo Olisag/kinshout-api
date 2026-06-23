@@ -297,6 +297,13 @@ namespace Kinshout.Api.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
 
+                    b.Property<string>("DisplayPreference")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasDefaultValue("clair");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(320)

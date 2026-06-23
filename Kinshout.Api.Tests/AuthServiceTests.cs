@@ -60,4 +60,50 @@ public class AuthServiceTests
         Assert.True(profile!.HasWhatsApp);
         Assert.Equal("+243900000001", profile.WhatsAppNumber);
     }
+
+    [Fact]
+    public async Task UpdateDisplayPreferenceAsync_SavesMode()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateService(db);
+
+        var preference = await service.UpdateDisplayPreferenceAsync(
+            user.Id,
+            new UpdateDisplayPreferenceRequestDto("sombre"));
+
+        Assert.Equal("sombre", preference.Mode);
+
+        var profile = await service.GetProfileAsync(user.Id);
+        Assert.NotNull(profile);
+        Assert.Equal("sombre", profile!.DisplayPreference);
+    }
+
+    [Fact]
+    public async Task UpdateDisplayPreferenceAsync_RejectsInvalidMode()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.UpdateDisplayPreferenceAsync(
+                user.Id,
+                new UpdateDisplayPreferenceRequestDto("neon")));
+    }
+
+    private static AuthService CreateService(KinshoutDbContext db) =>
+        new(
+            db,
+            new JwtTokenService(Options.Create(new JwtSettings
+            {
+                SecretKey = "kinshout-test-secret-key-32chars!!",
+                Issuer = "kinshout-test",
+                UserAudience = "kinshout-user",
+            })),
+            Options.Create(new OAuthSettings()),
+            Mock.Of<IFacebookAuthValidator>(),
+            Mock.Of<ILogger<AuthService>>());
 }

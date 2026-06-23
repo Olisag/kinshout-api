@@ -148,6 +148,57 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
         }
     }
 
+    /// <summary>
+    /// Get the signed-in user's display preference (clair or sombre).
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpGet("me/display-preference")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DisplayPreferenceDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<DisplayPreferenceDto>> GetDisplayPreference(CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            return Ok(await auth.GetDisplayPreferenceAsync(userId, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Update the signed-in user's display preference.
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpPut("me/display-preference")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DisplayPreferenceDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<DisplayPreferenceDto>> UpdateDisplayPreference(
+        [FromBody] UpdateDisplayPreferenceRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            return Ok(await auth.UpdateDisplayPreferenceAsync(userId, request, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     private string GetClientId() =>
         HttpContext.Items[AuthConstants.ClientContextKey]?.ToString()
         ?? throw new UnauthorizedAccessException("Frontend client context is required.");
