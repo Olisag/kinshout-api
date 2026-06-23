@@ -18,9 +18,10 @@ namespace Kinshout.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.9")
-                .HasAnnotation("Relational:MaxIdentifierLength", 128);
-
-            SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+                .HasAnnotation("Relational:MaxIdentifierLength", 128)
+                .HasAnnotation("SqlServer:IdentityIncrement", 1)
+                .HasAnnotation("SqlServer:IdentitySeed", 1L)
+                .HasAnnotation("SqlServer:ValueGenerationStrategy", SqlServerValueGenerationStrategy.IdentityColumn);
 
             modelBuilder.Entity("Kinshout.Api.Models.Advert", b =>
                 {
@@ -89,7 +90,7 @@ namespace Kinshout.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Adverts");
+                    b.ToTable("Adverts", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.ApiClient", b =>
@@ -126,7 +127,7 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("ClientId")
                         .IsUnique();
 
-                    b.ToTable("ApiClients");
+                    b.ToTable("ApiClients", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.Category", b =>
@@ -164,7 +165,7 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("Slug")
                         .IsUnique();
 
-                    b.ToTable("Categories");
+                    b.ToTable("Categories", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.Discussion", b =>
@@ -200,7 +201,7 @@ namespace Kinshout.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Discussions");
+                    b.ToTable("Discussions", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.DiscussionReply", b =>
@@ -228,7 +229,7 @@ namespace Kinshout.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("DiscussionReplies");
+                    b.ToTable("DiscussionReplies", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.SearchQueryStat", b =>
@@ -258,7 +259,25 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("NormalizedQuery")
                         .IsUnique();
 
-                    b.ToTable("SearchQueryStats");
+                    b.ToTable("SearchQueryStats", (string)null);
+                });
+
+            modelBuilder.Entity("Kinshout.Api.Models.SavedAdvert", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AdvertId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("SavedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("UserId", "AdvertId");
+
+                    b.HasIndex("AdvertId");
+
+                    b.ToTable("SavedAdverts", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.User", b =>
@@ -295,7 +314,7 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.UserLogin", b =>
@@ -324,7 +343,7 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("Provider", "ProviderKey")
                         .IsUnique();
 
-                    b.ToTable("UserLogins");
+                    b.ToTable("UserLogins", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.Advert", b =>
@@ -383,6 +402,25 @@ namespace Kinshout.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Kinshout.Api.Models.SavedAdvert", b =>
+                {
+                    b.HasOne("Kinshout.Api.Models.Advert", "Advert")
+                        .WithMany()
+                        .HasForeignKey("AdvertId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Kinshout.Api.Models.User", "User")
+                        .WithMany("SavedAdverts")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Advert");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Kinshout.Api.Models.UserLogin", b =>
                 {
                     b.HasOne("Kinshout.Api.Models.User", "User")
@@ -415,6 +453,8 @@ namespace Kinshout.Api.Migrations
                     b.Navigation("Logins");
 
                     b.Navigation("Replies");
+
+                    b.Navigation("SavedAdverts");
                 });
 #pragma warning restore 612, 618
         }

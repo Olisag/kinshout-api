@@ -13,7 +13,7 @@ namespace Kinshout.Api.Controllers;
 [ApiController]
 [Route("api/adverts")]
 [Produces("application/json")]
-public class AdvertsController(IAdvertService adverts) : ControllerBase
+public class AdvertsController(IAdvertService adverts, ISavedAdvertService savedAdverts) : ControllerBase
 {
     /// <summary>
     /// List published adverts, optionally filtered by category.
@@ -68,6 +68,31 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default) =>
         Ok(await adverts.ListMineAsync(GetUserId(), page, pageSize, ct));
+
+    /// <summary>
+    /// List advert IDs saved by the signed-in user (for heart button state).
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpGet("saved/ids")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<Guid>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<Guid>>> ListSavedIds(CancellationToken ct) =>
+        Ok(await savedAdverts.ListSavedIdsAsync(GetUserId(), ct));
+
+    /// <summary>
+    /// List adverts saved by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpGet("saved")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<AdvertDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResultDto<AdvertDto>>> ListSaved(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await savedAdverts.ListSavedAsync(GetUserId(), page, pageSize, ct));
 
     /// <summary>
     /// Get a single advert by ID (title, price, location, category, tags, AI summary).
@@ -166,6 +191,42 @@ public class AdvertsController(IAdvertService adverts) : ControllerBase
         {
             return NotFound();
         }
+    }
+
+    /// <summary>
+    /// Save an advert to the signed-in user's favorites.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpPost("{id:guid}/save")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Save(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await savedAdverts.SaveAsync(GetUserId(), id, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Remove an advert from the signed-in user's favorites.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}/save")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Unsave(Guid id, CancellationToken ct)
+    {
+        await savedAdverts.UnsaveAsync(GetUserId(), id, ct);
+        return NoContent();
     }
 
     private static Guid GetUserId(HttpContext http) =>

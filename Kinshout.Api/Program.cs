@@ -44,6 +44,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClient>>();
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 builder.Services.AddScoped<IAdvertService, AdvertService>();
+builder.Services.AddScoped<ISavedAdvertService, SavedAdvertService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
 builder.Services.AddSingleton<LocalUploadStorage>();

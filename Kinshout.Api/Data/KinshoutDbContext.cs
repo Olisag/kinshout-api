@@ -13,6 +13,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<Discussion> Discussions => Set<Discussion>();
     public DbSet<DiscussionReply> DiscussionReplies => Set<DiscussionReply>();
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
+    public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,6 +73,14 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasIndex(x => x.NormalizedQuery).IsUnique();
             e.Property(x => x.NormalizedQuery).HasMaxLength(200);
             e.Property(x => x.DisplayQuery).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<SavedAdvert>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.AdvertId });
+            e.HasIndex(x => x.AdvertId);
+            e.HasOne(x => x.User).WithMany(x => x.SavedAdverts).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Advert).WithMany().HasForeignKey(x => x.AdvertId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

@@ -47,6 +47,37 @@ public static class DbSchemaPatcher
                   AND TRIM(Phone) != ''
                 """, ct);
         }
+
+        if (!await TableExistsAsync(connection, "SavedAdverts", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE SavedAdverts (
+                    UserId TEXT NOT NULL,
+                    AdvertId TEXT NOT NULL,
+                    SavedAt TEXT NOT NULL,
+                    PRIMARY KEY (UserId, AdvertId),
+                    FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (AdvertId) REFERENCES Adverts(Id) ON DELETE CASCADE
+                )
+                """, ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_SavedAdverts_AdvertId ON SavedAdverts (AdvertId)", ct);
+        }
+    }
+
+    private static async Task<bool> TableExistsAsync(
+        System.Data.Common.DbConnection connection,
+        string table,
+        CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=$name";
+        var param = cmd.CreateParameter();
+        param.ParameterName = "$name";
+        param.Value = table;
+        cmd.Parameters.Add(param);
+        return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
     private static async Task<bool> ColumnExistsAsync(
