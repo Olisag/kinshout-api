@@ -199,6 +199,52 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
         }
     }
 
+    /// <summary>
+    /// Get whether the signed-in user's profile is visible to others.
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpGet("me/profile-visibility")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(ProfileVisibilityDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ProfileVisibilityDto>> GetProfileVisibility(CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            return Ok(await auth.GetProfileVisibilityAsync(userId, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Allow or disallow others from viewing the signed-in user's public profile.
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpPut("me/profile-visibility")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(ProfileVisibilityDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ProfileVisibilityDto>> UpdateProfileVisibility(
+        [FromBody] UpdateProfileVisibilityRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            return Ok(await auth.UpdateProfileVisibilityAsync(userId, request, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
     private string GetClientId() =>
         HttpContext.Items[AuthConstants.ClientContextKey]?.ToString()
         ?? throw new UnauthorizedAccessException("Frontend client context is required.");

@@ -307,6 +307,11 @@ namespace Kinshout.Api.Migrations
                         .HasColumnType("nvarchar(16)")
                         .HasDefaultValue("clair");
 
+                    b.Property<bool>("IsProfilePublic")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(320)

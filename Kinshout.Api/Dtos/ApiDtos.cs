@@ -14,10 +14,23 @@ public record UserProfileDto(
     string? WhatsAppNumber,
     bool HasWhatsApp,
     string DisplayPreference,
+    bool IsProfilePublic,
     string MemberSince
 );
 
 public record UpdateProfileRequestDto(string WhatsAppNumber);
+
+public record PublicUserProfileDto(
+    Guid Id,
+    string DisplayName,
+    string? AvatarUrl,
+    string MemberSince,
+    int PublishedAdvertCount
+);
+
+public record ProfileVisibilityDto(bool IsPublic);
+
+public record UpdateProfileVisibilityRequestDto(bool IsPublic);
 
 public record DisplayPreferenceDto(string Mode);
 

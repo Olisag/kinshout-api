@@ -94,6 +94,24 @@ public class AuthServiceTests
                 new UpdateDisplayPreferenceRequestDto("neon")));
     }
 
+    [Fact]
+    public async Task UpdateProfileVisibilityAsync_SavesSetting()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateService(db);
+        var visibility = await service.UpdateProfileVisibilityAsync(
+            user.Id,
+            new UpdateProfileVisibilityRequestDto(true));
+
+        Assert.True(visibility.IsPublic);
+
+        var profile = await service.GetProfileAsync(user.Id);
+        Assert.NotNull(profile);
+        Assert.True(profile!.IsProfilePublic);
+    }
+
     private static AuthService CreateService(KinshoutDbContext db) =>
         new(
             db,

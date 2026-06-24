@@ -8,6 +8,7 @@ public class User
     public string? AvatarUrl { get; set; }
     public string? WhatsAppNumber { get; set; }
     public string DisplayPreference { get; set; } = DisplayPreferenceMode.Clair;
+    public bool IsProfilePublic { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
 

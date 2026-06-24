@@ -25,6 +25,11 @@ public interface IAuthService
         Guid userId,
         UpdateDisplayPreferenceRequestDto request,
         CancellationToken ct = default);
+    Task<ProfileVisibilityDto> GetProfileVisibilityAsync(Guid userId, CancellationToken ct = default);
+    Task<ProfileVisibilityDto> UpdateProfileVisibilityAsync(
+        Guid userId,
+        UpdateProfileVisibilityRequestDto request,
+        CancellationToken ct = default);
 }
 
 public class AuthService(
@@ -158,6 +163,27 @@ public class AuthService(
         return new DisplayPreferenceDto(user.DisplayPreference);
     }
 
+    public async Task<ProfileVisibilityDto> GetProfileVisibilityAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        return new ProfileVisibilityDto(user.IsProfilePublic);
+    }
+
+    public async Task<ProfileVisibilityDto> UpdateProfileVisibilityAsync(
+        Guid userId,
+        UpdateProfileVisibilityRequestDto request,
+        CancellationToken ct = default)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        user.IsProfilePublic = request.IsPublic;
+        await db.SaveChangesAsync(ct);
+        return new ProfileVisibilityDto(user.IsProfilePublic);
+    }
+
     private async Task<AuthResponseDto> UpsertExternalLoginAsync(
         AuthProvider provider,
         string providerKey,
@@ -254,5 +280,6 @@ public class AuthService(
             user.WhatsAppNumber,
             !string.IsNullOrWhiteSpace(user.WhatsAppNumber),
             DisplayPreferenceMode.Normalize(user.DisplayPreference),
+            user.IsProfilePublic,
             $"Membre depuis {user.CreatedAt:MMM yyyy}");
 }

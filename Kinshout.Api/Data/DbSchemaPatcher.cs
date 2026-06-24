@@ -25,6 +25,19 @@ public static class DbSchemaPatcher
                 ct);
         }
 
+        if (!await ColumnExistsAsync(connection, "Users", "IsProfilePublic", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Users ADD COLUMN IsProfilePublic INTEGER NOT NULL DEFAULT 1",
+                ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "UPDATE Users SET IsProfilePublic = 1 WHERE IsProfilePublic = 0",
+                ct);
+        }
+
         if (!await ColumnExistsAsync(connection, "Adverts", "ImageUrlsJson", ct))
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE Adverts ADD COLUMN ImageUrlsJson TEXT NOT NULL DEFAULT '[]'", ct);

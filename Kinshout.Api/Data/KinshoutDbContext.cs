@@ -31,6 +31,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.DisplayName).HasMaxLength(120);
             e.Property(x => x.WhatsAppNumber).HasMaxLength(32);
             e.Property(x => x.DisplayPreference).HasMaxLength(16).HasDefaultValue(DisplayPreferenceMode.Clair);
+            e.Property(x => x.IsProfilePublic).HasDefaultValue(true);
         });
 
         modelBuilder.Entity<UserLogin>(e =>
