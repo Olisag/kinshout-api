@@ -32,6 +32,27 @@ public static class DbSchemaPatcher
         if (!await ColumnExistsAsync(connection, "Adverts", "ResumeUrl", ct))
             await db.Database.ExecuteSqlRawAsync("ALTER TABLE Adverts ADD COLUMN ResumeUrl TEXT", ct);
 
+        if (!await ColumnExistsAsync(connection, "Adverts", "ViewCount", ct))
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Adverts ADD COLUMN ViewCount INTEGER NOT NULL DEFAULT 0", ct);
+
+        if (!await ColumnExistsAsync(connection, "Adverts", "LikeCount", ct))
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Adverts ADD COLUMN LikeCount INTEGER NOT NULL DEFAULT 0", ct);
+
+        if (await TableExistsAsync(connection, "SavedAdverts", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE Adverts
+                SET LikeCount = (
+                    SELECT COUNT(*)
+                    FROM SavedAdverts
+                    WHERE SavedAdverts.AdvertId = Adverts.Id
+                )
+                """, ct);
+        }
+
         if (await ColumnExistsAsync(connection, "Adverts", "ImageUrl", ct))
         {
             await db.Database.ExecuteSqlRawAsync(

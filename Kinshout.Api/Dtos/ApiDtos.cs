@@ -72,7 +72,9 @@ public record AdvertDto(
     IReadOnlyList<string> Tags,
     string Time,
     double AiConfidence,
-    string? AiSummary
+    string? AiSummary,
+    int ViewCount,
+    int LikeCount
 );
 
 public record CategoryDto(

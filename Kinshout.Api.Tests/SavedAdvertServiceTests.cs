@@ -1,6 +1,7 @@
 using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Tests;
 
@@ -38,7 +39,11 @@ public class SavedAdvertServiceTests
 
         Assert.Equal(1, saved.TotalCount);
         Assert.Equal(advert.Id, saved.Items[0].Id);
+        Assert.Equal(1, saved.Items[0].LikeCount);
         Assert.Contains(advert.Id, await service.ListSavedIdsAsync(user.Id));
+
+        var updated = await db.Adverts.AsNoTracking().FirstAsync(a => a.Id == advert.Id);
+        Assert.Equal(1, updated.LikeCount);
     }
 
     [Fact]
@@ -66,5 +71,8 @@ public class SavedAdvertServiceTests
         var saved = await service.ListSavedAsync(user.Id);
         Assert.Empty(saved.Items);
         Assert.Empty(await service.ListSavedIdsAsync(user.Id));
+
+        var updated = await db.Adverts.AsNoTracking().FirstAsync(a => a.Id == advert.Id);
+        Assert.Equal(0, updated.LikeCount);
     }
 }

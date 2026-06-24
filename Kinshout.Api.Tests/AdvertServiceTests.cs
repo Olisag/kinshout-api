@@ -429,4 +429,35 @@ public class AdvertServiceTests
         var service = CreateService(db);
         await Assert.ThrowsAsync<KeyNotFoundException>(() => service.DeleteAsync(other.Id, advert.Id));
     }
+
+    [Fact]
+    public async Task GetByIdAsync_IncrementsViewCountAndReturnsCounts()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var advert = new Advert
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "Studio",
+            Description = "Desc",
+            Category = category,
+            User = user,
+            IsPublished = true,
+            ViewCount = 4,
+            LikeCount = 2,
+        };
+        db.Adverts.Add(advert);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var dto = await service.GetByIdAsync(advert.Id);
+
+        Assert.NotNull(dto);
+        Assert.Equal(5, dto!.ViewCount);
+        Assert.Equal(2, dto.LikeCount);
+
+        var stored = await db.Adverts.AsNoTracking().FirstAsync(a => a.Id == advert.Id);
+        Assert.Equal(5, stored.ViewCount);
+    }
 }

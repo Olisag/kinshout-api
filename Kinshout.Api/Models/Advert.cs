@@ -17,6 +17,7 @@ public class Advert
     public string? AiSummary { get; set; }
     public bool IsPublished { get; set; } = true;
     public int ViewCount { get; set; }
+    public int LikeCount { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

@@ -21,9 +21,8 @@ public class SavedAdvertService(KinshoutDbContext db) : ISavedAdvertService
 {
     public async Task SaveAsync(Guid userId, Guid advertId, CancellationToken ct = default)
     {
-        var advertExists = await db.Adverts
-            .AnyAsync(a => a.Id == advertId && a.IsPublished, ct);
-        if (!advertExists)
+        var advert = await db.Adverts.FirstOrDefaultAsync(a => a.Id == advertId && a.IsPublished, ct);
+        if (advert is null)
             throw new KeyNotFoundException("Annonce introuvable.");
 
         var existing = await db.SavedAdverts
@@ -37,6 +36,7 @@ public class SavedAdvertService(KinshoutDbContext db) : ISavedAdvertService
             AdvertId = advertId,
             SavedAt = DateTime.UtcNow,
         });
+        advert.LikeCount++;
         await db.SaveChangesAsync(ct);
     }
 
@@ -47,7 +47,10 @@ public class SavedAdvertService(KinshoutDbContext db) : ISavedAdvertService
         if (saved is null)
             return;
 
+        var advert = await db.Adverts.FirstOrDefaultAsync(a => a.Id == advertId, ct);
         db.SavedAdverts.Remove(saved);
+        if (advert is not null && advert.LikeCount > 0)
+            advert.LikeCount--;
         await db.SaveChangesAsync(ct);
     }
 

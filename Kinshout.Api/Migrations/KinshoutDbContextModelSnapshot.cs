@@ -55,6 +55,9 @@ namespace Kinshout.Api.Migrations
                     b.Property<bool>("IsPublished")
                         .HasColumnType("bit");
 
+                    b.Property<int>("LikeCount")
+                        .HasColumnType("int");
+
                     b.Property<string>("Location")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");

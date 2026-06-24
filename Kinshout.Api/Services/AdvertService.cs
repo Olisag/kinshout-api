@@ -138,17 +138,15 @@ public class AdvertService(
 
     public async Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
-        var updated = await db.Adverts
-            .Where(a => a.Id == id && a.IsPublished)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.ViewCount, a => a.ViewCount + 1), ct);
-        if (updated == 0)
-            return null;
-
         var advert = await db.Adverts
-            .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
-            .FirstAsync(a => a.Id == id && a.IsPublished, ct);
+            .FirstOrDefaultAsync(a => a.Id == id && a.IsPublished, ct);
+        if (advert is null)
+            return null;
+
+        advert.ViewCount++;
+        await db.SaveChangesAsync(ct);
         return ToDto(advert);
     }
 
@@ -238,7 +236,9 @@ public class AdvertService(
             tags,
             TimeHelpers.FormatRelative(advert.CreatedAt),
             advert.AiConfidence,
-            advert.AiSummary
+            advert.AiSummary,
+            advert.ViewCount,
+            advert.LikeCount
         );
     }
 
