@@ -12,6 +12,7 @@ public interface IUserProfileService
         Guid userId,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        Guid? viewerUserId = null,
         CancellationToken ct = default);
 }
 
@@ -36,6 +37,7 @@ public class UserProfileService(KinshoutDbContext db) : IUserProfileService
         Guid userId,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
         var isPublic = await db.Users
@@ -59,8 +61,14 @@ public class UserProfileService(KinshoutDbContext db) : IUserProfileService
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
+        var savedIds = await AdvertService.LoadSavedAdvertIdsAsync(
+            db,
+            viewerUserId,
+            items.Select(a => a.Id),
+            ct);
+
         return PagingHelper.Create(
-            items.Select(AdvertService.ToDto).ToList(),
+            AdvertService.ToDtos(items, savedIds),
             normalizedPage,
             normalizedPageSize,
             total);

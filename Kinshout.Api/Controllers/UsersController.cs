@@ -41,7 +41,7 @@ public class UsersController(IUserProfileService profiles) : ControllerBase
     {
         try
         {
-            return Ok(await profiles.ListPublicAdvertsAsync(id, page, pageSize, ct));
+            return Ok(await profiles.ListPublicAdvertsAsync(id, page, pageSize, ControllerUserHelper.TryGetUserId(HttpContext), ct));
         }
         catch (KeyNotFoundException)
         {

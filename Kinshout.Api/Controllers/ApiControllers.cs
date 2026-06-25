@@ -48,7 +48,7 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
 
         try
         {
-            return Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, intent, ct));
+            return Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, intent, TryGetUserId(), ct));
         }
         catch (ArgumentException ex)
         {
@@ -105,7 +105,7 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<AdvertDto>> Get(Guid id, CancellationToken ct)
     {
-        var advert = await adverts.GetByIdAsync(id, ct);
+        var advert = await adverts.GetByIdAsync(id, TryGetUserId(), ct);
         return advert is null ? NotFound() : Ok(advert);
     }
 
@@ -196,19 +196,19 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
 
     /// <summary>
     /// Save an advert to the signed-in user's favorites.
+    /// Returns the updated advert with <c>isSaved</c> and <c>likeCount</c>.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpPost("{id:guid}/save")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdvertDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Save(Guid id, CancellationToken ct)
+    public async Task<ActionResult<AdvertDto>> Save(Guid id, CancellationToken ct)
     {
         try
         {
-            await savedAdverts.SaveAsync(GetUserId(), id, ct);
-            return NoContent();
+            return Ok(await savedAdverts.SaveAsync(GetUserId(), id, ct));
         }
         catch (KeyNotFoundException)
         {
@@ -218,16 +218,24 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
 
     /// <summary>
     /// Remove an advert from the signed-in user's favorites.
+    /// Returns the updated advert with <c>isSaved</c> and <c>likeCount</c>.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpDelete("{id:guid}/save")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdvertDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> Unsave(Guid id, CancellationToken ct)
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AdvertDto>> Unsave(Guid id, CancellationToken ct)
     {
-        await savedAdverts.UnsaveAsync(GetUserId(), id, ct);
-        return NoContent();
+        try
+        {
+            return Ok(await savedAdverts.UnsaveAsync(GetUserId(), id, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     private static Guid GetUserId(HttpContext http) =>
@@ -236,6 +244,8 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
             ?? throw new UnauthorizedAccessException());
 
     private Guid GetUserId() => GetUserId(HttpContext);
+
+    private Guid? TryGetUserId() => ControllerUserHelper.TryGetUserId(HttpContext);
 }
 
 /// <summary>Categories — system-seeded and AI-created as adverts are posted.</summary>
@@ -317,7 +327,7 @@ public class SearchController(ISearchService search) : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(typeof(SearchResultDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<SearchResultDto>> Search([FromBody] SearchRequestDto request, CancellationToken ct) =>
-        Ok(await search.SearchAsync(request, ct));
+        Ok(await search.SearchAsync(request, ControllerUserHelper.TryGetUserId(HttpContext), ct));
 
     /// <summary>
     /// Search adverts and discussions (query string). Same behaviour as POST /api/search.
@@ -338,7 +348,7 @@ public class SearchController(ISearchService search) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default) =>
-        Ok(await search.SearchAsync(new SearchRequestDto(q, tab, page, pageSize), ct));
+        Ok(await search.SearchAsync(new SearchRequestDto(q, tab, page, pageSize), ControllerUserHelper.TryGetUserId(HttpContext), ct));
 }
 
 /// <summary>AI categorization preview — classify text without publishing an advert.</summary>

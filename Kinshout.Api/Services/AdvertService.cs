@@ -10,13 +10,14 @@ public interface IAdvertService
 {
     Task<AdvertDto> CreateAsync(Guid userId, CreateAdvertRequestDto request, CancellationToken ct = default);
     Task<AdvertDto> UpdateAsync(Guid userId, Guid advertId, UpdateAdvertRequestDto request, CancellationToken ct = default);
-    Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<AdvertDto?> GetByIdAsync(Guid id, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<PagedResultDto<AdvertDto>> ListAsync(
         Guid? categoryId = null,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         string? intent = null,
+        Guid? viewerUserId = null,
         CancellationToken ct = default);
     Task<PagedResultDto<AdvertDto>> ListMineAsync(
         Guid userId,
@@ -136,7 +137,7 @@ public class AdvertService(
         return ToDto(advert);
     }
 
-    public async Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    public async Task<AdvertDto?> GetByIdAsync(Guid id, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var advert = await db.Adverts
             .AsNoTracking()
@@ -147,7 +148,8 @@ public class AdvertService(
             return null;
 
         advert.ViewCount = await IncrementViewCountAsync(id, advert.ViewCount, ct);
-        return ToDto(advert);
+        var isSaved = await IsSavedByUserAsync(db, viewerUserId, id, ct);
+        return ToDto(advert, isSaved);
     }
 
     private async Task<int> IncrementViewCountAsync(Guid id, int currentCount, CancellationToken ct)
@@ -176,6 +178,7 @@ public class AdvertService(
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         string? intent = null,
+        Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
@@ -197,7 +200,8 @@ public class AdvertService(
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
-        return PagingHelper.Create(items.Select(ToDto).ToList(), normalizedPage, normalizedPageSize, total);
+        var savedIds = await LoadSavedAdvertIdsAsync(db, viewerUserId, items.Select(a => a.Id), ct);
+        return PagingHelper.Create(ToDtos(items, savedIds), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task<PagedResultDto<AdvertDto>> ListMineAsync(
@@ -221,7 +225,7 @@ public class AdvertService(
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
-        return PagingHelper.Create(items.Select(ToDto).ToList(), normalizedPage, normalizedPageSize, total);
+        return PagingHelper.Create(items.Select(a => ToDto(a)).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default)
@@ -236,7 +240,7 @@ public class AdvertService(
         await db.SaveChangesAsync(ct);
     }
 
-    internal static AdvertDto ToDto(Advert advert)
+    internal static AdvertDto ToDto(Advert advert, bool isSaved = false)
     {
         var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson) ?? [];
         var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
@@ -258,9 +262,45 @@ public class AdvertService(
             advert.AiConfidence,
             advert.AiSummary,
             advert.ViewCount,
-            advert.LikeCount
+            advert.LikeCount,
+            isSaved
         );
     }
+
+    internal static List<AdvertDto> ToDtos(IReadOnlyList<Advert> adverts, IReadOnlySet<Guid> savedIds) =>
+        adverts.Select(a => ToDto(a, savedIds.Contains(a.Id))).ToList();
+
+    internal static async Task<HashSet<Guid>> LoadSavedAdvertIdsAsync(
+        KinshoutDbContext db,
+        Guid? viewerUserId,
+        IEnumerable<Guid> advertIds,
+        CancellationToken ct)
+    {
+        if (viewerUserId is null)
+            return [];
+
+        var ids = advertIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return [];
+
+        var saved = await db.SavedAdverts
+            .AsNoTracking()
+            .Where(s => s.UserId == viewerUserId.Value && ids.Contains(s.AdvertId))
+            .Select(s => s.AdvertId)
+            .ToListAsync(ct);
+
+        return saved.ToHashSet();
+    }
+
+    private static async Task<bool> IsSavedByUserAsync(
+        KinshoutDbContext db,
+        Guid? viewerUserId,
+        Guid advertId,
+        CancellationToken ct) =>
+        viewerUserId is not null
+        && await db.SavedAdverts
+            .AsNoTracking()
+            .AnyAsync(s => s.UserId == viewerUserId.Value && s.AdvertId == advertId, ct);
 
     private async Task ReModerateStoredImagesAsync(IReadOnlyList<string> imageUrls, CancellationToken ct)
     {

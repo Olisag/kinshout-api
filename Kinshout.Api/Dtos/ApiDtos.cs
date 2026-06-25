@@ -87,7 +87,8 @@ public record AdvertDto(
     double AiConfidence,
     string? AiSummary,
     int ViewCount,
-    int LikeCount
+    int LikeCount,
+    bool IsSaved = false
 );
 
 public record CategoryDto(

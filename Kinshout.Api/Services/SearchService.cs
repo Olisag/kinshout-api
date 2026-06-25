@@ -8,7 +8,7 @@ namespace Kinshout.Api.Services;
 
 public interface ISearchService
 {
-    Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default);
+    Task<SearchResultDto> SearchAsync(SearchRequestDto request, Guid? viewerUserId = null, CancellationToken ct = default);
     Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default);
     Task<PagedResultDto<PopularSearchDto>> GetPopularSearchesAsync(
         int page = 1,
@@ -22,7 +22,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     private const int MaxPageSize = 50;
     private static readonly TimeSpan PopularSearchesCacheDuration = TimeSpan.FromSeconds(30);
 
-    public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default)
+    public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
         var query = request.Query.Trim();
         var (page, pageSize) = NormalizePaging(request.Page, request.PageSize);
@@ -52,13 +52,19 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         var analysis = await openAi.SearchAsync(query, adverts, discussions, ct);
 
         var advertById = adverts.ToDictionary(a => a.Id);
-        var advertResults = analysis.AdvertIds
+        var matchedAdverts = analysis.AdvertIds
             .Where(advertById.ContainsKey)
             .Select(id => advertById[id])
             .OrderByDescending(a => a.ViewCount)
             .ThenByDescending(a => a.CreatedAt)
-            .Select(AdvertService.ToDto)
             .ToList();
+
+        var savedIds = await AdvertService.LoadSavedAdvertIdsAsync(
+            db,
+            viewerUserId,
+            matchedAdverts.Select(a => a.Id),
+            ct);
+        var advertResults = AdvertService.ToDtos(matchedAdverts, savedIds);
 
         var discussionById = discussions.ToDictionary(d => d.Id);
         var discussionResults = analysis.DiscussionIds
