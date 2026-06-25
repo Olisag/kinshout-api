@@ -29,7 +29,7 @@ public class SearchServiceOrderingTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([recent.Id, popularOld.Id, popularNew.Id], [], ""));
 
-        var service = new SearchService(db, openAi.Object);
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", PageSize: 10));
 
         Assert.Equal(["Popular new", "Popular old", "Recent quiet"], result.Adverts.Select(a => a.Title).ToArray());
@@ -56,7 +56,7 @@ public class SearchServiceOrderingTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([], [quiet.Id, activeOld.Id, activeNew.Id], ""));
 
-        var service = new SearchService(db, openAi.Object);
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
         var result = await service.SearchAsync(new SearchRequestDto("quartier", "discussions", PageSize: 10));
 
         Assert.Equal(["Active new", "Active old", "Quiet recent"], result.Discussions.Select(d => d.Title).ToArray());
@@ -98,6 +98,7 @@ public class SearchServiceOrderingTests
             Body = "Body",
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
+            ReplyCount = replyCount,
         };
 
         for (var i = 0; i < replyCount; i++)

@@ -53,6 +53,10 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.Title).HasMaxLength(200);
             e.Property(x => x.Price).HasMaxLength(64);
             e.Property(x => x.Location).HasMaxLength(120);
+            e.HasIndex(x => new { x.IsPublished, x.CreatedAt });
+            e.HasIndex(x => new { x.IsPublished, x.ViewCount, x.CreatedAt });
+            e.HasIndex(x => new { x.UserId, x.IsPublished, x.CreatedAt });
+            e.HasIndex(x => new { x.CategoryId, x.IsPublished, x.CreatedAt });
             e.HasOne(x => x.User).WithMany(x => x.Adverts).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Adverts).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -60,12 +64,18 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         modelBuilder.Entity<Discussion>(e =>
         {
             e.Property(x => x.Title).HasMaxLength(200);
+            e.Property(x => x.ReplyCount).HasDefaultValue(0);
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
+            e.HasIndex(x => new { x.UserId, x.UpdatedAt });
             e.HasOne(x => x.User).WithMany(x => x.Discussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Discussions).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<DiscussionReply>(e =>
         {
+            e.HasIndex(x => new { x.DiscussionId, x.CreatedAt });
+            e.HasIndex(x => new { x.UserId, x.DiscussionId });
             e.HasOne(x => x.Discussion).WithMany(x => x.Replies).HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.User).WithMany(x => x.Replies).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });

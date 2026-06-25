@@ -19,15 +19,17 @@ public class UserProfileService(KinshoutDbContext db) : IUserProfileService
 {
     public async Task<PublicUserProfileDto?> GetPublicProfileAsync(Guid userId, CancellationToken ct = default)
     {
-        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
-        if (user is null || !user.IsProfilePublic)
-            return null;
-
-        var publishedCount = await db.Adverts
+        var row = await db.Users
             .AsNoTracking()
-            .CountAsync(a => a.UserId == userId && a.IsPublished, ct);
+            .Where(u => u.Id == userId && u.IsProfilePublic)
+            .Select(u => new
+            {
+                User = u,
+                PublishedCount = u.Adverts.Count(a => a.IsPublished),
+            })
+            .FirstOrDefaultAsync(ct);
 
-        return ToPublicProfile(user, publishedCount);
+        return row is null ? null : ToPublicProfile(row.User, row.PublishedCount);
     }
 
     public async Task<PagedResultDto<AdvertDto>> ListPublicAdvertsAsync(

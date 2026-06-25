@@ -167,6 +167,7 @@ public class DiscussionServiceListTests
             Body = title,
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
+            ReplyCount = replyCount,
             User = user,
             Category = category,
         };

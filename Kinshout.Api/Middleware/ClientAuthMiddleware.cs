@@ -73,7 +73,7 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
         }
 
         // IIS on Azure can corrupt X-Kinshout-Client-Token on multipart requests when Authorization is also set.
-        if (context.Request.HasFormContentType)
+        if (IsMultipartFormRequest(context.Request))
         {
             context.Request.EnableBuffering();
             var form = await context.Request.ReadFormAsync();
@@ -154,6 +154,10 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SecretKey)),
             ClockSkew = TimeSpan.FromMinutes(2),
         };
+
+    private static bool IsMultipartFormRequest(HttpRequest request) =>
+        request.ContentType is not null
+        && request.ContentType.Contains("multipart/form-data", StringComparison.OrdinalIgnoreCase);
 
     private static Task Write401Async(HttpContext context, string message)
     {

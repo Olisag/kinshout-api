@@ -139,15 +139,35 @@ public class AdvertService(
     public async Task<AdvertDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
         var advert = await db.Adverts
+            .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
             .FirstOrDefaultAsync(a => a.Id == id && a.IsPublished, ct);
         if (advert is null)
             return null;
 
-        advert.ViewCount++;
-        await db.SaveChangesAsync(ct);
+        advert.ViewCount = await IncrementViewCountAsync(id, advert.ViewCount, ct);
         return ToDto(advert);
+    }
+
+    private async Task<int> IncrementViewCountAsync(Guid id, int currentCount, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational())
+        {
+            var tracked = await db.Adverts.FirstOrDefaultAsync(a => a.Id == id, ct);
+            if (tracked is null)
+                return currentCount;
+
+            tracked.ViewCount++;
+            await db.SaveChangesAsync(ct);
+            return tracked.ViewCount;
+        }
+
+        await db.Adverts
+            .Where(a => a.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.ViewCount, a => a.ViewCount + 1), ct);
+
+        return currentCount + 1;
     }
 
     public async Task<PagedResultDto<AdvertDto>> ListAsync(

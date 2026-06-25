@@ -2,6 +2,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kinshout.Api.Tests;
 
@@ -15,6 +16,8 @@ internal static class TestDbFactory
 
         return new KinshoutDbContext(options);
     }
+
+    public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
 
     public static async Task<(User User, Category Category)> SeedUserAndCategoryAsync(
         KinshoutDbContext db,

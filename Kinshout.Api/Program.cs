@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 using Kinshout.Api.Auth;
 using Kinshout.Api.Configuration;
@@ -8,6 +9,7 @@ using Kinshout.Api.Services;
 using Kinshout.Api.Swagger;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -24,6 +26,17 @@ var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<
     ?? throw new InvalidOperationException("Jwt settings are required.");
 var corsSettings = builder.Configuration.GetSection(CorsSettings.SectionName).Get<CorsSettings>() ?? new CorsSettings();
 var clientAuthSettings = builder.Configuration.GetSection(ClientAuthSettings.SectionName).Get<ClientAuthSettings>() ?? new ClientAuthSettings();
+
+builder.Services.AddMemoryCache();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["application/json"]);
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 
 builder.Services.AddDbContext<KinshoutDbContext>(options =>
 {
@@ -227,8 +240,10 @@ else
     app.UseHttpsRedirection();
 }
 
+app.UseResponseCompression();
 app.UseCors("Kinshout");
 app.UseStaticFiles();
+app.UseMiddleware<ResponseTimingMiddleware>();
 app.UseMiddleware<ClientAuthMiddleware>();
 
 app.UseSwagger(options =>

@@ -2,6 +2,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kinshout.Api.Services;
 
@@ -15,10 +16,11 @@ public interface ISearchService
         CancellationToken ct = default);
 }
 
-public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearchService
+public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryCache cache) : ISearchService
 {
     private const int DefaultPageSize = 20;
     private const int MaxPageSize = 50;
+    private static readonly TimeSpan PopularSearchesCacheDuration = TimeSpan.FromSeconds(30);
 
     public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, CancellationToken ct = default)
     {
@@ -42,8 +44,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
             .AsNoTracking()
             .Include(d => d.User)
             .Include(d => d.Category)
-            .Include(d => d.Replies)
-            .OrderByDescending(d => d.Replies.Count)
+            .OrderByDescending(d => d.ReplyCount)
             .ThenByDescending(d => d.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
@@ -63,7 +64,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         var discussionResults = analysis.DiscussionIds
             .Where(discussionById.ContainsKey)
             .Select(id => discussionById[id])
-            .OrderByDescending(d => d.Replies.Count)
+            .OrderByDescending(d => d.ReplyCount)
             .ThenByDescending(d => d.CreatedAt)
             .Select(ToDiscussionDto)
             .ToList();
@@ -122,6 +123,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         }
 
         await db.SaveChangesAsync(ct);
+        cache.Remove(ApiCacheKeys.PopularSearches);
     }
 
     public async Task<PagedResultDto<PopularSearchDto>> GetPopularSearchesAsync(
@@ -130,20 +132,26 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var cacheKey = $"{ApiCacheKeys.PopularSearches}:{normalizedPage}:{normalizedPageSize}";
 
-        var query = db.SearchQueryStats
-            .AsNoTracking()
-            .OrderByDescending(s => s.SearchCount)
-            .ThenByDescending(s => s.LastSearchedAt);
+        return await cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = PopularSearchesCacheDuration;
 
-        var total = await query.CountAsync(ct);
-        var items = await query
-            .Skip((normalizedPage - 1) * normalizedPageSize)
-            .Take(normalizedPageSize)
-            .Select(s => new PopularSearchDto(s.DisplayQuery, s.SearchCount))
-            .ToListAsync(ct);
+            var query = db.SearchQueryStats
+                .AsNoTracking()
+                .OrderByDescending(s => s.SearchCount)
+                .ThenByDescending(s => s.LastSearchedAt);
 
-        return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
+            var total = await query.CountAsync(ct);
+            var items = await query
+                .Skip((normalizedPage - 1) * normalizedPageSize)
+                .Take(normalizedPageSize)
+                .Select(s => new PopularSearchDto(s.DisplayQuery, s.SearchCount))
+                .ToListAsync(ct);
+
+            return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
+        }) ?? PagingHelper.Create(Array.Empty<PopularSearchDto>(), normalizedPage, normalizedPageSize, 0);
     }
 
     public async Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default)
@@ -155,7 +163,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
         var categoryCreated = false;
         if (analysis.CreateNewCategory && categories.All(c => c.Slug != analysis.CategorySlug))
         {
-            var created = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, ct);
+            var created = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, cache, ct);
             analysis = analysis with { CategorySlug = created.Slug, CategoryLabel = created.Label, CategoryIcon = created.Icon };
             categoryCreated = true;
         }
@@ -187,7 +195,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi) : ISearc
             d.Body,
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
-            d.Replies.Count,
+            d.ReplyCount,
             TimeHelpers.FormatRelative(d.CreatedAt),
             d.Category?.Slug
         );

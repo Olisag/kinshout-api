@@ -93,6 +93,14 @@ namespace Kinshout.Api.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("IsPublished", "CreatedAt");
+
+                    b.HasIndex("IsPublished", "ViewCount", "CreatedAt");
+
+                    b.HasIndex("UserId", "IsPublished", "CreatedAt");
+
+                    b.HasIndex("CategoryId", "IsPublished", "CreatedAt");
+
                     b.ToTable("Adverts", (string)null);
                 });
 
@@ -187,6 +195,11 @@ namespace Kinshout.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("ReplyCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -203,6 +216,12 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("CategoryId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ReplyCount", "CreatedAt");
+
+                    b.HasIndex("UserId", "UpdatedAt");
 
                     b.ToTable("Discussions", (string)null);
                 });
@@ -231,6 +250,10 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("DiscussionId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("DiscussionId", "CreatedAt");
+
+                    b.HasIndex("UserId", "DiscussionId");
 
                     b.ToTable("DiscussionReplies", (string)null);
                 });

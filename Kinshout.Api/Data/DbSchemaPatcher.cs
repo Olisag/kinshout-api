@@ -53,6 +53,21 @@ public static class DbSchemaPatcher
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE Adverts ADD COLUMN LikeCount INTEGER NOT NULL DEFAULT 0", ct);
 
+        if (!await ColumnExistsAsync(connection, "Discussions", "ReplyCount", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Discussions ADD COLUMN ReplyCount INTEGER NOT NULL DEFAULT 0", ct);
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE Discussions
+                SET ReplyCount = (
+                    SELECT COUNT(*)
+                    FROM DiscussionReplies
+                    WHERE DiscussionReplies.DiscussionId = Discussions.Id
+                )
+                """, ct);
+        }
+
         if (await TableExistsAsync(connection, "SavedAdverts", ct))
         {
             await db.Database.ExecuteSqlRawAsync(

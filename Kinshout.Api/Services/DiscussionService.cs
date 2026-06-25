@@ -55,7 +55,6 @@ public class DiscussionService(
             .AsNoTracking()
             .Include(d => d.User)
             .Include(d => d.Category)
-            .Include(d => d.Replies)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(query))
@@ -65,7 +64,7 @@ public class DiscussionService(
         }
 
         var ordered = ListSortHelper.IsPopular(sort)
-            ? q.OrderByDescending(d => d.Replies.Count).ThenByDescending(d => d.CreatedAt)
+            ? q.OrderByDescending(d => d.ReplyCount).ThenByDescending(d => d.CreatedAt)
             : q.OrderByDescending(d => d.CreatedAt);
 
         var total = await ordered.CountAsync(ct);
@@ -91,7 +90,6 @@ public class DiscussionService(
             .AsNoTracking()
             .Include(d => d.User)
             .Include(d => d.Category)
-            .Include(d => d.Replies)
             .AsQueryable();
 
         query = normalizedFilter switch
@@ -252,6 +250,7 @@ public class DiscussionService(
         };
 
         db.DiscussionReplies.Add(reply);
+        discussion.ReplyCount++;
         await db.SaveChangesAsync(ct);
 
         var user = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
@@ -288,7 +287,12 @@ public class DiscussionService(
             .FirstOrDefaultAsync(r => r.Id == replyId && r.DiscussionId == discussionId && r.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Réponse introuvable.");
 
+        var discussion = await db.Discussions.FirstOrDefaultAsync(d => d.Id == discussionId, ct)
+            ?? throw new KeyNotFoundException("Discussion introuvable.");
+
         db.DiscussionReplies.Remove(reply);
+        if (discussion.ReplyCount > 0)
+            discussion.ReplyCount--;
         await db.SaveChangesAsync(ct);
     }
 
@@ -317,7 +321,7 @@ public class DiscussionService(
             d.Body,
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
-            d.Replies.Count,
+            d.ReplyCount,
             TimeHelpers.FormatRelative(d.CreatedAt),
             d.Category?.Slug
         );

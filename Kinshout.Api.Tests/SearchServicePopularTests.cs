@@ -79,6 +79,6 @@ public class SearchServicePopularTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([], [], ""));
 
-        return new SearchService(db, openAi.Object);
+        return new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
     }
 }

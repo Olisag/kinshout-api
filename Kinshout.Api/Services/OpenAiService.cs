@@ -7,6 +7,7 @@ using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 
 namespace Kinshout.Api.Services;
@@ -298,6 +299,13 @@ public static class CategoryResolver
     public static async Task<Category> ResolveOrCreateCategoryAsync(
         KinshoutDbContext db,
         AiAdvertAnalysis analysis,
+        CancellationToken ct) =>
+        await ResolveOrCreateCategoryAsync(db, analysis, cache: null, ct);
+
+    public static async Task<Category> ResolveOrCreateCategoryAsync(
+        KinshoutDbContext db,
+        AiAdvertAnalysis analysis,
+        IMemoryCache? cache,
         CancellationToken ct)
     {
         var existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == analysis.CategorySlug, ct);
@@ -320,6 +328,7 @@ public static class CategoryResolver
         };
         db.Categories.Add(category);
         await db.SaveChangesAsync(ct);
+        cache?.Remove(ApiCacheKeys.CategoriesAll);
         return category;
     }
 

@@ -6,6 +6,7 @@ using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kinshout.Api.Controllers;
 
@@ -241,8 +242,10 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
 [ApiController]
 [Route("api/categories")]
 [Produces("application/json")]
-public class CategoriesController(KinshoutDbContext db) : ControllerBase
+public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : ControllerBase
 {
+    private static readonly TimeSpan CategoriesCacheDuration = TimeSpan.FromMinutes(15);
+
     /// <summary>
     /// List categories (Immobilier, Emplois, etc., plus any created by OpenAI).
     /// Requires frontend client token only.
@@ -256,20 +259,28 @@ public class CategoriesController(KinshoutDbContext db) : ControllerBase
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var cacheKey = $"{ApiCacheKeys.CategoriesAll}:{normalizedPage}:{normalizedPageSize}";
 
-        var query = db.Categories
-            .AsNoTracking()
-            .OrderBy(c => c.IsSystem ? 0 : 1)
-            .ThenBy(c => c.Label);
+        var result = await cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CategoriesCacheDuration;
 
-        var total = await query.CountAsync(ct);
-        var items = await query
-            .Skip((normalizedPage - 1) * normalizedPageSize)
-            .Take(normalizedPageSize)
-            .Select(c => new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated))
-            .ToListAsync(ct);
+            var query = db.Categories
+                .AsNoTracking()
+                .OrderBy(c => c.IsSystem ? 0 : 1)
+                .ThenBy(c => c.Label);
 
-        return Ok(PagingHelper.Create(items, normalizedPage, normalizedPageSize, total));
+            var total = await query.CountAsync(ct);
+            var items = await query
+                .Skip((normalizedPage - 1) * normalizedPageSize)
+                .Take(normalizedPageSize)
+                .Select(c => new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated))
+                .ToListAsync(ct);
+
+            return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
+        });
+
+        return Ok(result ?? PagingHelper.Create(Array.Empty<CategoryDto>(), normalizedPage, normalizedPageSize, 0));
     }
 }
 
