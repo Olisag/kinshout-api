@@ -51,13 +51,23 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
 
         var analysis = await openAi.SearchAsync(query, adverts, discussions, ct);
 
+        var sort = ListSortHelper.IsPopular(request.Sort) ? ListSortHelper.Popular : ListSortHelper.Recent;
+
         var advertById = adverts.ToDictionary(a => a.Id);
-        var matchedAdverts = analysis.AdvertIds
-            .Where(advertById.ContainsKey)
-            .Select(id => advertById[id])
-            .OrderByDescending(a => a.ViewCount)
-            .ThenByDescending(a => a.CreatedAt)
-            .ToList();
+        var matchedAdverts = SortAdverts(
+            analysis.AdvertIds
+                .Where(advertById.ContainsKey)
+                .Select(id => advertById[id]),
+            sort);
+
+        var discussionById = discussions.ToDictionary(d => d.Id);
+        var matchedDiscussions = SortDiscussions(
+            analysis.DiscussionIds
+                .Where(discussionById.ContainsKey)
+                .Select(id => discussionById[id]),
+            sort);
+
+        ApplyIntentFilter(request.Intent, ref matchedAdverts, ref matchedDiscussions);
 
         var savedIds = await AdvertService.LoadSavedAdvertIdsAsync(
             db,
@@ -65,15 +75,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             matchedAdverts.Select(a => a.Id),
             ct);
         var advertResults = AdvertService.ToDtos(matchedAdverts, savedIds);
-
-        var discussionById = discussions.ToDictionary(d => d.Id);
-        var discussionResults = analysis.DiscussionIds
-            .Where(discussionById.ContainsKey)
-            .Select(id => discussionById[id])
-            .OrderByDescending(d => d.ReplyCount)
-            .ThenByDescending(d => d.CreatedAt)
-            .Select(ToDiscussionDto)
-            .ToList();
+        var discussionResults = matchedDiscussions.Select(ToDiscussionDto).ToList();
 
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
             discussionResults = [];
@@ -102,6 +104,46 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
 
     private static (int Page, int PageSize) NormalizePaging(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize));
+
+    private static List<Advert> SortAdverts(IEnumerable<Advert> adverts, string sort)
+    {
+        var query = adverts.AsEnumerable();
+        return sort == ListSortHelper.Popular
+            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.CreatedAt).ToList()
+            : query.OrderByDescending(a => a.CreatedAt).ToList();
+    }
+
+    private static List<Discussion> SortDiscussions(IEnumerable<Discussion> discussions, string sort)
+    {
+        var query = discussions.AsEnumerable();
+        return sort == ListSortHelper.Popular
+            ? query.OrderByDescending(d => d.ReplyCount).ThenByDescending(d => d.CreatedAt).ToList()
+            : query.OrderByDescending(d => d.CreatedAt).ToList();
+    }
+
+    private static void ApplyIntentFilter(
+        string? intent,
+        ref List<Advert> adverts,
+        ref List<Discussion> discussions)
+    {
+        if (string.IsNullOrWhiteSpace(intent))
+            return;
+
+        switch (intent.Trim().ToLowerInvariant())
+        {
+            case SearchIntentHelper.Offre:
+                adverts = adverts.Where(a => a.Intent == AdvertIntent.Offre).ToList();
+                discussions = [];
+                break;
+            case SearchIntentHelper.Demande:
+                adverts = adverts.Where(a => a.Intent == AdvertIntent.Demande).ToList();
+                discussions = [];
+                break;
+            case SearchIntentHelper.Discussion:
+                adverts = adverts.Where(a => a.Intent == AdvertIntent.Discussion).ToList();
+                break;
+        }
+    }
 
     private async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)
     {

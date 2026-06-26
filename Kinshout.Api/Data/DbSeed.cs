@@ -43,7 +43,7 @@ public static class DbSeed
             new Category { Slug = "emploi_services", Label = "Emplois", Icon = "▣", IsSystem = true },
             new Category { Slug = "electronique", Label = "Électroniques", Icon = "▯", IsSystem = true },
             new Category { Slug = "maison_jardin", Label = "Services", Icon = "⌘", IsSystem = true },
-            new Category { Slug = "discussion", Label = "Discussions", Icon = "💬", IsSystem = true },
+            new Category { Slug = Category.DiscussionSlug, Label = "Discussions", Icon = "💬", IsSystem = true },
         };
 
         db.Categories.AddRange(categories);

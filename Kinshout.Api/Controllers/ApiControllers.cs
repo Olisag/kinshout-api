@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Kinshout.Api.Auth;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
+using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -257,7 +258,8 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     private static readonly TimeSpan CategoriesCacheDuration = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// List categories (Immobilier, Emplois, etc., plus any created by OpenAI).
+    /// List advert categories (Immobilier, Emplois, etc., plus any created by OpenAI).
+    /// Excludes the Discussions category — use <c>/api/discussions</c> for forum content.
     /// Requires frontend client token only.
     /// </summary>
     [HttpGet]
@@ -277,6 +279,7 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
 
             var query = db.Categories
                 .AsNoTracking()
+                .Where(c => c.Slug != Category.DiscussionSlug)
                 .OrderBy(c => c.IsSystem ? 0 : 1)
                 .ThenBy(c => c.Label);
 
@@ -320,14 +323,24 @@ public class SearchController(ISearchService search) : ControllerBase
     /// </summary>
     /// <remarks>
     /// Set <c>tab</c> to <c>all</c>, <c>annonces</c>, or <c>discussions</c> to filter result types.
+    /// Use <c>sort</c> (<c>recent</c> or <c>popular</c>) and optional <c>intent</c> (<c>demande</c>, <c>offre</c>, <c>discussion</c>).
     /// Use <c>page</c> (1-based) and <c>pageSize</c> (max 50, default 20) for pagination.
     /// Falls back to keyword matching if OpenAI is unavailable.
     /// </remarks>
     [HttpPost]
     [AllowAnonymous]
     [ProducesResponseType(typeof(SearchResultDto), StatusCodes.Status200OK)]
-    public async Task<ActionResult<SearchResultDto>> Search([FromBody] SearchRequestDto request, CancellationToken ct) =>
-        Ok(await search.SearchAsync(request, ControllerUserHelper.TryGetUserId(HttpContext), ct));
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<SearchResultDto>> Search([FromBody] SearchRequestDto request, CancellationToken ct)
+    {
+        if (!TryNormalizeSearchParams(request.Sort, request.Intent, out var sort, out var intent, out var error))
+            return BadRequest(new { error });
+
+        return Ok(await search.SearchAsync(
+            request with { Sort = sort, Intent = intent },
+            ControllerUserHelper.TryGetUserId(HttpContext),
+            ct));
+    }
 
     /// <summary>
     /// Search adverts and discussions (query string). Same behaviour as POST /api/search.
@@ -336,19 +349,56 @@ public class SearchController(ISearchService search) : ControllerBase
     /// </summary>
     /// <param name="q">Search text, e.g. "appartement à Gombe".</param>
     /// <param name="tab">Result filter: all, annonces, or discussions.</param>
+    /// <param name="sort">Sort order: recent (default) or popular.</param>
+    /// <param name="intent">Optional intent filter: demande, offre, or discussion.</param>
     /// <param name="page">Page number (1-based).</param>
     /// <param name="pageSize">Results per type per page (max 50).</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(typeof(SearchResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<SearchResultDto>> SearchGet(
         [FromQuery] string q,
         [FromQuery] string tab = "all",
+        [FromQuery] string sort = "recent",
+        [FromQuery] string? intent = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        CancellationToken ct = default) =>
-        Ok(await search.SearchAsync(new SearchRequestDto(q, tab, page, pageSize), ControllerUserHelper.TryGetUserId(HttpContext), ct));
+        CancellationToken ct = default)
+    {
+        if (!TryNormalizeSearchParams(sort, intent, out sort, out intent, out var error))
+            return BadRequest(new { error });
+
+        return Ok(await search.SearchAsync(
+            new SearchRequestDto(q, tab, page, pageSize, sort, intent),
+            ControllerUserHelper.TryGetUserId(HttpContext),
+            ct));
+    }
+
+    private static bool TryNormalizeSearchParams(
+        string? sort,
+        string? intent,
+        out string normalizedSort,
+        out string? normalizedIntent,
+        out string error)
+    {
+        if (!ListSortHelper.TryNormalize(sort, out normalizedSort))
+        {
+            error = "Le paramètre sort doit être recent ou popular.";
+            normalizedIntent = null;
+            return false;
+        }
+
+        if (!SearchIntentHelper.TryNormalize(intent, out normalizedIntent))
+        {
+            error = "Le paramètre intent doit être demande, offre ou discussion.";
+            return false;
+        }
+
+        error = "";
+        return true;
+    }
 }
 
 /// <summary>AI categorization preview — classify text without publishing an advert.</summary>

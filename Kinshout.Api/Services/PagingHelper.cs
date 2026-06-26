@@ -25,6 +25,31 @@ public static class ListSortHelper
 
     public static bool IsPopular(string? sort) =>
         sort?.Equals(Popular, StringComparison.OrdinalIgnoreCase) == true;
+
+    public static bool TryNormalize(string? sort, out string normalized)
+    {
+        normalized = (sort ?? Recent).Trim().ToLowerInvariant();
+        return normalized is Recent or Popular;
+    }
+}
+
+public static class SearchIntentHelper
+{
+    public const string Demande = "demande";
+    public const string Offre = "offre";
+    public const string Discussion = "discussion";
+
+    public static bool TryNormalize(string? intent, out string? normalized)
+    {
+        if (string.IsNullOrWhiteSpace(intent))
+        {
+            normalized = null;
+            return true;
+        }
+
+        normalized = intent.Trim().ToLowerInvariant();
+        return normalized is Demande or Offre or Discussion;
+    }
 }
 
 public static class DiscussionMineFilterHelper

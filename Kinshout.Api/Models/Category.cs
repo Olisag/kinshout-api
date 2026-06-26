@@ -2,6 +2,8 @@ namespace Kinshout.Api.Models;
 
 public class Category
 {
+    public const string DiscussionSlug = "discussion";
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Slug { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;

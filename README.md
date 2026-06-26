@@ -143,8 +143,8 @@ See `api-client.js` — calls `ensureClientAuth()` automatically before each req
 ### Search & AI
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/search` | — | Semantic search (adverts + discussions) |
-| GET | `/api/search?q=...&tab=all` | — | Search via query string |
+| POST | `/api/search` | — | Semantic search (adverts + discussions). Body/query: `sort` (`recent`|`popular`), optional `intent` (`demande`|`offre`|`discussion`) |
+| GET | `/api/search?q=...&tab=all&sort=recent&intent=offre` | — | Search via query string |
 | POST | `/api/categorize` | — | Preview categorization without posting |
 
 ### Discussions

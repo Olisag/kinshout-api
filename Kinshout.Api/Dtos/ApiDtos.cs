@@ -137,7 +137,13 @@ public record CreateReplyRequestDto(string Body);
 
 public record UpdateReplyRequestDto(string Body);
 
-public record SearchRequestDto(string Query, string Tab = "all", int Page = 1, int PageSize = 20);
+public record SearchRequestDto(
+    string Query,
+    string Tab = "all",
+    int Page = 1,
+    int PageSize = 20,
+    string Sort = "recent",
+    string? Intent = null);
 
 public record PopularSearchDto(string Query, int Count);
 
