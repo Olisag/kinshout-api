@@ -189,7 +189,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             intentLabel,
             analysis.Confidence,
             analysis.Summary,
-            categoryCreated || beforeCount < categories.Count ? "openai" : "openai",
+            analysis.Confidence < 0.6 ? "rules" : "openai",
             categoryCreated
         );
     }

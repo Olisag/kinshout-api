@@ -232,14 +232,37 @@ public partial class OpenAiService(
 
     private static AiAdvertAnalysis FallbackAdvertAnalysis(string text, IReadOnlyList<Category> existing)
     {
-        var norm = text.ToLowerInvariant();
-        var best = existing.FirstOrDefault(c => norm.Contains(c.Slug.Replace('_', ' ')))
-            ?? existing.FirstOrDefault(c => c.Slug == "emploi_services")
-            ?? existing.First();
+        var norm = NormalizeForMatch(text);
+        var scores = existing.ToDictionary(c => c.Slug, _ => 0.0);
 
-        var intent = norm.Contains("cherche") || norm.Contains("recherche") ? "demande" : "offre";
-        if (norm.Contains("discussion") || norm.Contains("avis"))
-            intent = "discussion";
+        foreach (var category in existing)
+        {
+            if (!CategoryKeywordRules.TryGetValue(category.Slug, out var keywords))
+                continue;
+
+            foreach (var keyword in keywords)
+            {
+                if (!norm.Contains(keyword, StringComparison.Ordinal))
+                    continue;
+
+                scores[category.Slug] += keyword.Length > 5 ? 1.5 : 1.0;
+            }
+        }
+
+        var best = existing
+            .OrderByDescending(c => scores.GetValueOrDefault(c.Slug))
+            .ThenBy(c => c.Slug, StringComparer.Ordinal)
+            .First();
+
+        var bestScore = scores.GetValueOrDefault(best.Slug);
+        if (bestScore <= 0)
+        {
+            best = existing.FirstOrDefault(c => c.Slug == "maison_jardin")
+                ?? existing.FirstOrDefault(c => c.Slug != "discussion")
+                ?? existing.First();
+        }
+
+        var intent = DetectFallbackIntent(norm, best.Slug);
 
         return new AiAdvertAnalysis(
             best.Slug,
@@ -252,10 +275,81 @@ public partial class OpenAiService(
             ExtractPrice(text),
             ExtractLocation(text),
             [],
-            0.55,
-            $"Annonce classée en « {best.Label} » (règles locales)."
+            bestScore > 0 ? Math.Min(0.95, 0.45 + bestScore * 0.12) : 0.4,
+            BuildFallbackSummary(best.Label, intent)
         );
     }
+
+    private static string NormalizeForMatch(string text) =>
+        Regex.Replace(text.ToLowerInvariant().Trim(), @"\s+", " ");
+
+    private static string DetectFallbackIntent(string norm, string categorySlug)
+    {
+        if (categorySlug == "discussion" || norm.Contains("discussion", StringComparison.Ordinal))
+            return "discussion";
+
+        if (OfferWords.Any(word => norm.Contains(word, StringComparison.Ordinal)))
+            return "offre";
+
+        if (DemandWords.Any(word => norm.Contains(word, StringComparison.Ordinal)))
+            return "demande";
+
+        return "demande";
+    }
+
+    private static string BuildFallbackSummary(string categoryLabel, string intent) =>
+        intent switch
+        {
+            "offre" => $"Annonce classée en « {categoryLabel} » — le client propose un bien ou un service.",
+            "discussion" => $"Sujet classé en « {categoryLabel} » — question ou échange communautaire.",
+            _ => $"Recherche classée en « {categoryLabel} » — le client cherche un bien ou un service.",
+        };
+
+    private static readonly string[] OfferWords =
+    [
+        "vends", "vendre", "vend", "à vendre", "a vendre", "disponible", "propose", "offre", "loue", "louer",
+    ];
+
+    private static readonly string[] DemandWords =
+    [
+        "cherche", "recherche", "besoin", "veux", "acheter", "achète", "achete", "louer un", "louer une", "recrute",
+    ];
+
+    private static readonly Dictionary<string, string[]> CategoryKeywordRules = new(StringComparer.Ordinal)
+    {
+        ["immobilier"] =
+        [
+            "appartement", "maison", "studio", "villa", "loyer", "louer", "location", "colocation", "terrain",
+            "bureau", "commerce", "gombe", "limete", "bandal", "kinshasa", "chambre", "immeuble", "parcelle",
+        ],
+        ["vehicules_transport"] =
+        [
+            "voiture", "moto", "taxi", "chauffeur", "conducteur", "véhicule", "vehicule", "camion", "bus", "transport",
+            "permis", "garage", "pièces auto", "auto", "scooter", "yamaha", "toyota",
+        ],
+        ["electronique"] =
+        [
+            "iphone", "samsung", "téléphone", "telephone", "ordinateur", "laptop", "tablette", "tv", "télévision",
+            "console", "playstation", "xbox", "écouteurs", "chargeur", "starlink", "internet", "modem", "wifi",
+            "macbook",
+        ],
+        ["emploi_services"] =
+        [
+            "emploi", "travail", "job", "recrute", "cv", "salaire", "stage", "plombier", "électricien", "electricien",
+            "menuisier", "coiffeur", "nettoyage", "réparation", "reparation", "service", "freelance", "nounou", "vtc",
+        ],
+        ["maison_jardin"] =
+        [
+            "meuble", "canapé", "canape", "frigo", "réfrigérateur", "cuisine", "ustensile", "décoration", "jardin",
+            "outil", "vêtement", "vetement", "robe", "chaussure", "sac", "montre", "parfum", "maquillage", "coiffure",
+            "beauté", "beaute", "bijou",
+        ],
+        ["discussion"] =
+        [
+            "discussion", "avis", "question", "forum", "conseil", "qu'en pensez", "politique", "société", "societe",
+            "débat", "debat",
+        ],
+    };
 
     private static AiSearchAnalysis FallbackSearch(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions)
     {
