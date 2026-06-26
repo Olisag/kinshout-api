@@ -13,6 +13,10 @@ public class OpenAiServiceFallbackTests
     [InlineData("Appartement à louer à Gombe", "immobilier", "offre")]
     [InlineData("Je cherche un iPhone 13 pas cher", "electronique", "demande")]
     [InlineData("Recrute chauffeur VTC", "emploi_services", "demande")]
+    [InlineData("Nazali koteka motuka ya Toyota", "vehicules_transport", "offre")]
+    [InlineData("Nalingi ndako na Gombe", "immobilier", "demande")]
+    [InlineData("Looking for iPhone 14 in Kinshasa", "electronique", "demande")]
+    [InlineData("Apartment for rent in Limete", "immobilier", "offre")]
     public async Task AnalyzeAdvertAsync_WithoutApiKey_UsesKeywordRules(
         string text,
         string expectedSlug,

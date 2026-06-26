@@ -171,6 +171,8 @@ See `api-client.js` — calls `ensureClientAuth()` automatically before each req
 
 ## OpenAI behavior
 
+Kinshout users write in **French, English, Lingala**, or mixed franglais. OpenAI prompts and the keyword fallback both handle all three; UI labels (`categoryLabel`, `summary`) stay in French.
+
 **On advert publish** (`POST /api/adverts`):
 - OpenAI **moderation** blocks sexual/adult text and non-genuine web-sourced photos
 - Analyzes text and assigns an existing category or creates a new one dynamically
@@ -183,6 +185,26 @@ See `api-client.js` — calls `ensureClientAuth()` automatically before each req
 **On search** (`POST /api/search`):
 - Returns relevant adverts **and** discussions based on semantic meaning of the query
 - Falls back to keyword matching if OpenAI is unavailable
+
+### Local OpenAI setup
+
+```bash
+cd api/Kinshout.Api
+dotnet user-secrets set "OpenAI:ApiKey" "sk-proj-..."
+# Or: export OpenAI__ApiKey=sk-proj-... before dotnet run
+```
+
+### Azure OpenAI setup
+
+`Kinshout-api-dev` already has `OpenAI__ApiKey` configured. If categorize/search still use the keyword fallback (`confidence` ~0.55, summary mentions “règles locales”), the key may be missing, invalid, or out of quota (HTTP 429). Fix billing at [platform.openai.com](https://platform.openai.com/account/billing) or rotate the key:
+
+```bash
+az webapp config appsettings set \
+  --name Kinshout-api-dev \
+  --resource-group Phpnet20211126011001ResourceGroup \
+  --settings OpenAI__ApiKey="sk-proj-..."
+az webapp restart --name Kinshout-api-dev --resource-group Phpnet20211126011001ResourceGroup
+```
 
 ## Frontend integration
 

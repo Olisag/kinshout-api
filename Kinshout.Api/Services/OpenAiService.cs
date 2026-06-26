@@ -24,7 +24,8 @@ public record AiAdvertAnalysis(
     string? Location,
     IReadOnlyList<string> Tags,
     double Confidence,
-    string Summary
+    string Summary,
+    bool RuleBasedFallback = false
 );
 
 public record AiSearchAnalysis(
@@ -44,6 +45,18 @@ public partial class OpenAiService(
     IOptions<OpenAiSettings> options,
     ILogger<OpenAiService> logger) : IOpenAiService
 {
+    private const string MultilingualSystemPrompt = """
+        Tu es l'IA de Kinshout (petites annonces à Kinshasa, RDC).
+        Les utilisateurs écrivent en français, anglais, lingala, ou un mélange (franglais, lingala + français).
+        Comprends toujours le sens quelle que soit la langue ou le mélange.
+        Exemples lingala courants: motuka=voiture, ndako=maison/logement, koteka=vendre, koluka=chercher,
+        kolinga=vouloir, mosala=travail, mbongo=argent, telefone/simu=téléphone, kofanda=loger/se loger.
+        Exemples: « Nazali koteka motuka » = vente de voiture; « Looking for apartment in Gombe » = recherche immo;
+        « Nalingi ndako na Gombe » = cherche une maison à Gombe.
+        Les champs destinés à l'interface (categoryLabel, summary, title, description) restent en français clair.
+        Ne réduis pas la confiance uniquement parce que le texte n'est pas en français.
+        """;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -83,6 +96,7 @@ public partial class OpenAiService(
             - Utilise une catégorie existante si elle convient (createNewCategory=false).
             - Sinon propose une nouvelle catégorie pertinente (createNewCategory=true).
             - Contexte Kinshasa: Gombe, Limete, Bandal, etc.
+            - Langues acceptées: français, anglais, lingala (et mélanges). Interprète le sens, pas seulement les mots français.
 
             Catégories existantes:
             {{categoryList}}
@@ -129,6 +143,7 @@ public partial class OpenAiService(
 
             Inclus annonces ET discussions liées sémantiquement (ex: "appartement Gombe" → annonces immo + discussions quartiers).
             Si peu de correspondances exactes, inclure les plus proches sémantiquement.
+            La requête peut être en français, anglais ou lingala (ex: « motuka », « apartment », « ndako »).
 
             Requête: "{{query.Replace("\"", "\\\"")}}"
 
@@ -159,7 +174,11 @@ public partial class OpenAiService(
         var body = new
         {
             model = _settings.Model,
-            messages = new[] { new { role = "user", content = prompt } },
+            messages = new object[]
+            {
+                new { role = "system", content = MultilingualSystemPrompt },
+                new { role = "user", content = prompt },
+            },
             temperature = 0.2,
             response_format = new { type = "json_object" },
         };
@@ -276,7 +295,8 @@ public partial class OpenAiService(
             ExtractLocation(text),
             [],
             bestScore > 0 ? Math.Min(0.95, 0.45 + bestScore * 0.12) : 0.4,
-            BuildFallbackSummary(best.Label, intent)
+            BuildFallbackSummary(best.Label, intent),
+            RuleBasedFallback: true
         );
     }
 
@@ -308,41 +328,49 @@ public partial class OpenAiService(
     private static readonly string[] OfferWords =
     [
         "vends", "vendre", "vend", "à vendre", "a vendre", "disponible", "propose", "offre", "loue", "louer",
+        "for sale", "selling", "sell", "available", "rent out", "for rent", "to rent",
+        "koteka", "kotia", "na koteka", "kotisa", "ezali na koteka",
     ];
 
     private static readonly string[] DemandWords =
     [
         "cherche", "recherche", "besoin", "veux", "acheter", "achète", "achete", "louer un", "louer une", "recrute",
+        "looking for", "want", "need", "buy", "buying", "hire", "hiring",
+        "koluka", "kolinga", "nazali koluka", "nazali kolinga", "nalingi",
     ];
 
     private static readonly Dictionary<string, string[]> CategoryKeywordRules = new(StringComparer.Ordinal)
     {
         ["immobilier"] =
         [
-            "appartement", "maison", "studio", "villa", "loyer", "louer", "location", "colocation", "terrain",
-            "bureau", "commerce", "gombe", "limete", "bandal", "kinshasa", "chambre", "immeuble", "parcelle",
+            "appartement", "apartment", "maison", "house", "studio", "villa", "loyer", "rent", "louer", "location",
+            "colocation", "terrain", "bureau", "commerce", "gombe", "limete", "bandal", "kinshasa", "chambre",
+            "immeuble", "parcelle", "ndako", "kofanda", "kotiya",
         ],
         ["vehicules_transport"] =
         [
-            "voiture", "moto", "taxi", "chauffeur", "conducteur", "véhicule", "vehicule", "camion", "bus", "transport",
-            "permis", "garage", "pièces auto", "auto", "scooter", "yamaha", "toyota",
+            "voiture", "car", "moto", "motorcycle", "taxi", "chauffeur", "driver", "conducteur", "véhicule", "vehicule",
+            "camion", "bus", "transport", "permis", "garage", "pièces auto", "auto", "scooter", "yamaha", "toyota",
+            "motuka",
         ],
         ["electronique"] =
         [
-            "iphone", "samsung", "téléphone", "telephone", "ordinateur", "laptop", "tablette", "tv", "télévision",
-            "console", "playstation", "xbox", "écouteurs", "chargeur", "starlink", "internet", "modem", "wifi",
-            "macbook",
+            "iphone", "samsung", "téléphone", "telephone", "phone", "ordinateur", "computer", "laptop", "tablette",
+            "tablet", "tv", "télévision", "console", "playstation", "xbox", "écouteurs", "chargeur", "starlink",
+            "internet", "modem", "wifi", "macbook", "simu",
         ],
         ["emploi_services"] =
         [
-            "emploi", "travail", "job", "recrute", "cv", "salaire", "stage", "plombier", "électricien", "electricien",
-            "menuisier", "coiffeur", "nettoyage", "réparation", "reparation", "service", "freelance", "nounou", "vtc",
+            "emploi", "travail", "job", "work", "recrute", "cv", "salaire", "stage", "plombier", "électricien",
+            "electrician", "electricien", "menuisier", "coiffeur", "nettoyage", "réparation", "reparation", "service",
+            "freelance", "nounou", "vtc", "mosala", "kozwa mosala",
         ],
         ["maison_jardin"] =
         [
-            "meuble", "canapé", "canape", "frigo", "réfrigérateur", "cuisine", "ustensile", "décoration", "jardin",
-            "outil", "vêtement", "vetement", "robe", "chaussure", "sac", "montre", "parfum", "maquillage", "coiffure",
-            "beauté", "beaute", "bijou",
+            "meuble", "furniture", "canapé", "canape", "sofa", "frigo", "réfrigérateur", "refrigerator", "cuisine",
+            "ustensile", "décoration", "jardin", "outil", "vêtement", "vetement", "clothes", "robe", "dress",
+            "chaussure", "shoes", "sac", "bag", "montre", "watch", "parfum", "maquillage", "coiffure", "beauté",
+            "beaute", "bijou", "jewelry",
         ],
         ["discussion"] =
         [
