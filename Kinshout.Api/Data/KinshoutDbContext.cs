@@ -70,6 +70,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.ViewCount).HasDefaultValue(0);
             e.HasIndex(x => x.CreatedAt);
             e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
+            e.HasIndex(x => new { x.ViewCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.UpdatedAt });
             e.HasOne(x => x.User).WithMany(x => x.Discussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Discussions).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);

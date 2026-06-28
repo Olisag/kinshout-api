@@ -63,14 +63,14 @@ public class SearchServiceOrderingTests
     }
 
     [Fact]
-    public async Task SearchAsync_OrdersDiscussionsByRepliesThenRecency()
+    public async Task SearchAsync_OrdersDiscussionsByViewsThenRecency()
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
-        var activeOld = CreateDiscussion(user, category, "Active old", replyCount: 8, createdAt: DateTime.UtcNow.AddDays(-5));
-        var activeNew = CreateDiscussion(user, category, "Active new", replyCount: 8, createdAt: DateTime.UtcNow.AddDays(-1));
-        var quiet = CreateDiscussion(user, category, "Quiet recent", replyCount: 1, createdAt: DateTime.UtcNow);
+        var activeOld = CreateDiscussion(user, category, "Active old", viewCount: 8, createdAt: DateTime.UtcNow.AddDays(-5));
+        var activeNew = CreateDiscussion(user, category, "Active new", viewCount: 8, createdAt: DateTime.UtcNow.AddDays(-1));
+        var quiet = CreateDiscussion(user, category, "Quiet recent", viewCount: 1, createdAt: DateTime.UtcNow);
         db.Discussions.AddRange(activeOld, activeNew, quiet);
         await db.SaveChangesAsync();
 
@@ -114,30 +114,18 @@ public class SearchServiceOrderingTests
         User user,
         Category category,
         string title,
-        int replyCount,
+        int viewCount,
         DateTime createdAt)
     {
-        var discussion = new Discussion
+        return new Discussion
         {
             UserId = user.Id,
             CategoryId = category.Id,
             Title = title,
             Body = "Body",
+            ViewCount = viewCount,
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
-            ReplyCount = replyCount,
         };
-
-        for (var i = 0; i < replyCount; i++)
-        {
-            discussion.Replies.Add(new DiscussionReply
-            {
-                UserId = user.Id,
-                Body = $"Reply {i}",
-                CreatedAt = createdAt.AddMinutes(i),
-            });
-        }
-
-        return discussion;
     }
 }

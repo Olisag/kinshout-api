@@ -14,9 +14,9 @@ public class DiscussionServiceListTests
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
         db.Discussions.AddRange(
-            CreateDiscussion(user, category, "Old active", replyCount: 5, createdAt: DateTime.UtcNow.AddDays(-4)),
-            CreateDiscussion(user, category, "New active", replyCount: 5, createdAt: DateTime.UtcNow.AddDays(-1)),
-            CreateDiscussion(user, category, "Recent quiet", replyCount: 0, createdAt: DateTime.UtcNow));
+            CreateDiscussion(user, category, "Old active", viewCount: 5, createdAt: DateTime.UtcNow.AddDays(-4)),
+            CreateDiscussion(user, category, "New active", viewCount: 5, createdAt: DateTime.UtcNow.AddDays(-1)),
+            CreateDiscussion(user, category, "Recent quiet", viewCount: 0, createdAt: DateTime.UtcNow));
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
@@ -156,18 +156,21 @@ public class DiscussionServiceListTests
         User user,
         Category category,
         string title,
-        int replyCount,
-        DateTime createdAt)
+        int replyCount = 0,
+        int viewCount = 0,
+        DateTime? createdAt = null)
     {
+        var at = createdAt ?? DateTime.UtcNow;
         var discussion = new Discussion
         {
             UserId = user.Id,
             CategoryId = category.Id,
             Title = title,
             Body = title,
-            CreatedAt = createdAt,
-            UpdatedAt = createdAt,
+            CreatedAt = at,
+            UpdatedAt = at,
             ReplyCount = replyCount,
+            ViewCount = viewCount,
             User = user,
             Category = category,
         };
@@ -178,7 +181,7 @@ public class DiscussionServiceListTests
             {
                 UserId = user.Id,
                 Body = $"Reply {i}",
-                CreatedAt = createdAt.AddMinutes(i),
+                CreatedAt = at.AddMinutes(i),
             });
         }
 

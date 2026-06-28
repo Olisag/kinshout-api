@@ -44,7 +44,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             .AsNoTracking()
             .Include(d => d.User)
             .Include(d => d.Category)
-            .OrderByDescending(d => d.ReplyCount)
+            .OrderByDescending(d => d.ViewCount)
             .ThenByDescending(d => d.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
@@ -124,7 +124,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     {
         var query = discussions.AsEnumerable();
         return sort == ListSortHelper.Popular
-            ? query.OrderByDescending(d => d.ReplyCount).ThenByDescending(d => d.CreatedAt).ToList()
+            ? query.OrderByDescending(d => d.ViewCount).ThenByDescending(d => d.CreatedAt).ToList()
             : query.OrderByDescending(d => d.CreatedAt).ToList();
     }
 

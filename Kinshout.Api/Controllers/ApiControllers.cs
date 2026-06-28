@@ -435,7 +435,7 @@ public class DiscussionsController(IDiscussionService discussions, ILikedDiscuss
     /// <param name="q">Optional text filter on title or body.</param>
     /// <param name="page">Page number (1-based).</param>
     /// <param name="pageSize">Items per page (max 50).</param>
-    /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (reply count).</param>
+    /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (view count).</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
