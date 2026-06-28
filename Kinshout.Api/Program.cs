@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json.Serialization;
 using Kinshout.Api.Auth;
 using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
@@ -59,6 +60,7 @@ builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClie
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 builder.Services.AddScoped<IAdvertService, AdvertService>();
 builder.Services.AddScoped<ISavedAdvertService, SavedAdvertService>();
+builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
 builder.Services.AddSingleton<LocalUploadStorage>();
@@ -120,7 +122,11 @@ builder.Services.AddAuthorization(options =>
         policy.RequireClaim(AuthConstants.TokenTypeClaim, AuthConstants.UserTokenType);
     });
 });
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

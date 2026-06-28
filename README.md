@@ -151,7 +151,10 @@ See `api-client.js` — calls `ensureClientAuth()` automatically before each req
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/api/discussions` | — | List discussions |
-| GET | `/api/discussions/{id}` | — | Discussion with replies |
+| GET | `/api/discussions/{id}` | — | Discussion with replies (increments view count) |
+| POST | `/api/discussions/{id}/like` | JWT | Like a discussion |
+| DELETE | `/api/discussions/{id}/like` | JWT | Remove like |
+| GET | `/api/discussions/liked/ids` | JWT | Liked discussion IDs for current user |
 | POST | `/api/discussions` | JWT | Create discussion |
 | POST | `/api/discussions/{id}/replies` | JWT | Add reply |
 

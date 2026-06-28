@@ -74,8 +74,15 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             viewerUserId,
             matchedAdverts.Select(a => a.Id),
             ct);
+        var likedDiscussionIds = await DiscussionService.LoadLikedDiscussionIdsAsync(
+            db,
+            viewerUserId,
+            matchedDiscussions.Select(d => d.Id),
+            ct);
         var advertResults = AdvertService.ToDtos(matchedAdverts, savedIds);
-        var discussionResults = matchedDiscussions.Select(ToDiscussionDto).ToList();
+        var discussionResults = matchedDiscussions
+            .Select(d => ToDiscussionDto(d, likedDiscussionIds.Contains(d.Id)))
+            .ToList();
 
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
             discussionResults = [];
@@ -236,7 +243,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         );
     }
 
-    private static DiscussionDto ToDiscussionDto(Discussion d) =>
+    private static DiscussionDto ToDiscussionDto(Discussion d, bool isLiked = false) =>
         new(
             d.Id,
             d.Title,
@@ -245,6 +252,8 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             TimeHelpers.Initials(d.User.DisplayName),
             d.ReplyCount,
             TimeHelpers.FormatRelative(d.CreatedAt),
-            d.Category?.Slug
-        );
+            d.Category?.Slug,
+            d.LikeCount,
+            d.ViewCount,
+            isLiked);
 }

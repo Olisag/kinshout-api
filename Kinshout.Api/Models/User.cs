@@ -17,4 +17,5 @@ public class User
     public ICollection<Discussion> Discussions { get; set; } = [];
     public ICollection<DiscussionReply> Replies { get; set; } = [];
     public ICollection<SavedAdvert> SavedAdverts { get; set; } = [];
+    public ICollection<LikedDiscussion> LikedDiscussions { get; set; } = [];
 }

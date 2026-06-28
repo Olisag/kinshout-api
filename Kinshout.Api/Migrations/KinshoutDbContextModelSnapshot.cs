@@ -200,6 +200,16 @@ namespace Kinshout.Api.Migrations
                         .HasColumnType("int")
                         .HasDefaultValue(0);
 
+                    b.Property<int>("LikeCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("ViewCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -304,6 +314,24 @@ namespace Kinshout.Api.Migrations
                     b.HasIndex("AdvertId");
 
                     b.ToTable("SavedAdverts", (string)null);
+                });
+
+            modelBuilder.Entity("Kinshout.Api.Models.LikedDiscussion", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DiscussionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("LikedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("UserId", "DiscussionId");
+
+                    b.HasIndex("DiscussionId");
+
+                    b.ToTable("LikedDiscussions", (string)null);
                 });
 
             modelBuilder.Entity("Kinshout.Api.Models.User", b =>
@@ -459,6 +487,25 @@ namespace Kinshout.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Kinshout.Api.Models.LikedDiscussion", b =>
+                {
+                    b.HasOne("Kinshout.Api.Models.Discussion", "Discussion")
+                        .WithMany()
+                        .HasForeignKey("DiscussionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Kinshout.Api.Models.User", "User")
+                        .WithMany("LikedDiscussions")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Discussion");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Kinshout.Api.Models.UserLogin", b =>
                 {
                     b.HasOne("Kinshout.Api.Models.User", "User")
@@ -493,6 +540,8 @@ namespace Kinshout.Api.Migrations
                     b.Navigation("Replies");
 
                     b.Navigation("SavedAdverts");
+
+                    b.Navigation("LikedDiscussions");
                 });
 #pragma warning restore 612, 618
         }

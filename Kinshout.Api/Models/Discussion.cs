@@ -10,6 +10,8 @@ public class Discussion
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public int ReplyCount { get; set; }
+    public int LikeCount { get; set; }
+    public int ViewCount { get; set; }
 
     public User User { get; set; } = null!;
     public Category? Category { get; set; }

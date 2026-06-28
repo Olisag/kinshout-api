@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Kinshout.Api.Dtos;
 
 public record AuthResponseDto(
@@ -107,8 +109,10 @@ public record DiscussionDto(
     string Avatar,
     int Replies,
     string Time,
-    string? CategorySlug
-);
+    string? CategorySlug,
+    int LikeCount,
+    int ViewCount,
+    [property: JsonPropertyName("isLiked")] bool IsLiked = false);
 
 public record DiscussionDetailDto(
     Guid Id,
@@ -118,6 +122,9 @@ public record DiscussionDetailDto(
     string Author,
     string Avatar,
     string Time,
+    int LikeCount,
+    int ViewCount,
+    [property: JsonPropertyName("isLiked")] bool IsLiked,
     PagedResultDto<DiscussionReplyDto> Thread);
 
 public record DiscussionReplyDto(

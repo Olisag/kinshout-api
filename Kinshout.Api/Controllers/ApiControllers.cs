@@ -426,7 +426,7 @@ public class CategorizeController(ISearchService search) : ControllerBase
 [ApiController]
 [Route("api/discussions")]
 [Produces("application/json")]
-public class DiscussionsController(IDiscussionService discussions) : ControllerBase
+public class DiscussionsController(IDiscussionService discussions, ILikedDiscussionService likedDiscussions) : ControllerBase
 {
     /// <summary>
     /// List discussions, optionally filtered by a search query.
@@ -446,7 +446,18 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
         [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "recent",
         CancellationToken ct = default) =>
-        Ok(await discussions.ListAsync(q, page, pageSize, sort, ct));
+        Ok(await discussions.ListAsync(q, page, pageSize, sort, TryGetUserId(), ct));
+
+    /// <summary>
+    /// List discussion IDs liked by the signed-in user.
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpGet("liked/ids")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(IReadOnlyList<Guid>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<Guid>>> ListLikedIds(CancellationToken ct) =>
+        Ok(await likedDiscussions.ListLikedIdsAsync(GetUserId(), ct));
 
     /// <summary>
     /// List discussions for the signed-in user.
@@ -486,8 +497,48 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var item = await discussions.GetByIdAsync(id, page, pageSize, ct);
+        var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
         return item is null ? NotFound() : Ok(item);
+    }
+
+    /// <summary>
+    /// Like a discussion. Requires client token + user JWT.
+    /// </summary>
+    [HttpPost("{id:guid}/like")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDto>> Like(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await likedDiscussions.LikeAsync(GetUserId(), id, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Remove a like from a discussion. Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}/like")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDto>> Unlike(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await likedDiscussions.UnlikeAsync(GetUserId(), id, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     /// <summary>
@@ -658,6 +709,8 @@ public class DiscussionsController(IDiscussionService discussions) : ControllerB
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.FindFirstValue("sub")
             ?? throw new UnauthorizedAccessException());
+
+    private Guid? TryGetUserId() => ControllerUserHelper.TryGetUserId(HttpContext);
 }
 
 /// <summary>Service health check — no authentication required.</summary>

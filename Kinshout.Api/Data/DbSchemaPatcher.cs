@@ -68,6 +68,27 @@ public static class DbSchemaPatcher
                 """, ct);
         }
 
+        if (!await ColumnExistsAsync(connection, "Discussions", "LikeCount", ct))
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Discussions ADD COLUMN LikeCount INTEGER NOT NULL DEFAULT 0", ct);
+
+        if (!await ColumnExistsAsync(connection, "Discussions", "ViewCount", ct))
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Discussions ADD COLUMN ViewCount INTEGER NOT NULL DEFAULT 0", ct);
+
+        if (await TableExistsAsync(connection, "LikedDiscussions", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE Discussions
+                SET LikeCount = (
+                    SELECT COUNT(*)
+                    FROM LikedDiscussions
+                    WHERE LikedDiscussions.DiscussionId = Discussions.Id
+                )
+                """, ct);
+        }
+
         if (await TableExistsAsync(connection, "SavedAdverts", ct))
         {
             await db.Database.ExecuteSqlRawAsync(
@@ -120,6 +141,23 @@ public static class DbSchemaPatcher
                 """, ct);
             await db.Database.ExecuteSqlRawAsync(
                 "CREATE INDEX IX_SavedAdverts_AdvertId ON SavedAdverts (AdvertId)", ct);
+        }
+
+        if (!await TableExistsAsync(connection, "LikedDiscussions", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE LikedDiscussions (
+                    UserId TEXT NOT NULL,
+                    DiscussionId TEXT NOT NULL,
+                    LikedAt TEXT NOT NULL,
+                    PRIMARY KEY (UserId, DiscussionId),
+                    FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                    FOREIGN KEY (DiscussionId) REFERENCES Discussions(Id) ON DELETE CASCADE
+                )
+                """, ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_LikedDiscussions_DiscussionId ON LikedDiscussions (DiscussionId)", ct);
         }
     }
 

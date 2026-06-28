@@ -12,6 +12,7 @@ public interface IDiscussionService
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
+        Guid? viewerUserId = null,
         CancellationToken ct = default);
     Task<PagedResultDto<DiscussionDto>> ListMineAsync(
         Guid userId,
@@ -23,6 +24,7 @@ public interface IDiscussionService
         Guid id,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        Guid? viewerUserId = null,
         CancellationToken ct = default);
     Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default);
     Task<DiscussionDetailDto> UpdateAsync(Guid userId, Guid discussionId, UpdateDiscussionRequestDto request, CancellationToken ct = default);
@@ -47,6 +49,7 @@ public class DiscussionService(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
+        Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
@@ -73,7 +76,12 @@ public class DiscussionService(
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
-        return PagingHelper.Create(items.Select(ToListDto).ToList(), normalizedPage, normalizedPageSize, total);
+        var likedIds = await LoadLikedDiscussionIdsAsync(db, viewerUserId, items.Select(d => d.Id), ct);
+        return PagingHelper.Create(
+            items.Select(d => ToListDto(d, likedIds.Contains(d.Id))).ToList(),
+            normalizedPage,
+            normalizedPageSize,
+            total);
     }
 
     public async Task<PagedResultDto<DiscussionDto>> ListMineAsync(
@@ -116,13 +124,19 @@ public class DiscussionService(
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
-        return PagingHelper.Create(items.Select(ToListDto).ToList(), normalizedPage, normalizedPageSize, total);
+        var likedIds = await LoadLikedDiscussionIdsAsync(db, userId, items.Select(d => d.Id), ct);
+        return PagingHelper.Create(
+            items.Select(d => ToListDto(d, likedIds.Contains(d.Id))).ToList(),
+            normalizedPage,
+            normalizedPageSize,
+            total);
     }
 
     public async Task<DiscussionDetailDto?> GetByIdAsync(
         Guid id,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
@@ -134,6 +148,9 @@ public class DiscussionService(
 
         if (d is null)
             return null;
+
+        var viewCount = await IncrementViewCountAsync(id, d.ViewCount, ct);
+        var isLiked = await IsLikedByUserAsync(db, viewerUserId, id, ct);
 
         var repliesQuery = db.DiscussionReplies
             .AsNoTracking()
@@ -161,6 +178,9 @@ public class DiscussionService(
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
             TimeHelpers.FormatRelative(d.CreatedAt),
+            d.LikeCount,
+            viewCount,
+            isLiked,
             thread);
     }
 
@@ -192,7 +212,7 @@ public class DiscussionService(
 
         await db.SaveChangesAsync(ct);
 
-        return (await GetByIdAsync(discussionId, ct: ct))!;
+        return (await GetByIdAsync(discussionId, viewerUserId: userId, ct: ct))!;
     }
 
     public async Task DeleteAsync(Guid userId, Guid discussionId, CancellationToken ct = default)
@@ -228,7 +248,7 @@ public class DiscussionService(
         discussion.User = user;
         discussion.Category = category;
         discussion.Replies = [];
-        return ToListDto(discussion);
+        return ToListDto(discussion, isLiked: false);
     }
 
     public async Task<DiscussionReplyDto> AddReplyAsync(
@@ -296,6 +316,62 @@ public class DiscussionService(
         await db.SaveChangesAsync(ct);
     }
 
+    private async Task<int> IncrementViewCountAsync(Guid id, int currentCount, CancellationToken ct)
+    {
+        if (!db.Database.IsRelational())
+        {
+            var tracked = await db.Discussions.FirstOrDefaultAsync(d => d.Id == id, ct);
+            if (tracked is null)
+                return currentCount;
+
+            tracked.ViewCount++;
+            await db.SaveChangesAsync(ct);
+            return tracked.ViewCount;
+        }
+
+        await db.Discussions
+            .Where(d => d.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.ViewCount, d => d.ViewCount + 1), ct);
+
+        return currentCount + 1;
+    }
+
+    internal static async Task<HashSet<Guid>> LoadLikedDiscussionIdsAsync(
+        KinshoutDbContext db,
+        Guid? viewerUserId,
+        IEnumerable<Guid> discussionIds,
+        CancellationToken ct)
+    {
+        if (viewerUserId is null)
+            return [];
+
+        var ids = discussionIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return [];
+
+        var liked = await db.LikedDiscussions
+            .AsNoTracking()
+            .Where(l => l.UserId == viewerUserId.Value && ids.Contains(l.DiscussionId))
+            .Select(l => l.DiscussionId)
+            .ToListAsync(ct);
+
+        return liked.ToHashSet();
+    }
+
+    internal static async Task<bool> IsLikedByUserAsync(
+        KinshoutDbContext db,
+        Guid? viewerUserId,
+        Guid discussionId,
+        CancellationToken ct)
+    {
+        if (viewerUserId is null)
+            return false;
+
+        return await db.LikedDiscussions
+            .AsNoTracking()
+            .AnyAsync(l => l.UserId == viewerUserId.Value && l.DiscussionId == discussionId, ct);
+    }
+
     private static DiscussionReplyDto ToReplyDto(DiscussionReply reply) =>
         new(
             reply.Id,
@@ -314,7 +390,7 @@ public class DiscussionService(
             TimeHelpers.FormatRelative(reply.CreatedAt),
             reply.Body);
 
-    private static DiscussionDto ToListDto(Discussion d) =>
+    internal static DiscussionDto ToListDto(Discussion d, bool isLiked = false) =>
         new(
             d.Id,
             d.Title,
@@ -323,8 +399,10 @@ public class DiscussionService(
             TimeHelpers.Initials(d.User.DisplayName),
             d.ReplyCount,
             TimeHelpers.FormatRelative(d.CreatedAt),
-            d.Category?.Slug
-        );
+            d.Category?.Slug,
+            d.LikeCount,
+            d.ViewCount,
+            isLiked);
 }
 
 public static class TimeHelpers

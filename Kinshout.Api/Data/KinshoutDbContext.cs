@@ -14,6 +14,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<DiscussionReply> DiscussionReplies => Set<DiscussionReply>();
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
+    public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -65,6 +66,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         {
             e.Property(x => x.Title).HasMaxLength(200);
             e.Property(x => x.ReplyCount).HasDefaultValue(0);
+            e.Property(x => x.LikeCount).HasDefaultValue(0);
+            e.Property(x => x.ViewCount).HasDefaultValue(0);
             e.HasIndex(x => x.CreatedAt);
             e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.UpdatedAt });
@@ -93,6 +96,14 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasIndex(x => x.AdvertId);
             e.HasOne(x => x.User).WithMany(x => x.SavedAdverts).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Advert).WithMany().HasForeignKey(x => x.AdvertId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LikedDiscussion>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.DiscussionId });
+            e.HasIndex(x => x.DiscussionId);
+            e.HasOne(x => x.User).WithMany(x => x.LikedDiscussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Discussion).WithMany().HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
