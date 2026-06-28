@@ -180,6 +180,7 @@ public class DiscussionService(
             TimeHelpers.FormatRelative(d.CreatedAt),
             d.LikeCount,
             viewCount,
+            d.ReplyCount,
             isLiked,
             thread);
     }

@@ -204,37 +204,56 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-try
+using (var scope = app.Services.CreateScope())
 {
-    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<KinshoutDbContext>();
     var conn = builder.Configuration.GetConnectionString("DefaultConnection") ?? "";
-    if (conn.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
-    {
-        await db.Database.EnsureCreatedAsync();
-        try
-        {
-            _ = await db.ApiClients.AnyAsync();
-        }
-        catch
-        {
-            await db.Database.EnsureDeletedAsync();
-            await db.Database.EnsureCreatedAsync();
-        }
-    }
-    else
-        await db.Database.MigrateAsync();
-    await DbSeed.SeedAsync(db);
 
-    var clientSecret = builder.Configuration["ClientAuth:KinshoutWebSecret"];
-    var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<ApiClient>>();
-    await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
-    await ClientSeed.EnsureAllowedOriginsAsync(db);
-    await DbSchemaPatcher.ApplyAsync(db);
-}
-catch (Exception ex)
-{
-    app.Logger.LogWarning(ex, "Database init failed — API will start but data endpoints may error.");
+    try
+    {
+        if (conn.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+        {
+            await db.Database.EnsureCreatedAsync();
+            try
+            {
+                _ = await db.ApiClients.AnyAsync();
+            }
+            catch
+            {
+                await db.Database.EnsureDeletedAsync();
+                await db.Database.EnsureCreatedAsync();
+            }
+        }
+        else
+            await db.Database.MigrateAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Database migration failed — schema patcher will attempt repairs.");
+    }
+
+    try
+    {
+        await DbSeed.SeedAsync(db);
+
+        var clientSecret = builder.Configuration["ClientAuth:KinshoutWebSecret"];
+        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<ApiClient>>();
+        await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
+        await ClientSeed.EnsureAllowedOriginsAsync(db);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Database seed failed.");
+    }
+
+    try
+    {
+        await DbSchemaPatcher.ApplyAsync(db);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Database schema patch failed — discussion endpoints may error.");
+    }
 }
 
 if (app.Environment.IsDevelopment())

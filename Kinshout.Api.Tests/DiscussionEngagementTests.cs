@@ -157,6 +157,7 @@ public class DiscussionEngagementTests
         });
 
         Assert.Contains("\"isLiked\":false", json);
+        Assert.Contains("\"replyCount\":0", json);
     }
 
     private static DiscussionService CreateService(KinshoutDbContext db)

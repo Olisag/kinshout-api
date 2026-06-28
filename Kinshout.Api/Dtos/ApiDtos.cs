@@ -107,7 +107,7 @@ public record DiscussionDto(
     string Body,
     string Author,
     string Avatar,
-    int Replies,
+    int ReplyCount,
     string Time,
     string? CategorySlug,
     int LikeCount,
@@ -124,6 +124,7 @@ public record DiscussionDetailDto(
     string Time,
     int LikeCount,
     int ViewCount,
+    int ReplyCount,
     [property: JsonPropertyName("isLiked")] bool IsLiked,
     PagedResultDto<DiscussionReplyDto> Thread);
 
