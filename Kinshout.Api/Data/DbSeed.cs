@@ -33,10 +33,7 @@ public static class DbSeed
 
     private static async Task SeedCategoriesAsync(KinshoutDbContext db)
     {
-        if (await db.Categories.AnyAsync())
-            return;
-
-        var categories = new[]
+        var systemCategories = new[]
         {
             new Category { Slug = "immobilier", Label = "Appartements à louer", Icon = "⌂", IsSystem = true },
             new Category { Slug = "vehicules_transport", Label = "Véhicules", Icon = "🚗", IsSystem = true },
@@ -46,7 +43,19 @@ public static class DbSeed
             new Category { Slug = Category.DiscussionSlug, Label = "Discussions", Icon = "💬", IsSystem = true },
         };
 
-        db.Categories.AddRange(categories);
+        var existingSlugs = await db.Categories
+            .AsNoTracking()
+            .Select(c => c.Slug)
+            .ToListAsync();
+
+        var missing = systemCategories
+            .Where(c => !existingSlugs.Contains(c.Slug))
+            .ToList();
+
+        if (missing.Count == 0)
+            return;
+
+        db.Categories.AddRange(missing);
         await db.SaveChangesAsync();
     }
 
