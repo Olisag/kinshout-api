@@ -52,6 +52,17 @@ public class UploadServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveAvatarAsync_StoresFileAndReturnsUrl()
+    {
+        var file = CreateFormFile("avatar.png", "image/png", [0x89, 0x50, 0x4E, 0x47]);
+
+        var url = await _service.SaveAvatarAsync(_userId, file);
+
+        Assert.StartsWith($"/uploads/avatars/{_userId:N}/", url);
+        Assert.EndsWith(".png", url);
+    }
+
+    [Fact]
     public async Task SaveResumeAsync_AcceptsPdf()
     {
         var file = CreateFormFile("cv.pdf", "application/pdf", "%PDF-1.4"u8.ToArray());

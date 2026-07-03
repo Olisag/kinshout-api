@@ -24,6 +24,8 @@ public interface IAuthService
         Guid userId,
         UpdateDisplayNameRequestDto request,
         CancellationToken ct = default);
+    Task<UserProfileDto> SetAvatarUrlAsync(Guid userId, string avatarUrl, CancellationToken ct = default);
+    Task<UserProfileDto> ClearAvatarAsync(Guid userId, CancellationToken ct = default);
     Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default);
     Task<DisplayPreferenceDto> UpdateDisplayPreferenceAsync(
         Guid userId,
@@ -39,6 +41,7 @@ public interface IAuthService
 public class AuthService(
     KinshoutDbContext db,
     IJwtTokenService jwt,
+    IUploadStorage uploadStorage,
     IOptions<OAuthSettings> oauthOptions,
     IFacebookAuthValidator facebookAuth,
     ILogger<AuthService> logger) : IAuthService
@@ -165,6 +168,37 @@ public class AuthService(
         return ToProfile(user);
     }
 
+    public async Task<UserProfileDto> SetAvatarUrlAsync(
+        Guid userId,
+        string avatarUrl,
+        CancellationToken ct = default)
+    {
+        if (!IsUserAvatarUpload(userId, avatarUrl))
+        {
+            throw new ArgumentException(
+                "URL d'avatar invalide. Téléversez une image via POST /api/auth/me/avatar.");
+        }
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        await DeleteStoredAvatarIfOwnedAsync(userId, user.AvatarUrl, ct);
+        user.AvatarUrl = avatarUrl;
+        await db.SaveChangesAsync(ct);
+        return ToProfile(user);
+    }
+
+    public async Task<UserProfileDto> ClearAvatarAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        await DeleteStoredAvatarIfOwnedAsync(userId, user.AvatarUrl, ct);
+        user.AvatarUrl = null;
+        await db.SaveChangesAsync(ct);
+        return ToProfile(user);
+    }
+
     public async Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default)
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct)
@@ -225,7 +259,7 @@ public class AuthService(
         {
             user = login.User;
             user.LastLoginAt = DateTime.UtcNow;
-            if (!string.IsNullOrWhiteSpace(avatarUrl))
+            if (!string.IsNullOrWhiteSpace(avatarUrl) && string.IsNullOrWhiteSpace(user.AvatarUrl))
                 user.AvatarUrl = avatarUrl;
         }
         else
@@ -246,7 +280,7 @@ public class AuthService(
             {
                 user = existing;
                 user.LastLoginAt = DateTime.UtcNow;
-                if (!string.IsNullOrWhiteSpace(avatarUrl))
+                if (!string.IsNullOrWhiteSpace(avatarUrl) && string.IsNullOrWhiteSpace(user.AvatarUrl))
                     user.AvatarUrl = avatarUrl;
             }
 
@@ -286,6 +320,28 @@ public class AuthService(
         var normalized = displayName.ToLowerInvariant();
         return await db.Users.AsNoTracking()
             .AnyAsync(u => u.Id != excludeUserId && u.DisplayName.ToLower() == normalized, ct);
+    }
+
+    internal static bool IsUserAvatarUpload(Guid userId, string? avatarUrl) =>
+        !string.IsNullOrWhiteSpace(avatarUrl)
+        && avatarUrl.StartsWith($"/uploads/avatars/{userId:N}/", StringComparison.OrdinalIgnoreCase);
+
+    private async Task DeleteStoredAvatarIfOwnedAsync(
+        Guid userId,
+        string? avatarUrl,
+        CancellationToken ct)
+    {
+        if (!IsUserAvatarUpload(userId, avatarUrl))
+            return;
+
+        try
+        {
+            await uploadStorage.DeleteIfExistsAsync(avatarUrl!, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to delete previous avatar {AvatarUrl} for user {UserId}", avatarUrl, userId);
+        }
     }
 
     private async Task ValidateAppleTokenAsync(string idToken, CancellationToken ct)
