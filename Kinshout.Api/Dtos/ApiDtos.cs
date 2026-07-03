@@ -11,6 +11,7 @@ public record AuthResponseDto(
 public record UserProfileDto(
     Guid Id,
     string Email,
+    string Username,
     string DisplayName,
     string? AvatarUrl,
     string? WhatsAppNumber,
@@ -22,8 +23,11 @@ public record UserProfileDto(
 
 public record UpdateProfileRequestDto(string WhatsAppNumber);
 
+public record UpdateUsernameRequestDto(string Username);
+
 public record PublicUserProfileDto(
     Guid Id,
+    string Username,
     string DisplayName,
     string? AvatarUrl,
     string MemberSince,

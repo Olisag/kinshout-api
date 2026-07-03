@@ -4,6 +4,7 @@ using Kinshout.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Kinshout.Api.Migrations
 {
     [DbContext(typeof(KinshoutDbContext))]
-    partial class KinshoutDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260630020533_AddDiscussionViewCountIndex")]
+    partial class AddDiscussionViewCountIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -362,11 +365,6 @@ namespace Kinshout.Api.Migrations
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
                     b.Property<string>("WhatsAppNumber")
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
@@ -374,9 +372,6 @@ namespace Kinshout.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
-                        .IsUnique();
-
-                    b.HasIndex("Username")
                         .IsUnique();
 
                     b.ToTable("Users");

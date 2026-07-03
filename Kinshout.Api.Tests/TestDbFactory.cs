@@ -26,6 +26,7 @@ internal static class TestDbFactory
         var user = new User
         {
             Email = "test@kinshout.test",
+            Username = "test_user",
             DisplayName = "Test User",
             WhatsAppNumber = withWhatsApp ? "+243900000001" : null,
         };

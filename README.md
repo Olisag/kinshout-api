@@ -51,7 +51,8 @@ Unit tests live in `Kinshout.Api.Tests` (xUnit + Moq + EF Core InMemory).
 
 | Key | Description |
 |-----|-------------|
-| `ConnectionStrings__DefaultConnection` | SQL Server connection string |
+| `ASPNETCORE_ENVIRONMENT` | Set to `Production` on Azure App Service |
+| `ConnectionStrings__DefaultConnection` | SQL Server connection string (e.g. `Kinshout-prod` on `kinshoutsvr.database.windows.net`) |
 | `Jwt__SecretKey` | JWT signing key (32+ chars) |
 | `OpenAI__ApiKey` | OpenAI API key |
 | `OAuth__Google__ClientId` | Google OAuth client ID |

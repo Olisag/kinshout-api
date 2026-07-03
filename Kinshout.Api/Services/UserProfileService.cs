@@ -77,6 +77,7 @@ public class UserProfileService(KinshoutDbContext db) : IUserProfileService
     internal static PublicUserProfileDto ToPublicProfile(User user, int publishedAdvertCount) =>
         new(
             user.Id,
+            user.Username,
             user.DisplayName,
             user.AvatarUrl,
             $"Membre depuis {user.CreatedAt:MMM yyyy}",

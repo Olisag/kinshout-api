@@ -28,7 +28,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         modelBuilder.Entity<User>(e =>
         {
             e.HasIndex(x => x.Email).IsUnique();
+            e.HasIndex(x => x.Username).IsUnique();
             e.Property(x => x.Email).HasMaxLength(320);
+            e.Property(x => x.Username).HasMaxLength(20);
             e.Property(x => x.DisplayName).HasMaxLength(120);
             e.Property(x => x.WhatsAppNumber).HasMaxLength(32);
             e.Property(x => x.DisplayPreference).HasMaxLength(16).HasDefaultValue(DisplayPreferenceMode.Clair);

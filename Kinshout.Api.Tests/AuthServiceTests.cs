@@ -1,6 +1,7 @@
 using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
+using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,17 +17,7 @@ public class AuthServiceTests
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db, withWhatsApp: false);
 
-        var service = new AuthService(
-            db,
-            new JwtTokenService(Options.Create(new JwtSettings
-            {
-                SecretKey = "kinshout-test-secret-key-32chars!!",
-                Issuer = "kinshout-test",
-                UserAudience = "kinshout-user",
-            })),
-            Options.Create(new OAuthSettings()),
-            Mock.Of<IFacebookAuthValidator>(),
-            Mock.Of<ILogger<AuthService>>());
+        var service = CreateService(db);
 
         var profile = await service.UpdateProfileAsync(
             user.Id,
@@ -42,23 +33,14 @@ public class AuthServiceTests
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
-        var service = new AuthService(
-            db,
-            new JwtTokenService(Options.Create(new JwtSettings
-            {
-                SecretKey = "kinshout-test-secret-key-32chars!!",
-                Issuer = "kinshout-test",
-                UserAudience = "kinshout-user",
-            })),
-            Options.Create(new OAuthSettings()),
-            Mock.Of<IFacebookAuthValidator>(),
-            Mock.Of<ILogger<AuthService>>());
+        var service = CreateService(db);
 
         var profile = await service.GetProfileAsync(user.Id);
 
         Assert.NotNull(profile);
         Assert.True(profile!.HasWhatsApp);
         Assert.Equal("+243900000001", profile.WhatsAppNumber);
+        Assert.Equal("test_user", profile.Username);
     }
 
     [Fact]
@@ -112,6 +94,41 @@ public class AuthServiceTests
         Assert.True(profile!.IsProfilePublic);
     }
 
+    [Fact]
+    public async Task UpdateUsernameAsync_SavesNormalizedUsername()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateService(db);
+        var profile = await service.UpdateUsernameAsync(
+            user.Id,
+            new UpdateUsernameRequestDto("Marie.K"));
+
+        Assert.Equal("marie.k", profile.Username);
+    }
+
+    [Fact]
+    public async Task UpdateUsernameAsync_RejectsTakenUsername()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        db.Users.Add(new User
+        {
+            Email = "other@test.com",
+            Username = "taken_name",
+            DisplayName = "Other",
+        });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateUsernameAsync(user.Id, new UpdateUsernameRequestDto("taken_name")));
+
+        Assert.Contains("déjà pris", ex.Message);
+    }
+
     private static AuthService CreateService(KinshoutDbContext db) =>
         new(
             db,
@@ -121,6 +138,7 @@ public class AuthServiceTests
                 Issuer = "kinshout-test",
                 UserAudience = "kinshout-user",
             })),
+            new UsernameService(db),
             Options.Create(new OAuthSettings()),
             Mock.Of<IFacebookAuthValidator>(),
             Mock.Of<ILogger<AuthService>>());

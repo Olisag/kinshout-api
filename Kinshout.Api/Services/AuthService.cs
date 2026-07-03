@@ -30,11 +30,16 @@ public interface IAuthService
         Guid userId,
         UpdateProfileVisibilityRequestDto request,
         CancellationToken ct = default);
+    Task<UserProfileDto> UpdateUsernameAsync(
+        Guid userId,
+        UpdateUsernameRequestDto request,
+        CancellationToken ct = default);
 }
 
 public class AuthService(
     KinshoutDbContext db,
     IJwtTokenService jwt,
+    IUsernameService usernames,
     IOptions<OAuthSettings> oauthOptions,
     IFacebookAuthValidator facebookAuth,
     ILogger<AuthService> logger) : IAuthService
@@ -142,6 +147,25 @@ public class AuthService(
         return ToProfile(user);
     }
 
+    public async Task<UserProfileDto> UpdateUsernameAsync(
+        Guid userId,
+        UpdateUsernameRequestDto request,
+        CancellationToken ct = default)
+    {
+        var normalized = usernames.Normalize(request.Username);
+        usernames.ValidateFormat(normalized);
+
+        if (!await usernames.IsAvailableAsync(normalized, userId, ct))
+            throw new InvalidOperationException("Ce nom d'utilisateur est déjà pris.");
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        user.Username = normalized;
+        await db.SaveChangesAsync(ct);
+        return ToProfile(user);
+    }
+
     public async Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default)
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct)
@@ -204,6 +228,7 @@ public class AuthService(
             user.LastLoginAt = DateTime.UtcNow;
             if (!string.IsNullOrWhiteSpace(avatarUrl))
                 user.AvatarUrl = avatarUrl;
+            await EnsureUsernameAsync(user, ct);
         }
         else
         {
@@ -215,6 +240,7 @@ public class AuthService(
                     Email = email,
                     DisplayName = displayName,
                     AvatarUrl = avatarUrl,
+                    Username = await usernames.GenerateUniqueAsync(ct),
                     LastLoginAt = DateTime.UtcNow,
                 };
                 db.Users.Add(user);
@@ -225,6 +251,7 @@ public class AuthService(
                 user.LastLoginAt = DateTime.UtcNow;
                 if (!string.IsNullOrWhiteSpace(avatarUrl))
                     user.AvatarUrl = avatarUrl;
+                await EnsureUsernameAsync(user, ct);
             }
 
             db.UserLogins.Add(new UserLogin
@@ -238,6 +265,14 @@ public class AuthService(
         await db.SaveChangesAsync(ct);
         var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
         return new AuthResponseDto(token, expiresAt, ToProfile(user));
+    }
+
+    private async Task EnsureUsernameAsync(User user, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(user.Username))
+            return;
+
+        user.Username = await usernames.GenerateUniqueAsync(ct);
     }
 
     private async Task ValidateAppleTokenAsync(string idToken, CancellationToken ct)
@@ -275,6 +310,7 @@ public class AuthService(
         new(
             user.Id,
             user.Email,
+            user.Username,
             user.DisplayName,
             user.AvatarUrl,
             user.WhatsAppNumber,
