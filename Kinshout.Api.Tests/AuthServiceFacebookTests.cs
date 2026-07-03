@@ -34,6 +34,7 @@ public class AuthServiceFacebookTests
                 UserAudience = "kinshout-user",
                 ClientAudience = "kinshout-client",
             })),
+            Mock.Of<IUploadStorage>(),
             Options.Create(new OAuthSettings()),
             facebook.Object,
             Mock.Of<ILogger<AuthService>>());

@@ -142,6 +142,45 @@ public class AuthServiceTests
         Assert.Equal("Test User", profile.DisplayName);
     }
 
+    [Fact]
+    public async Task SetAvatarUrlAsync_SavesValidUploadUrl()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var avatarUrl = $"/uploads/avatars/{user.Id:N}/abc123.png";
+
+        var service = CreateService(db);
+        var profile = await service.SetAvatarUrlAsync(user.Id, avatarUrl);
+
+        Assert.Equal(avatarUrl, profile.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task SetAvatarUrlAsync_RejectsForeignUrl()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.SetAvatarUrlAsync(user.Id, "/uploads/images/other/file.jpg"));
+    }
+
+    [Fact]
+    public async Task ClearAvatarAsync_ClearsProfileAvatar()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        user.AvatarUrl = $"/uploads/avatars/{user.Id:N}/old.png";
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var profile = await service.ClearAvatarAsync(user.Id);
+
+        Assert.Null(profile.AvatarUrl);
+    }
+
     private static AuthService CreateService(KinshoutDbContext db) =>
         new(
             db,
@@ -151,6 +190,7 @@ public class AuthServiceTests
                 Issuer = "kinshout-test",
                 UserAudience = "kinshout-user",
             })),
+            Mock.Of<IUploadStorage>(),
             Options.Create(new OAuthSettings()),
             Mock.Of<IFacebookAuthValidator>(),
             Mock.Of<ILogger<AuthService>>());

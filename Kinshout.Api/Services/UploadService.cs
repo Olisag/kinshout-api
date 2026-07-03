@@ -5,6 +5,7 @@ namespace Kinshout.Api.Services;
 public interface IUploadService
 {
     Task<IReadOnlyList<string>> SaveImagesAsync(Guid userId, IFormFileCollection files, CancellationToken ct = default);
+    Task<string> SaveAvatarAsync(Guid userId, IFormFile file, CancellationToken ct = default);
     Task<string> SaveResumeAsync(Guid userId, IFormFile file, CancellationToken ct = default);
 }
 
@@ -14,6 +15,7 @@ public class UploadService(
     ILogger<UploadService> logger) : IUploadService
 {
     private const long MaxImageBytes = 5 * 1024 * 1024;
+    private const long MaxAvatarBytes = 2 * 1024 * 1024;
     private const long MaxResumeBytes = 10 * 1024 * 1024;
     private const int MaxImages = 10;
 
@@ -56,6 +58,25 @@ public class UploadService(
         }
 
         return urls;
+    }
+
+    public async Task<string> SaveAvatarAsync(Guid userId, IFormFile file, CancellationToken ct = default)
+    {
+        if (file.Length == 0)
+            throw new ArgumentException("Aucune image reçue.");
+
+        await using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer, ct);
+        ValidateSize(buffer.Length, MaxAvatarBytes);
+
+        buffer.Position = 0;
+        await moderation.EnsureImageAllowedAsync(buffer, file.ContentType ?? "image/jpeg", ct);
+
+        buffer.Position = 0;
+        var extension = ValidateExtension(file.FileName, ImageExtensions);
+        var url = await storage.SaveAsync("avatars", userId, buffer, extension, ct);
+        logger.LogInformation("Stored avatar upload {Url} for user {UserId}", url, userId);
+        return url;
     }
 
     public async Task<string> SaveResumeAsync(Guid userId, IFormFile file, CancellationToken ct = default)

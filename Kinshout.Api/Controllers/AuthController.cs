@@ -11,7 +11,7 @@ namespace Kinshout.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 [Produces("application/json")]
-public class AuthController(IAuthService auth, IClientAuthService clientAuth) : ControllerBase
+public class AuthController(IAuthService auth, IClientAuthService clientAuth, IUploadService uploads) : ControllerBase
 {
     /// <summary>
     /// Authorize a registered frontend app (layer 1).
@@ -175,6 +175,55 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
         {
             return Conflict(new { error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Upload and set the signed-in user's avatar photo (jpg, png, webp; max 2 MB).
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpPost("me/avatar")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(2_097_152)]
+    [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<UserProfileDto>> UploadAvatar(
+        IFormFile file,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            if (file is null || file.Length == 0)
+                return BadRequest(new { error = "Aucune image reçue." });
+
+            var avatarUrl = await uploads.SaveAvatarAsync(userId, file, ct);
+            return Ok(await auth.SetAvatarUrlAsync(userId, avatarUrl, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Remove the signed-in user's custom avatar. Provider avatars (Google, Facebook) are cleared from the profile;
+    /// previously uploaded Kinshout avatars are deleted from storage.
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpDelete("me/avatar")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<UserProfileDto>> ClearAvatar(CancellationToken ct)
+    {
+        var userId = GetUserId();
+        return Ok(await auth.ClearAvatarAsync(userId, ct));
     }
 
     /// <summary>
