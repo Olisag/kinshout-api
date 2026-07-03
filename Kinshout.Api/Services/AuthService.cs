@@ -20,6 +20,10 @@ public interface IAuthService
     Task<AuthResponseDto> SignInWithFacebookAsync(string accessToken, string clientId, CancellationToken ct = default);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct = default);
+    Task<UserProfileDto> UpdateDisplayNameAsync(
+        Guid userId,
+        UpdateDisplayNameRequestDto request,
+        CancellationToken ct = default);
     Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default);
     Task<DisplayPreferenceDto> UpdateDisplayPreferenceAsync(
         Guid userId,
@@ -39,6 +43,7 @@ public class AuthService(
     IFacebookAuthValidator facebookAuth,
     ILogger<AuthService> logger) : IAuthService
 {
+    private const int DisplayNameMaxLength = 120;
     private readonly OAuthSettings _oauth = oauthOptions.Value;
 
     public async Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default)
@@ -142,6 +147,24 @@ public class AuthService(
         return ToProfile(user);
     }
 
+    public async Task<UserProfileDto> UpdateDisplayNameAsync(
+        Guid userId,
+        UpdateDisplayNameRequestDto request,
+        CancellationToken ct = default)
+    {
+        var displayName = ValidateDisplayName(request.DisplayName);
+
+        if (await IsDisplayNameTakenAsync(displayName, userId, ct))
+            throw new InvalidOperationException("Ce nom affiché est déjà pris.");
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        user.DisplayName = displayName;
+        await db.SaveChangesAsync(ct);
+        return ToProfile(user);
+    }
+
     public async Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default)
     {
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct)
@@ -238,6 +261,31 @@ public class AuthService(
         await db.SaveChangesAsync(ct);
         var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
         return new AuthResponseDto(token, expiresAt, ToProfile(user));
+    }
+
+    private static string ValidateDisplayName(string? displayName)
+    {
+        var trimmed = displayName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed))
+            throw new ArgumentException("Le nom affiché est requis.");
+
+        if (trimmed.Length > DisplayNameMaxLength)
+        {
+            throw new ArgumentException(
+                $"Le nom affiché ne peut pas dépasser {DisplayNameMaxLength} caractères.");
+        }
+
+        return trimmed;
+    }
+
+    private async Task<bool> IsDisplayNameTakenAsync(
+        string displayName,
+        Guid excludeUserId,
+        CancellationToken ct)
+    {
+        var normalized = displayName.ToLowerInvariant();
+        return await db.Users.AsNoTracking()
+            .AnyAsync(u => u.Id != excludeUserId && u.DisplayName.ToLower() == normalized, ct);
     }
 
     private async Task ValidateAppleTokenAsync(string idToken, CancellationToken ct)

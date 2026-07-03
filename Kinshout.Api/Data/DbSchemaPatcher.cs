@@ -18,6 +18,7 @@ public static class DbSchemaPatcher
     private static async Task ApplySqlServerAsync(KinshoutDbContext db, CancellationToken ct)
     {
         var connection = await OpenConnectionAsync(db, ct);
+        await RemoveUserUsernameSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
     }
 
@@ -47,6 +48,8 @@ public static class DbSchemaPatcher
                 "UPDATE Users SET IsProfilePublic = 1 WHERE IsProfilePublic = 0",
                 ct);
         }
+
+        await RemoveUserUsernameSchemaAsync(db, connection, sqlServer: false, ct);
 
         if (!await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "ImageUrlsJson", ct))
             await db.Database.ExecuteSqlRawAsync(
@@ -225,6 +228,56 @@ public static class DbSchemaPatcher
                 )
                 """, ct);
         }
+    }
+
+    private static async Task RemoveUserUsernameSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "Users", "Username", ct))
+            return;
+
+        if (await IndexExistsAsync(connection, sqlServer, "IX_Users_Username", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                sqlServer
+                    ? "DROP INDEX IX_Users_Username ON Users"
+                    : "DROP INDEX IX_Users_Username",
+                ct);
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            sqlServer
+                ? "ALTER TABLE Users DROP COLUMN Username"
+                : "ALTER TABLE Users DROP COLUMN Username",
+            ct);
+    }
+
+    private static async Task<bool> IndexExistsAsync(
+        DbConnection connection,
+        bool sqlServer,
+        string indexName,
+        CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        if (sqlServer)
+        {
+            cmd.CommandText = """
+                SELECT 1
+                FROM sys.indexes
+                WHERE name = @name
+                """;
+            AddParameter(cmd, "@name", indexName);
+        }
+        else
+        {
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND name=$name";
+            AddParameter(cmd, "$name", indexName);
+        }
+
+        return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
     private static async Task<DbConnection> OpenConnectionAsync(KinshoutDbContext db, CancellationToken ct)

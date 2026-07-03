@@ -22,6 +22,8 @@ public record UserProfileDto(
 
 public record UpdateProfileRequestDto(string WhatsAppNumber);
 
+public record UpdateDisplayNameRequestDto(string DisplayName);
+
 public record PublicUserProfileDto(
     Guid Id,
     string DisplayName,

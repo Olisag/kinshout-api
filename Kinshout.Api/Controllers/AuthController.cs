@@ -149,6 +149,35 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
     }
 
     /// <summary>
+    /// Update the signed-in user's display name. The name must be unique (case-insensitive).
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpPut("me/display-name")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<UserProfileDto>> UpdateDisplayName(
+        [FromBody] UpdateDisplayNameRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            return Ok(await auth.UpdateDisplayNameAsync(userId, request, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get the signed-in user's display preference (clair or sombre).
     /// Requires both client token and user JWT.
     /// </summary>
