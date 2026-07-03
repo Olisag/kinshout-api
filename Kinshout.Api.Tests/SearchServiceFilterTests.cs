@@ -31,8 +31,8 @@ public class SearchServiceFilterTests
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "all", Intent: SearchIntentHelper.Offre));
 
-        Assert.Single(result.Adverts);
-        Assert.Equal("Offre advert", result.Adverts[0].Title);
+        Assert.Single(result.Items!);
+        Assert.Equal("Offre advert", result.Items![0].Advert?.Title);
         Assert.Empty(result.Discussions);
     }
 
@@ -59,8 +59,8 @@ public class SearchServiceFilterTests
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "all", Intent: SearchIntentHelper.Demande));
 
-        Assert.Single(result.Adverts);
-        Assert.Equal("Demande advert", result.Adverts[0].Title);
+        Assert.Single(result.Items!);
+        Assert.Equal("Demande advert", result.Items![0].Advert?.Title);
         Assert.Empty(result.Discussions);
     }
 
@@ -89,10 +89,9 @@ public class SearchServiceFilterTests
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
         var result = await service.SearchAsync(new SearchRequestDto("quartier", "all", Intent: SearchIntentHelper.Discussion));
 
-        Assert.Single(result.Adverts);
-        Assert.Equal("Discussion advert", result.Adverts[0].Title);
-        Assert.Single(result.Discussions);
-        Assert.Equal("Forum thread", result.Discussions[0].Title);
+        Assert.Equal(2, result.Items!.Count);
+        Assert.Contains(result.Items, i => i.Advert?.Title == "Discussion advert");
+        Assert.Contains(result.Items, i => i.Discussion?.Title == "Forum thread");
     }
 
     private static Advert CreateAdvert(

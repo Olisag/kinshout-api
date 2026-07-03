@@ -84,6 +84,17 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             .Select(d => ToDiscussionDto(d, likedDiscussionIds.Contains(d.Id)))
             .ToList();
 
+        if (request.Tab.Equals("all", StringComparison.OrdinalIgnoreCase))
+            return BuildMixedSearchResult(
+                advertResults,
+                discussionResults,
+                matchedAdverts,
+                matchedDiscussions,
+                analysis.Summary,
+                sort,
+                page,
+                pageSize);
+
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
             discussionResults = [];
         else if (request.Tab.Equals("discussions", StringComparison.OrdinalIgnoreCase))
@@ -107,6 +118,59 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 totalDiscussions,
                 skip + pagedAdverts.Count < totalAdverts,
                 skip + pagedDiscussions.Count < totalDiscussions));
+    }
+
+    private static SearchResultDto BuildMixedSearchResult(
+        IReadOnlyList<AdvertDto> advertResults,
+        IReadOnlyList<DiscussionDto> discussionResults,
+        IReadOnlyList<Advert> matchedAdverts,
+        IReadOnlyList<Discussion> matchedDiscussions,
+        string? summary,
+        string sort,
+        int page,
+        int pageSize)
+    {
+        var advertMeta = matchedAdverts.ToDictionary(a => a.Id);
+        var discussionMeta = matchedDiscussions.ToDictionary(d => d.Id);
+
+        var feed = new List<(string Kind, AdvertDto? Advert, DiscussionDto? Discussion, DateTime CreatedAt, int ViewCount)>();
+        foreach (var advert in advertResults)
+        {
+            var meta = advertMeta[advert.Id];
+            feed.Add(("advert", advert, null, meta.CreatedAt, meta.ViewCount));
+        }
+
+        foreach (var discussion in discussionResults)
+        {
+            var meta = discussionMeta[discussion.Id];
+            feed.Add(("discussion", null, discussion, meta.CreatedAt, meta.ViewCount));
+        }
+
+        feed = sort == ListSortHelper.Popular
+            ? feed.OrderByDescending(x => x.ViewCount).ThenByDescending(x => x.CreatedAt).ToList()
+            : feed.OrderByDescending(x => x.CreatedAt).ToList();
+
+        var totalItems = feed.Count;
+        var skip = (page - 1) * pageSize;
+        var pageItems = feed.Skip(skip).Take(pageSize).ToList();
+        var items = pageItems
+            .Select(x => new SearchFeedItemDto(x.Kind, x.Advert, x.Discussion))
+            .ToList();
+
+        return new SearchResultDto(
+            [],
+            [],
+            summary,
+            new SearchPaginationDto(
+                page,
+                pageSize,
+                advertResults.Count,
+                discussionResults.Count,
+                false,
+                false,
+                totalItems,
+                skip + pageItems.Count < totalItems),
+            items);
     }
 
     private static (int Page, int PageSize) NormalizePaging(int page, int pageSize) =>

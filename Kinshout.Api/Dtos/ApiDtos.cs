@@ -163,13 +163,21 @@ public record SearchPaginationDto(
     int TotalAdverts,
     int TotalDiscussions,
     bool HasMoreAdverts,
-    bool HasMoreDiscussions);
+    bool HasMoreDiscussions,
+    int? TotalItems = null,
+    bool? HasMore = null);
+
+public record SearchFeedItemDto(
+    string Kind,
+    AdvertDto? Advert,
+    DiscussionDto? Discussion);
 
 public record SearchResultDto(
     IReadOnlyList<AdvertDto> Adverts,
     IReadOnlyList<DiscussionDto> Discussions,
     string? AiSummary,
-    SearchPaginationDto Pagination);
+    SearchPaginationDto Pagination,
+    IReadOnlyList<SearchFeedItemDto>? Items = null);
 
 public record CategorizeRequestDto(string Text);
 
