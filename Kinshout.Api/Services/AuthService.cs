@@ -20,6 +20,10 @@ public interface IAuthService
     Task<AuthResponseDto> SignInWithFacebookAsync(string accessToken, string clientId, CancellationToken ct = default);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct = default);
+    Task<UserProfileDto> UpdateDisplayNameAsync(
+        Guid userId,
+        UpdateDisplayNameRequestDto request,
+        CancellationToken ct = default);
     Task<DisplayPreferenceDto> GetDisplayPreferenceAsync(Guid userId, CancellationToken ct = default);
     Task<DisplayPreferenceDto> UpdateDisplayPreferenceAsync(
         Guid userId,
@@ -30,20 +34,16 @@ public interface IAuthService
         Guid userId,
         UpdateProfileVisibilityRequestDto request,
         CancellationToken ct = default);
-    Task<UserProfileDto> UpdateUsernameAsync(
-        Guid userId,
-        UpdateUsernameRequestDto request,
-        CancellationToken ct = default);
 }
 
 public class AuthService(
     KinshoutDbContext db,
     IJwtTokenService jwt,
-    IUsernameService usernames,
     IOptions<OAuthSettings> oauthOptions,
     IFacebookAuthValidator facebookAuth,
     ILogger<AuthService> logger) : IAuthService
 {
+    private const int DisplayNameMaxLength = 120;
     private readonly OAuthSettings _oauth = oauthOptions.Value;
 
     public async Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default)
@@ -147,21 +147,20 @@ public class AuthService(
         return ToProfile(user);
     }
 
-    public async Task<UserProfileDto> UpdateUsernameAsync(
+    public async Task<UserProfileDto> UpdateDisplayNameAsync(
         Guid userId,
-        UpdateUsernameRequestDto request,
+        UpdateDisplayNameRequestDto request,
         CancellationToken ct = default)
     {
-        var normalized = usernames.Normalize(request.Username);
-        usernames.ValidateFormat(normalized);
+        var displayName = ValidateDisplayName(request.DisplayName);
 
-        if (!await usernames.IsAvailableAsync(normalized, userId, ct))
-            throw new InvalidOperationException("Ce nom d'utilisateur est déjà pris.");
+        if (await IsDisplayNameTakenAsync(displayName, userId, ct))
+            throw new InvalidOperationException("Ce nom affiché est déjà pris.");
 
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw new KeyNotFoundException("Utilisateur introuvable.");
 
-        user.Username = normalized;
+        user.DisplayName = displayName;
         await db.SaveChangesAsync(ct);
         return ToProfile(user);
     }
@@ -228,7 +227,6 @@ public class AuthService(
             user.LastLoginAt = DateTime.UtcNow;
             if (!string.IsNullOrWhiteSpace(avatarUrl))
                 user.AvatarUrl = avatarUrl;
-            await EnsureUsernameAsync(user, ct);
         }
         else
         {
@@ -240,7 +238,6 @@ public class AuthService(
                     Email = email,
                     DisplayName = displayName,
                     AvatarUrl = avatarUrl,
-                    Username = await usernames.GenerateUniqueAsync(ct),
                     LastLoginAt = DateTime.UtcNow,
                 };
                 db.Users.Add(user);
@@ -251,7 +248,6 @@ public class AuthService(
                 user.LastLoginAt = DateTime.UtcNow;
                 if (!string.IsNullOrWhiteSpace(avatarUrl))
                     user.AvatarUrl = avatarUrl;
-                await EnsureUsernameAsync(user, ct);
             }
 
             db.UserLogins.Add(new UserLogin
@@ -267,12 +263,29 @@ public class AuthService(
         return new AuthResponseDto(token, expiresAt, ToProfile(user));
     }
 
-    private async Task EnsureUsernameAsync(User user, CancellationToken ct)
+    private static string ValidateDisplayName(string? displayName)
     {
-        if (!string.IsNullOrWhiteSpace(user.Username))
-            return;
+        var trimmed = displayName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed))
+            throw new ArgumentException("Le nom affiché est requis.");
 
-        user.Username = await usernames.GenerateUniqueAsync(ct);
+        if (trimmed.Length > DisplayNameMaxLength)
+        {
+            throw new ArgumentException(
+                $"Le nom affiché ne peut pas dépasser {DisplayNameMaxLength} caractères.");
+        }
+
+        return trimmed;
+    }
+
+    private async Task<bool> IsDisplayNameTakenAsync(
+        string displayName,
+        Guid excludeUserId,
+        CancellationToken ct)
+    {
+        var normalized = displayName.ToLowerInvariant();
+        return await db.Users.AsNoTracking()
+            .AnyAsync(u => u.Id != excludeUserId && u.DisplayName.ToLower() == normalized, ct);
     }
 
     private async Task ValidateAppleTokenAsync(string idToken, CancellationToken ct)
@@ -310,7 +323,6 @@ public class AuthService(
         new(
             user.Id,
             user.Email,
-            user.Username,
             user.DisplayName,
             user.AvatarUrl,
             user.WhatsAppNumber,

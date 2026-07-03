@@ -54,7 +54,6 @@ builder.Services.AddHttpClient("OpenAI");
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IClientAuthService, ClientAuthService>();
 builder.Services.AddScoped<IFacebookAuthValidator, FacebookGraphAuthValidator>();
-builder.Services.AddScoped<IUsernameService, UsernameService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClient>>();
@@ -254,17 +253,6 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         app.Logger.LogWarning(ex, "Database schema patch failed — discussion endpoints may error.");
-    }
-
-    try
-    {
-        var usernames = scope.ServiceProvider.GetRequiredService<IUsernameService>();
-        await usernames.EnsureAllUsersHaveUsernamesAsync();
-        await DbSchemaPatcher.EnsureUsernameIndexAsync(db);
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Username backfill failed.");
     }
 }
 

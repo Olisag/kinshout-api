@@ -149,23 +149,23 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth) : 
     }
 
     /// <summary>
-    /// Update the signed-in user's username. Usernames must be unique (case-insensitive).
+    /// Update the signed-in user's display name. The name must be unique (case-insensitive).
     /// Requires both client token and user JWT.
     /// </summary>
-    [HttpPut("me/username")]
+    [HttpPut("me/display-name")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
     [ProducesResponseType(typeof(UserProfileDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<UserProfileDto>> UpdateUsername(
-        [FromBody] UpdateUsernameRequestDto request,
+    public async Task<ActionResult<UserProfileDto>> UpdateDisplayName(
+        [FromBody] UpdateDisplayNameRequestDto request,
         CancellationToken ct)
     {
         try
         {
             var userId = GetUserId();
-            return Ok(await auth.UpdateUsernameAsync(userId, request, ct));
+            return Ok(await auth.UpdateDisplayNameAsync(userId, request, ct));
         }
         catch (ArgumentException ex)
         {

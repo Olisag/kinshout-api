@@ -34,7 +34,6 @@ public class AuthServiceFacebookTests
                 UserAudience = "kinshout-user",
                 ClientAudience = "kinshout-client",
             })),
-            new UsernameService(db),
             Options.Create(new OAuthSettings()),
             facebook.Object,
             Mock.Of<ILogger<AuthService>>());
@@ -44,7 +43,6 @@ public class AuthServiceFacebookTests
         Assert.False(string.IsNullOrWhiteSpace(auth.Token));
         Assert.Equal("Marie K.", auth.User.DisplayName);
         Assert.Equal("marie@example.com", auth.User.Email);
-        Assert.Matches("^[a-z][a-z0-9_]{2,19}$", auth.User.Username);
         Assert.Single(db.UserLogins.Where(x => x.Provider == AuthProvider.Facebook && x.ProviderKey == "fb-123"));
     }
 }

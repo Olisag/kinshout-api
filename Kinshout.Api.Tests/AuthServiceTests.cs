@@ -40,7 +40,7 @@ public class AuthServiceTests
         Assert.NotNull(profile);
         Assert.True(profile!.HasWhatsApp);
         Assert.Equal("+243900000001", profile.WhatsAppNumber);
-        Assert.Equal("test_user", profile.Username);
+        Assert.Equal("Test User", profile.DisplayName);
     }
 
     [Fact]
@@ -95,38 +95,51 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task UpdateUsernameAsync_SavesNormalizedUsername()
+    public async Task UpdateDisplayNameAsync_SavesTrimmedDisplayName()
     {
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
         var service = CreateService(db);
-        var profile = await service.UpdateUsernameAsync(
+        var profile = await service.UpdateDisplayNameAsync(
             user.Id,
-            new UpdateUsernameRequestDto("Marie.K"));
+            new UpdateDisplayNameRequestDto("  Marie K.  "));
 
-        Assert.Equal("marie.k", profile.Username);
+        Assert.Equal("Marie K.", profile.DisplayName);
     }
 
     [Fact]
-    public async Task UpdateUsernameAsync_RejectsTakenUsername()
+    public async Task UpdateDisplayNameAsync_RejectsTakenDisplayName()
     {
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
         db.Users.Add(new User
         {
             Email = "other@test.com",
-            Username = "taken_name",
-            DisplayName = "Other",
+            DisplayName = "Marie K.",
         });
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UpdateUsernameAsync(user.Id, new UpdateUsernameRequestDto("taken_name")));
+            service.UpdateDisplayNameAsync(user.Id, new UpdateDisplayNameRequestDto("marie k.")));
 
         Assert.Contains("déjà pris", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateDisplayNameAsync_AllowsKeepingSameDisplayName()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateService(db);
+        var profile = await service.UpdateDisplayNameAsync(
+            user.Id,
+            new UpdateDisplayNameRequestDto("Test User"));
+
+        Assert.Equal("Test User", profile.DisplayName);
     }
 
     private static AuthService CreateService(KinshoutDbContext db) =>
@@ -138,7 +151,6 @@ public class AuthServiceTests
                 Issuer = "kinshout-test",
                 UserAudience = "kinshout-user",
             })),
-            new UsernameService(db),
             Options.Create(new OAuthSettings()),
             Mock.Of<IFacebookAuthValidator>(),
             Mock.Of<ILogger<AuthService>>());

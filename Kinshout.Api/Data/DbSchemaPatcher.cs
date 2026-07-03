@@ -18,7 +18,7 @@ public static class DbSchemaPatcher
     private static async Task ApplySqlServerAsync(KinshoutDbContext db, CancellationToken ct)
     {
         var connection = await OpenConnectionAsync(db, ct);
-        await EnsureUserUsernameColumnAsync(db, connection, sqlServer: true, ct);
+        await RemoveUserUsernameSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
     }
 
@@ -49,7 +49,7 @@ public static class DbSchemaPatcher
                 ct);
         }
 
-        await EnsureUserUsernameColumnAsync(db, connection, sqlServer: false, ct);
+        await RemoveUserUsernameSchemaAsync(db, connection, sqlServer: false, ct);
 
         if (!await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "ImageUrlsJson", ct))
             await db.Database.ExecuteSqlRawAsync(
@@ -230,54 +230,29 @@ public static class DbSchemaPatcher
         }
     }
 
-    public static async Task EnsureUsernameIndexAsync(KinshoutDbContext db, CancellationToken ct = default)
-    {
-        if (db.Database.IsSqlite())
-        {
-            var connection = await OpenConnectionAsync(db, ct);
-            if (!await IndexExistsAsync(connection, sqlServer: false, "IX_Users_Username", ct))
-            {
-                await db.Database.ExecuteSqlRawAsync(
-                    "CREATE UNIQUE INDEX IX_Users_Username ON Users (Username)",
-                    ct);
-            }
-
-            return;
-        }
-
-        if (db.Database.IsSqlServer())
-        {
-            var connection = await OpenConnectionAsync(db, ct);
-            if (!await IndexExistsAsync(connection, sqlServer: true, "IX_Users_Username", ct))
-            {
-                await db.Database.ExecuteSqlRawAsync(
-                    "CREATE UNIQUE INDEX IX_Users_Username ON Users (Username)",
-                    ct);
-            }
-        }
-    }
-
-    private static async Task EnsureUserUsernameColumnAsync(
+    private static async Task RemoveUserUsernameSchemaAsync(
         KinshoutDbContext db,
         DbConnection connection,
         bool sqlServer,
         CancellationToken ct)
     {
-        if (await ColumnExistsAsync(connection, sqlServer, "Users", "Username", ct))
+        if (!await ColumnExistsAsync(connection, sqlServer, "Users", "Username", ct))
             return;
 
-        if (sqlServer)
+        if (await IndexExistsAsync(connection, sqlServer, "IX_Users_Username", ct))
         {
             await db.Database.ExecuteSqlRawAsync(
-                "ALTER TABLE Users ADD Username nvarchar(20) NULL",
+                sqlServer
+                    ? "DROP INDEX IX_Users_Username ON Users"
+                    : "DROP INDEX IX_Users_Username",
                 ct);
         }
-        else
-        {
-            await db.Database.ExecuteSqlRawAsync(
-                "ALTER TABLE Users ADD COLUMN Username TEXT",
-                ct);
-        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            sqlServer
+                ? "ALTER TABLE Users DROP COLUMN Username"
+                : "ALTER TABLE Users DROP COLUMN Username",
+            ct);
     }
 
     private static async Task<bool> IndexExistsAsync(
