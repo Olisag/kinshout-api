@@ -37,6 +37,7 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
         [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "recent",
         [FromQuery] string? intent = null,
+        [FromQuery] string? source = null,
         CancellationToken ct = default)
     {
         if (!string.IsNullOrWhiteSpace(intent))
@@ -49,7 +50,7 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
 
         try
         {
-            return Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, intent, TryGetUserId(), ct));
+            return Ok(await adverts.ListAsync(categoryId, page, pageSize, sort, intent, source, TryGetUserId(), ct));
         }
         catch (ArgumentException ex)
         {
@@ -258,8 +259,9 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     private static readonly TimeSpan CategoriesCacheDuration = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// List advert categories (Immobilier, Emplois, etc., plus any created by OpenAI).
+    /// List advert categories created from content (AI-generated, with published adverts).
     /// Excludes the Discussions category — use <c>/api/discussions</c> for forum content.
+    /// Pass <c>aiOnly=false</c> to include legacy system categories.
     /// Requires frontend client token only.
     /// </summary>
     [HttpGet]
@@ -268,10 +270,11 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     public async Task<ActionResult<PagedResultDto<CategoryDto>>> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] bool aiOnly = true,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
-        var cacheKey = $"{ApiCacheKeys.CategoriesAll}:{normalizedPage}:{normalizedPageSize}";
+        var cacheKey = $"{ApiCacheKeys.CategoriesAll}:{aiOnly}:{normalizedPage}:{normalizedPageSize}";
 
         var result = await cache.GetOrCreateAsync(cacheKey, async entry =>
         {
@@ -279,8 +282,17 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
 
             var query = db.Categories
                 .AsNoTracking()
-                .Where(c => c.Slug != Category.DiscussionSlug)
-                .OrderBy(c => c.IsSystem ? 0 : 1)
+                .Where(c => c.Slug != Category.DiscussionSlug);
+
+            if (aiOnly)
+            {
+                query = query
+                    .Where(c => c.IsAiGenerated)
+                    .Where(c => c.Adverts.Any(a => a.IsPublished));
+            }
+
+            query = query
+                .OrderByDescending(c => c.Adverts.Count(a => a.IsPublished))
                 .ThenBy(c => c.Label);
 
             var total = await query.CountAsync(ct);
@@ -365,13 +377,14 @@ public class SearchController(ISearchService search) : ControllerBase
         [FromQuery] string? intent = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] string? source = null,
         CancellationToken ct = default)
     {
         if (!TryNormalizeSearchParams(sort, intent, out sort, out intent, out var error))
             return BadRequest(new { error });
 
         return Ok(await search.SearchAsync(
-            new SearchRequestDto(q, tab, page, pageSize, sort, intent),
+            new SearchRequestDto(q, tab, page, pageSize, sort, intent, source),
             ControllerUserHelper.TryGetUserId(HttpContext),
             ct));
     }

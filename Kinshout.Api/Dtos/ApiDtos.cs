@@ -92,8 +92,117 @@ public record AdvertDto(
     string? AiSummary,
     int ViewCount,
     int LikeCount,
-    bool IsSaved = false
-);
+    bool IsSaved = false,
+    bool IsExternal = false,
+    AdvertSourceDto? Source = null,
+    AdvertDetailsDto? Details = null,
+    AdvertContactDto? Contact = null);
+
+public record AdvertSourceDto(
+    string Provider,
+    string ProviderName,
+    string ExternalId,
+    string ExternalUrl,
+    DateTime ImportedAt,
+    DateTime LastSeenAt,
+    DateTime FirstSeenAt);
+
+public record AdvertDetailsDto(
+    int? Bedrooms,
+    int? Bathrooms,
+    int? Area,
+    bool? Furnished,
+    int? Floor,
+    string? PropertyType,
+    string? Condition,
+    bool? Parking,
+    bool? PetFriendly,
+    int? YearBuilt);
+
+public record AdvertContactDto(
+    string? SellerName,
+    string? SellerProfileUrl,
+    string? Phone,
+    string? WhatsApp,
+    string? PreferredContact,
+    bool IsPubliclyListed);
+
+public record ImportExternalAdvertSourceDto(
+    string Provider,
+    string? ProviderName,
+    string ExternalId,
+    string ExternalUrl,
+    DateTime? ImportedAt,
+    DateTime? LastSeenAt,
+    DateTime? FirstSeenAt);
+
+public record ImportExternalAdvertPriceDto(
+    decimal? Amount,
+    string? Currency,
+    string? Formatted,
+    string? Period,
+    bool Negotiable);
+
+public record ImportExternalAdvertLocationDto(
+    string? City,
+    string? Commune,
+    string? Neighborhood,
+    string? Address,
+    string? Formatted);
+
+public record ImportExternalAdvertDetailsDto(
+    int? Bedrooms,
+    int? Bathrooms,
+    int? Area,
+    bool? Furnished,
+    int? Floor,
+    string? PropertyType,
+    string? Condition,
+    bool? Parking,
+    bool? PetFriendly,
+    int? YearBuilt);
+
+public record ImportExternalAdvertContactDto(
+    string? SellerName,
+    string? SellerProfileUrl,
+    string? Phone,
+    string? WhatsApp,
+    string? PreferredContact,
+    bool? IsPubliclyListed);
+
+public record ImportExternalAdvertAiDto(
+    IReadOnlyList<string>? Tags,
+    string? Summary,
+    IReadOnlyList<string>? Intent);
+
+public record ImportExternalAdvertDto(
+    ImportExternalAdvertSourceDto Source,
+    string Category,
+    string? Subcategory,
+    string Title,
+    ImportExternalAdvertPriceDto? Price,
+    ImportExternalAdvertLocationDto? Location,
+    ImportExternalAdvertDetailsDto? Details,
+    string Description,
+    IReadOnlyList<string>? Images,
+    ImportExternalAdvertContactDto? Contact,
+    string Status = "active",
+    DateTime? PublishedAt = null,
+    string? Modality = null,
+    ImportExternalAdvertAiDto? Ai = null,
+    string? DuplicateGroupId = null);
+
+public record ImportExternalAdvertsRequestDto(IReadOnlyList<ImportExternalAdvertDto> Adverts);
+
+public record ImportExternalAdvertsResponseDto(
+    int Created,
+    int Updated,
+    int Unchanged,
+    int Skipped);
+
+public record ImportKnownAdvertKeyDto(string Provider, string ExternalId);
+
+public record ImportKnownAdvertsResponseDto(IReadOnlyList<ImportKnownAdvertKeyDto> Adverts);
 
 public record CategoryDto(
     Guid Id,
@@ -148,12 +257,13 @@ public record CreateReplyRequestDto(string Body);
 public record UpdateReplyRequestDto(string Body);
 
 public record SearchRequestDto(
-    string Query,
+    string Query = "",
     string Tab = "all",
     int Page = 1,
     int PageSize = 20,
     string Sort = "recent",
-    string? Intent = null);
+    string? Intent = null,
+    string? Source = null);
 
 public record PopularSearchDto(string Query, int Count);
 

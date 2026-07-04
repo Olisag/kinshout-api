@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
@@ -22,6 +23,7 @@ builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(Open
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<UploadStorageSettings>(builder.Configuration.GetSection(UploadStorageSettings.SectionName));
+builder.Services.Configure<ImportSettings>(builder.Configuration.GetSection(ImportSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -74,6 +76,7 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
+builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -126,6 +129,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.JsonSerializerOptions.AllowTrailingCommas = true;
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -240,6 +244,10 @@ using (var scope = app.Services.CreateScope())
         var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<ApiClient>>();
         await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
         await ClientSeed.EnsureAllowedOriginsAsync(db);
+        await ImportSeed.EnsureImportUserAsync(db);
+
+        var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+        await AiCategoryCatalog.SyncContentAsync(db, cache);
     }
     catch (Exception ex)
     {

@@ -23,6 +23,7 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
         var path = context.Request.Path.Value ?? "";
         if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
             || PublicPaths.Contains(path)
+            || path.StartsWith("/api/imports", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
         {
             await next(context);

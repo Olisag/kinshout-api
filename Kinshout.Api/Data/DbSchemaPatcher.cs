@@ -19,7 +19,9 @@ public static class DbSchemaPatcher
     {
         var connection = await OpenConnectionAsync(db, ct);
         await RemoveUserUsernameSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureSearchQueryStatsSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
     }
 
     private static async Task ApplySqliteAsync(KinshoutDbContext db, CancellationToken ct)
@@ -50,6 +52,7 @@ public static class DbSchemaPatcher
         }
 
         await RemoveUserUsernameSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureSearchQueryStatsSchemaAsync(db, connection, sqlServer: false, ct);
 
         if (!await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "ImageUrlsJson", ct))
             await db.Database.ExecuteSqlRawAsync(
@@ -67,6 +70,8 @@ public static class DbSchemaPatcher
                 "ALTER TABLE Adverts ADD COLUMN LikeCount INTEGER NOT NULL DEFAULT 0", ct);
 
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: false, ct);
+
+        await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
 
         if (await TableExistsAsync(connection, sqlServer: false, "SavedAdverts", ct))
         {
@@ -228,6 +233,101 @@ public static class DbSchemaPatcher
                 )
                 """, ct);
         }
+    }
+
+    private static async Task EnsureExternalAdvertSourceSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        var columns = new (string Name, string SqlServerType, string SqliteType)[]
+        {
+            ("SourceProvider", "nvarchar(64) NULL", "TEXT"),
+            ("SourceProviderName", "nvarchar(120) NULL", "TEXT"),
+            ("SourceExternalId", "nvarchar(128) NULL", "TEXT"),
+            ("SourceExternalUrl", "nvarchar(2048) NULL", "TEXT"),
+            ("SourceImportedAt", "datetime2 NULL", "TEXT"),
+            ("SourceLastSeenAt", "datetime2 NULL", "TEXT"),
+            ("SourceFirstSeenAt", "datetime2 NULL", "TEXT"),
+            ("SubcategorySlug", "nvarchar(80) NULL", "TEXT"),
+            ("DetailsJson", "nvarchar(max) NULL", "TEXT"),
+            ("ContactJson", "nvarchar(max) NULL", "TEXT"),
+            ("DuplicateGroupId", "nvarchar(128) NULL", "TEXT"),
+            ("ExternalPublishedAt", "datetime2 NULL", "TEXT"),
+        };
+
+        foreach (var (name, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "Adverts", name, ct))
+                continue;
+
+            var sql = sqlServer
+                ? $"ALTER TABLE Adverts ADD {name} {sqlServerType}"
+                : $"ALTER TABLE Adverts ADD COLUMN {name} {sqliteType}";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Adverts_SourceProvider_SourceExternalId", ct))
+        {
+            var indexSql = sqlServer
+                ? """
+                  CREATE UNIQUE INDEX IX_Adverts_SourceProvider_SourceExternalId
+                  ON Adverts (SourceProvider, SourceExternalId)
+                  WHERE SourceProvider IS NOT NULL AND SourceExternalId IS NOT NULL
+                  """
+                : """
+                  CREATE UNIQUE INDEX IX_Adverts_SourceProvider_SourceExternalId
+                  ON Adverts (SourceProvider, SourceExternalId)
+                  WHERE SourceProvider IS NOT NULL AND SourceExternalId IS NOT NULL
+                  """;
+            await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsureSearchQueryStatsSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (await TableExistsAsync(connection, sqlServer, "SearchQueryStats", ct))
+            return;
+
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE SearchQueryStats (
+                    Id uniqueidentifier NOT NULL,
+                    NormalizedQuery nvarchar(200) NOT NULL,
+                    DisplayQuery nvarchar(200) NOT NULL,
+                    SearchCount int NOT NULL,
+                    LastSearchedAt datetime2 NOT NULL,
+                    CONSTRAINT PK_SearchQueryStats PRIMARY KEY (Id)
+                )
+                """,
+                cancellationToken: ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE SearchQueryStats (
+                    Id TEXT NOT NULL,
+                    NormalizedQuery TEXT NOT NULL,
+                    DisplayQuery TEXT NOT NULL,
+                    SearchCount INTEGER NOT NULL,
+                    LastSearchedAt TEXT NOT NULL,
+                    PRIMARY KEY (Id)
+                )
+                """,
+                cancellationToken: ct);
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IX_SearchQueryStats_NormalizedQuery ON SearchQueryStats (NormalizedQuery)",
+            cancellationToken: ct);
     }
 
     private static async Task RemoveUserUsernameSchemaAsync(

@@ -17,6 +17,7 @@ public interface IAdvertService
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         string? intent = null,
+        string? source = null,
         Guid? viewerUserId = null,
         CancellationToken ct = default);
     Task<PagedResultDto<AdvertDto>> ListMineAsync(
@@ -178,10 +179,12 @@ public class AdvertService(
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         string? intent = null,
+        string? source = null,
         Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var sourceFilter = AdvertSourceMapper.NormalizeListFilter(source);
 
         var query = db.Adverts.AsNoTracking().Include(a => a.Category).Include(a => a.User).Where(a => a.IsPublished);
         if (categoryId.HasValue)
@@ -190,9 +193,11 @@ public class AdvertService(
         if (!string.IsNullOrWhiteSpace(intent))
             query = query.Where(a => a.Intent == ParseListIntent(intent));
 
+        query = AdvertSourceMapper.ApplySourceFilter(query, sourceFilter);
+
         var ordered = ListSortHelper.IsPopular(sort)
-            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.CreatedAt)
-            : query.OrderByDescending(a => a.CreatedAt);
+            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.ExternalPublishedAt ?? a.CreatedAt)
+            : query.OrderByDescending(a => a.ExternalPublishedAt ?? a.CreatedAt);
 
         var total = await ordered.CountAsync(ct);
         var items = await ordered
@@ -244,6 +249,8 @@ public class AdvertService(
     {
         var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson) ?? [];
         var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
+        var contact = AdvertSourceMapper.ToContactDto(advert);
+        var sortDate = AdvertSourceMapper.SortDate(advert);
         return new AdvertDto(
             advert.Id,
             advert.Title,
@@ -256,15 +263,18 @@ public class AdvertService(
             advert.Category.Icon,
             imageUrls,
             advert.ResumeUrl,
-            advert.User?.WhatsAppNumber,
+            contact?.WhatsApp ?? advert.User?.WhatsAppNumber,
             tags,
-            TimeHelpers.FormatRelative(advert.CreatedAt),
+            TimeHelpers.FormatRelative(sortDate),
             advert.AiConfidence,
             advert.AiSummary,
             advert.ViewCount,
             advert.LikeCount,
-            isSaved
-        );
+            isSaved,
+            advert.IsExternal,
+            AdvertSourceMapper.ToSourceDto(advert),
+            AdvertSourceMapper.ToDetailsDto(advert),
+            contact);
     }
 
     internal static List<AdvertDto> ToDtos(IReadOnlyList<Advert> adverts, IReadOnlySet<Guid> savedIds) =>

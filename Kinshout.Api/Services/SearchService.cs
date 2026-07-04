@@ -68,6 +68,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             sort);
 
         ApplyIntentFilter(request.Intent, ref matchedAdverts, ref matchedDiscussions);
+        ApplySourceFilter(request.Source, ref matchedAdverts);
 
         var savedIds = await AdvertService.LoadSavedAdvertIdsAsync(
             db,
@@ -137,7 +138,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         foreach (var advert in advertResults)
         {
             var meta = advertMeta[advert.Id];
-            feed.Add(("advert", advert, null, meta.CreatedAt, meta.ViewCount));
+            feed.Add(("advert", advert, null, AdvertSourceMapper.SortDate(meta), meta.ViewCount));
         }
 
         foreach (var discussion in discussionResults)
@@ -180,8 +181,29 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     {
         var query = adverts.AsEnumerable();
         return sort == ListSortHelper.Popular
-            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.CreatedAt).ToList()
-            : query.OrderByDescending(a => a.CreatedAt).ToList();
+            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(AdvertSourceMapper.SortDate).ToList()
+            : query.OrderByDescending(AdvertSourceMapper.SortDate).ToList();
+    }
+
+    private static void ApplySourceFilter(string? source, ref List<Advert> adverts)
+    {
+        var sourceFilter = AdvertSourceMapper.NormalizeListFilter(source);
+        if (string.IsNullOrWhiteSpace(sourceFilter))
+            return;
+
+        if (sourceFilter == "external")
+        {
+            adverts = adverts.Where(a => a.IsExternal).ToList();
+            return;
+        }
+
+        if (sourceFilter == AdvertSourceProvider.Kinshout)
+        {
+            adverts = adverts.Where(a => !a.IsExternal).ToList();
+            return;
+        }
+
+        adverts = adverts.Where(a => a.SourceProvider == sourceFilter).ToList();
     }
 
     private static List<Discussion> SortDiscussions(IEnumerable<Discussion> discussions, string sort)

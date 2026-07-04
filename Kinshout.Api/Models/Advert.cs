@@ -21,6 +21,23 @@ public class Advert
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Null or kinshout = native listing. Other values = imported external source.</summary>
+    public string? SourceProvider { get; set; }
+    public string? SourceProviderName { get; set; }
+    public string? SourceExternalId { get; set; }
+    public string? SourceExternalUrl { get; set; }
+    public DateTime? SourceImportedAt { get; set; }
+    public DateTime? SourceLastSeenAt { get; set; }
+    public DateTime? SourceFirstSeenAt { get; set; }
+    public string? SubcategorySlug { get; set; }
+    public string DetailsJson { get; set; } = "{}";
+    public string ContactJson { get; set; } = "{}";
+    public string? DuplicateGroupId { get; set; }
+    public DateTime? ExternalPublishedAt { get; set; }
+
+    public bool IsExternal => !string.IsNullOrWhiteSpace(SourceProvider)
+        && !SourceProvider.Equals(AdvertSourceProvider.Kinshout, StringComparison.OrdinalIgnoreCase);
+
     public User User { get; set; } = null!;
     public Category Category { get; set; } = null!;
 }

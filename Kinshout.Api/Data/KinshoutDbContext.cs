@@ -54,6 +54,14 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.Title).HasMaxLength(200);
             e.Property(x => x.Price).HasMaxLength(64);
             e.Property(x => x.Location).HasMaxLength(120);
+            e.Property(x => x.SourceProvider).HasMaxLength(64);
+            e.Property(x => x.SourceProviderName).HasMaxLength(120);
+            e.Property(x => x.SourceExternalId).HasMaxLength(128);
+            e.Property(x => x.SourceExternalUrl).HasMaxLength(2048);
+            e.Property(x => x.SubcategorySlug).HasMaxLength(80);
+            e.Property(x => x.DuplicateGroupId).HasMaxLength(128);
+            e.HasIndex(x => new { x.SourceProvider, x.SourceExternalId }).IsUnique()
+                .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
             e.HasIndex(x => new { x.IsPublished, x.CreatedAt });
             e.HasIndex(x => new { x.IsPublished, x.ViewCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.IsPublished, x.CreatedAt });
