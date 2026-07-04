@@ -26,6 +26,11 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
     /// <param name="pageSize">Items per page (max 50).</param>
     /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (view count).</param>
     /// <param name="intent">Optional filter: <c>offre</c> or <c>demande</c>.</param>
+    /// <param name="source">
+    /// Optional listing source filter. Omit, <c>all</c>, or <c>toutes</c> for no filter;
+    /// <c>kinshout</c> for native listings; <c>external</c>, <c>sources_externes</c>, or <c>externes</c> for any import;
+    /// or a provider slug: <c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, <c>other</c>.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
@@ -250,7 +255,7 @@ public class AdvertsController(IAdvertService adverts, ISavedAdvertService saved
     private Guid? TryGetUserId() => ControllerUserHelper.TryGetUserId(HttpContext);
 }
 
-/// <summary>Categories — system-seeded and AI-created as adverts are posted.</summary>
+/// <summary>AI-generated advert categories derived from published listings.</summary>
 [ApiController]
 [Route("api/categories")]
 [Produces("application/json")]
@@ -259,9 +264,10 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     private static readonly TimeSpan CategoriesCacheDuration = TimeSpan.FromMinutes(15);
 
     /// <summary>
-    /// List advert categories created from content (AI-generated, with published adverts).
+    /// List AI-generated categories that have at least one published advert (native or external).
     /// Excludes the Discussions category — use <c>/api/discussions</c> for forum content.
-    /// Pass <c>aiOnly=false</c> to include legacy system categories.
+    /// When no AI categories exist yet, they are created from current published adverts.
+    /// Results are ordered by popularity (published advert count, then total views).
     /// Requires frontend client token only.
     /// </summary>
     [HttpGet]
@@ -270,42 +276,60 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     public async Task<ActionResult<PagedResultDto<CategoryDto>>> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] bool aiOnly = true,
         CancellationToken ct = default)
     {
-        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
-        var cacheKey = $"{ApiCacheKeys.CategoriesAll}:{aiOnly}:{normalizedPage}:{normalizedPageSize}";
+        await AiCategoryCatalog.EnsureFromAdvertsAsync(db, cache, ct);
+
+        var (normalizedPage, normalizedPageSize) = NormalizeCategoriesPageSize(page, pageSize);
+        var generation = cache.Get<int?>(ApiCacheKeys.CategoriesGeneration) ?? 0;
+        var cacheKey = $"{ApiCacheKeys.CategoriesAll}:{generation}:{normalizedPage}:{normalizedPageSize}";
 
         var result = await cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = CategoriesCacheDuration;
 
-            var query = db.Categories
+            var parentSlugs = AiCategoryCatalog.ParentBucketSlugs;
+
+            var popularity = db.Adverts
                 .AsNoTracking()
-                .Where(c => c.Slug != Category.DiscussionSlug);
+                .Where(a => a.IsPublished)
+                .GroupBy(a => a.CategoryId)
+                .Select(g => new
+                {
+                    CategoryId = g.Key,
+                    AdvertCount = g.Count(),
+                    ViewCount = g.Sum(a => a.ViewCount),
+                    LikeCount = g.Sum(a => a.LikeCount),
+                });
 
-            if (aiOnly)
-            {
-                query = query
-                    .Where(c => c.IsAiGenerated)
-                    .Where(c => c.Adverts.Any(a => a.IsPublished));
-            }
-
-            query = query
-                .OrderByDescending(c => c.Adverts.Count(a => a.IsPublished))
-                .ThenBy(c => c.Label);
+            var query =
+                from c in db.Categories.AsNoTracking()
+                join p in popularity on c.Id equals p.CategoryId
+                where c.Slug != Category.DiscussionSlug
+                where c.IsAiGenerated
+                where parentSlugs.Contains(c.Slug)
+                orderby c.Slug == "autres", p.AdvertCount descending, p.ViewCount descending, p.LikeCount descending, c.Label
+                select new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated);
 
             var total = await query.CountAsync(ct);
             var items = await query
                 .Skip((normalizedPage - 1) * normalizedPageSize)
                 .Take(normalizedPageSize)
-                .Select(c => new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated))
                 .ToListAsync(ct);
 
             return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
         });
 
         return Ok(result ?? PagingHelper.Create(Array.Empty<CategoryDto>(), normalizedPage, normalizedPageSize, 0));
+    }
+
+    private const int CategoriesMaxPageSize = 200;
+
+    private static (int Page, int PageSize) NormalizeCategoriesPageSize(int page, int pageSize)
+    {
+        var normalizedPage = Math.Max(1, page);
+        var normalizedPageSize = Math.Clamp(pageSize <= 0 ? PagingHelper.DefaultPageSize : pageSize, 1, CategoriesMaxPageSize);
+        return (normalizedPage, normalizedPageSize);
     }
 }
 
@@ -337,6 +361,8 @@ public class SearchController(ISearchService search) : ControllerBase
     /// Set <c>tab</c> to <c>all</c>, <c>annonces</c>, or <c>discussions</c> to filter result types.
     /// Use <c>sort</c> (<c>recent</c> or <c>popular</c>) and optional <c>intent</c> (<c>demande</c>, <c>offre</c>, <c>discussion</c>).
     /// Use <c>page</c> (1-based) and <c>pageSize</c> (max 50, default 20) for pagination.
+    /// Optional <c>source</c> filters adverts by origin — same values as <c>GET /api/adverts?source=</c>
+    /// (<c>kinshout</c>, <c>external</c>, <c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, <c>other</c>).
     /// Falls back to keyword matching if OpenAI is unavailable.
     /// </remarks>
     [HttpPost]
@@ -365,6 +391,10 @@ public class SearchController(ISearchService search) : ControllerBase
     /// <param name="intent">Optional intent filter: demande, offre, or discussion.</param>
     /// <param name="page">Page number (1-based).</param>
     /// <param name="pageSize">Results per type per page (max 50).</param>
+    /// <param name="source">
+    /// Optional listing source filter — same values as <c>GET /api/adverts?source=</c>
+    /// (<c>kinshout</c>, <c>external</c>, provider slugs, or <c>all</c>/<c>toutes</c> for no filter).
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]

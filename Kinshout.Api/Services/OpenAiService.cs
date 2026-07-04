@@ -468,35 +468,27 @@ public static class CategoryResolver
         IMemoryCache? cache,
         CancellationToken ct)
     {
-        var existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == analysis.CategorySlug, ct);
-        if (existing is not null)
-            return existing;
-
         if (!analysis.CreateNewCategory)
         {
+            var parentSlug = AiCategoryCatalog.ResolveParentSlug(analysis.CategorySlug, analysis.CategorySlug);
+            var existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == parentSlug, ct);
+            if (existing is not null)
+                return existing;
+
+            existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == analysis.CategorySlug, ct);
+            if (existing is not null)
+                return existing;
+
             existing = await db.Categories.FirstOrDefaultAsync(c => c.Label == analysis.CategoryLabel, ct);
             if (existing is not null)
                 return existing;
         }
 
-        var category = new Category
-        {
-            Slug = Slugify(analysis.CategorySlug),
-            Label = analysis.CategoryLabel,
-            Icon = analysis.CategoryIcon,
-            IsAiGenerated = true,
-        };
-        db.Categories.Add(category);
-        await db.SaveChangesAsync(ct);
-        cache?.Remove(ApiCacheKeys.CategoriesAll);
-        return category;
-    }
-
-    private static string Slugify(string input)
-    {
-        var slug = input.ToLowerInvariant().Trim();
-        slug = Regex.Replace(slug, @"[^a-z0-9_]+", "_");
-        slug = Regex.Replace(slug, @"_+", "_").Trim('_');
-        return string.IsNullOrEmpty(slug) ? $"cat_{Guid.NewGuid():N}"[..16] : slug;
+        return await AiCategoryCatalog.GetOrCreateAsync(
+            db,
+            analysis.CategorySlug,
+            analysis.CategorySlug,
+            cache,
+            ct);
     }
 }

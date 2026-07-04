@@ -1,9 +1,9 @@
-# Nightly Kinshasa external import into dev (3:00 Africa/Kinshasa = 02:00 UTC).
-name: External importer (dev, nightly)
+# External import into dev every ~15 days at 03:00 Kinshasa (02:00 UTC on the 1st and 16th).
+name: External importer (dev, every 15 days)
 
 on:
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 2 1,16 * *"
   workflow_dispatch:
 
 concurrency:

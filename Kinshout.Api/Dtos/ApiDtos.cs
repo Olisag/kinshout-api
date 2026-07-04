@@ -98,6 +98,14 @@ public record AdvertDto(
     AdvertDetailsDto? Details = null,
     AdvertContactDto? Contact = null);
 
+/// <summary>External listing provenance — present when <see cref="AdvertDto.IsExternal"/> is true.</summary>
+/// <param name="Provider">Source slug: <c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, or <c>other</c>.</param>
+/// <param name="ProviderName">Human-readable source label shown in the app.</param>
+/// <param name="ExternalId">Stable id from the source site (dedupe key with <see cref="Provider"/>).</param>
+/// <param name="ExternalUrl">Canonical URL on the source marketplace.</param>
+/// <param name="ImportedAt">When Kinshout first imported this listing.</param>
+/// <param name="LastSeenAt">When the importer last saw this listing active.</param>
+/// <param name="FirstSeenAt">First observation timestamp from the source feed.</param>
 public record AdvertSourceDto(
     string Provider,
     string ProviderName,
@@ -127,6 +135,14 @@ public record AdvertContactDto(
     string? PreferredContact,
     bool IsPubliclyListed);
 
+/// <summary>Source identity for an import payload item.</summary>
+/// <param name="Provider"><c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, or <c>other</c>.</param>
+/// <param name="ProviderName">Optional display name; defaults from <see cref="Provider"/> when omitted.</param>
+/// <param name="ExternalId">Required. Unique id on the source site.</param>
+/// <param name="ExternalUrl">Required. Public listing URL.</param>
+/// <param name="ImportedAt">When this batch first imported the listing (defaults to now).</param>
+/// <param name="LastSeenAt">Last time the source was seen active (defaults to now).</param>
+/// <param name="FirstSeenAt">Optional first-seen timestamp from the source feed.</param>
 public record ImportExternalAdvertSourceDto(
     string Provider,
     string? ProviderName,
@@ -256,6 +272,17 @@ public record CreateReplyRequestDto(string Body);
 
 public record UpdateReplyRequestDto(string Body);
 
+/// <summary>Search request body for POST /api/search.</summary>
+/// <param name="Query">Free-text search. Optional for browse-style queries with filters only.</param>
+/// <param name="Tab"><c>all</c>, <c>annonces</c>, or <c>discussions</c>.</param>
+/// <param name="Page">1-based page number.</param>
+/// <param name="PageSize">Results per type per page (max 50).</param>
+/// <param name="Sort"><c>recent</c> or <c>popular</c>.</param>
+/// <param name="Intent">Optional: <c>demande</c>, <c>offre</c>, or <c>discussion</c>.</param>
+/// <param name="Source">
+/// Optional advert source filter: omit/<c>all</c>/<c>toutes</c>, <c>kinshout</c>, <c>external</c>,
+/// or provider slug (<c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, <c>other</c>).
+/// </param>
 public record SearchRequestDto(
     string Query = "",
     string Tab = "all",

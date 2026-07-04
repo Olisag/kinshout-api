@@ -213,14 +213,14 @@ By default, the importer keeps only listings from the last 60 days:
 
 Listings with `publishedAt` older than this window are skipped before posting to Kinshout. Listings without `publishedAt` are allowed through because some partner feeds and RSS feeds do not expose a reliable published date.
 
-## Daily scheduling
+## Scheduling
 
 ### GitHub Actions (dev)
 
 Workflow: `.github/workflows/external-importer-dev-schedule.yml`
 
-- Runs daily at **03:00 Kinshasa** (`02:00 UTC` cron)
-- Also runnable manually via **Actions → External importer (dev, nightly) → Run workflow**
+- Runs every **~15 days** at **03:00 Kinshasa** (`02:00 UTC` on the **1st and 16th** of each month)
+- Also runnable manually via **Actions → External importer (dev, every 15 days) → Run workflow**
 - Targets `https://kinshout-api-dev.azurewebsites.net` with `--once` and `skipExisting`
 
 Add these repository secrets on `kinshout-api`:
@@ -242,7 +242,7 @@ Set:
 ```json
 "schedule": {
   "runOnce": false,
-  "runAtHour": 3,
+  "intervalHours": 360,
   "timeZoneId": "Africa/Kinshasa",
   "skipExisting": true,
   "maxAdvertAgeDays": 60
