@@ -13,10 +13,12 @@ public sealed class ExternalImportRunner(
         var now = DateTime.UtcNow;
         var minPublishedAt = now.AddDays(-Math.Max(1, settings.Schedule.MaxAdvertAgeDays));
         var importDtos = new List<ImportExternalAdvertDto>();
+        var removalDtos = new List<ImportExternalAdvertDto>();
         var skipExisting = settings.Schedule.SkipExisting;
+        var detectRemovals = settings.Schedule.DetectRemovedListings;
 
         IReadOnlySet<string>? knownKeys = null;
-        if (skipExisting)
+        if (skipExisting || detectRemovals)
         {
             try
             {
@@ -26,8 +28,9 @@ public sealed class ExternalImportRunner(
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Could not load existing adverts ({ex.Message}); importing without skip filter.");
+                Console.WriteLine($"Could not load existing adverts ({ex.Message}); importing without skip/removal filters.");
                 skipExisting = false;
+                detectRemovals = false;
             }
         }
 
@@ -43,7 +46,33 @@ public sealed class ExternalImportRunner(
             {
                 providerSettings.KnownAdvertKeys = knownKeys;
                 var provider = ExternalAdvertProviderFactory.Create(http, providerSettings);
-                var sourceAdverts = await provider.FetchAsync(ct);
+                var fetchResult = await provider.FetchAsync(ct);
+                var sourceAdverts = fetchResult.Adverts;
+
+                if (detectRemovals && knownKeys is { Count: > 0 })
+                {
+                    var knownForProvider = ImportAdvertKeys.KnownExternalIdsForProvider(knownKeys, providerSettings.Provider).ToList();
+                    var removals = RemovedListingDetector.BuildRemovals(
+                        providerSettings,
+                        fetchResult.SeenExternalIds,
+                        knownKeys,
+                        now);
+
+                    if (removals.Count > 0)
+                    {
+                        removalDtos.AddRange(removals);
+                        Console.WriteLine($"{provider.Name}: detected {removals.Count} removed listing(s).");
+                    }
+                    else if (knownForProvider.Count > 0
+                             && !RemovedListingDetector.ShouldDetectRemovals(
+                                 fetchResult.SeenExternalIds.Count,
+                                 knownForProvider.Count))
+                    {
+                        Console.WriteLine(
+                            $"{provider.Name}: skipped removal detection (seen {fetchResult.SeenExternalIds.Count} vs {knownForProvider.Count} known).");
+                    }
+                }
+
                 var mappedBeforeFreshness = sourceAdverts
                     .Select(ad => AdvertMapper.ToImportDto(ad, providerSettings, now))
                     .Where(ad => ad is not null)
@@ -66,7 +95,7 @@ public sealed class ExternalImportRunner(
 
                 importDtos.AddRange(mapped);
                 Console.WriteLine(
-                    $"{provider.Name}: fetched {sourceAdverts.Count}, mapped {mapped.Count}, skipped_old={skippedOld}, skipped_existing={skippedExisting}.");
+                    $"{provider.Name}: fetched {sourceAdverts.Count}, seen {fetchResult.SeenExternalIds.Count}, mapped {mapped.Count}, skipped_old={skippedOld}, skipped_existing={skippedExisting}.");
             }
             catch (Exception ex)
             {
@@ -79,7 +108,19 @@ public sealed class ExternalImportRunner(
             .Select(g => g.First())
             .ToList();
 
-        Console.WriteLine($"Total mapped adverts: {importDtos.Count}; after dedupe: {deduped.Count}.");
+        var dedupedRemovals = removalDtos
+            .GroupBy(ad => $"{ad.Source.Provider}:{ad.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+        var payload = deduped
+            .Concat(dedupedRemovals)
+            .GroupBy(ad => $"{ad.Source.Provider}:{ad.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.FirstOrDefault(ad => ad.Status is "removed" or "inactive") ?? g.First())
+            .ToList();
+
+        Console.WriteLine(
+            $"Total mapped adverts: {importDtos.Count}; after dedupe: {deduped.Count}; removals: {dedupedRemovals.Count}; payload: {payload.Count}.");
 
         if (dryRun)
         {
@@ -87,9 +128,9 @@ public sealed class ExternalImportRunner(
             return;
         }
 
-        if (deduped.Count == 0)
+        if (payload.Count == 0)
         {
-            Console.WriteLine("Nothing new to import.");
+            Console.WriteLine("Nothing to import.");
             return;
         }
 
@@ -97,7 +138,7 @@ public sealed class ExternalImportRunner(
         var batchSize = Math.Max(1, settings.KinshoutApi.BatchSize);
         var totals = new ImportExternalAdvertsResponseDto(0, 0, 0, 0);
 
-        foreach (var batch in deduped.Chunk(batchSize))
+        foreach (var batch in payload.Chunk(batchSize))
         {
             var response = await importClient.ImportAsync(batch, ct);
             totals = totals with

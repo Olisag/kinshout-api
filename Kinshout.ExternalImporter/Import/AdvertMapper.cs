@@ -80,6 +80,30 @@ public static class AdvertMapper
             DuplicateGroupId: Clean(feed.DuplicateGroupId));
     }
 
+    public static ImportExternalAdvertDto ToRemovalDto(
+        ExternalProviderSettings provider,
+        string externalId,
+        DateTime now) =>
+        new(
+            Source: new ImportExternalAdvertSourceDto(
+                Provider: provider.Provider,
+                ProviderName: provider.ProviderName,
+                ExternalId: externalId.Trim(),
+                ExternalUrl: $"https://removed.local/{provider.Provider}/{Uri.EscapeDataString(externalId.Trim())}",
+                ImportedAt: now,
+                LastSeenAt: now,
+                FirstSeenAt: null),
+            Category: provider.DefaultCategory,
+            Subcategory: provider.DefaultSubcategory,
+            Title: "removed",
+            Price: null,
+            Location: new ImportExternalAdvertLocationDto(provider.DefaultCity, provider.DefaultCommune, null, null, provider.DefaultCity),
+            Details: null,
+            Description: "removed",
+            Images: null,
+            Contact: null,
+            Status: "removed");
+
     private static string StableId(string input)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input.Trim().ToLowerInvariant()));

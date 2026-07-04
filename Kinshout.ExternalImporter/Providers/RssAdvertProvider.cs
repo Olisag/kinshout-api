@@ -7,17 +7,25 @@ public sealed class RssAdvertProvider(HttpClient http, ExternalProviderSettings 
 {
     public string Name => settings.Name;
 
-    public async Task<IReadOnlyList<SourceFeedAdvert>> FetchAsync(CancellationToken ct)
+    public async Task<ProviderFetchResult> FetchAsync(CancellationToken ct)
     {
         var adverts = new List<SourceFeedAdvert>();
         await FetchEndpointAsync(settings.RecentUrl, adverts, ct);
         await FetchEndpointAsync(settings.PopularUrl, adverts, ct);
 
-        return adverts
+        var seenIds = adverts
+            .Select(a => a.ExternalId ?? a.ExternalUrl)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var deduped = adverts
             .Where(a => !string.IsNullOrWhiteSpace(a.ExternalUrl) && !string.IsNullOrWhiteSpace(a.Title))
             .GroupBy(a => a.ExternalId ?? a.ExternalUrl, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .ToList();
+
+        return ProviderFetchResult.From(deduped, seenIds);
     }
 
     private async Task FetchEndpointAsync(string? url, List<SourceFeedAdvert> adverts, CancellationToken ct)

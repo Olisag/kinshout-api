@@ -54,7 +54,7 @@ public class ExternalAdvertImportTests
     }
 
     [Fact]
-    public async Task ImportAsync_UnpublishesRemovedAdvert()
+    public async Task ImportAsync_DeletesRemovedAdvertFromDatabase()
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
@@ -65,7 +65,22 @@ public class ExternalAdvertImportTests
         var removed = await service.ImportAsync([dto with { Status = "removed" }]);
 
         Assert.Equal(1, removed.Updated);
-        Assert.False((await db.Adverts.SingleAsync()).IsPublished);
+        Assert.Empty(await db.Adverts.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ImportAsync_DeletesInactiveAdvertFromDatabase()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = new ExternalAdvertImportService(db);
+        var dto = SampleImport("in-1", "Inactif");
+
+        await service.ImportAsync([dto]);
+        var inactive = await service.ImportAsync([dto with { Status = "inactive" }]);
+
+        Assert.Equal(1, inactive.Updated);
+        Assert.Empty(await db.Adverts.ToListAsync());
     }
 
     [Fact]

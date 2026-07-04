@@ -26,6 +26,8 @@ public sealed class ImportScheduleSettings
     public string TimeZoneId { get; set; } = "Africa/Kinshasa";
     /// <summary>Skip adverts already stored in Kinshout (by provider + external id).</summary>
     public bool SkipExisting { get; set; } = true;
+    /// <summary>Delete Kinshout rows for provider listings missing from the latest source crawl.</summary>
+    public bool DetectRemovedListings { get; set; } = true;
 }
 
 public sealed class ExternalProviderSettings

@@ -7,23 +7,28 @@ public sealed class ApifyFacebookMarketplaceScraperProvider(HttpClient http, Ext
 {
     public string Name => settings.Name;
 
-    public async Task<IReadOnlyList<SourceFeedAdvert>> FetchAsync(CancellationToken ct)
+    public async Task<ProviderFetchResult> FetchAsync(CancellationToken ct)
     {
         var client = new ApifyClient(http, settings);
         var input = BuildInput();
         using var doc = await client.RunActorAndGetDatasetAsync(input, ct);
 
         var adverts = new List<SourceFeedAdvert>();
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
         {
             Console.WriteLine("  Apify Facebook Marketplace: unexpected dataset format.");
-            return adverts;
+            return ProviderFetchResult.From(adverts, seenIds);
         }
 
         var rawCount = doc.RootElement.GetArrayLength();
         var filteredOut = 0;
         foreach (var item in doc.RootElement.EnumerateArray())
         {
+            var rawId = ReadString(item, "id");
+            if (!string.IsNullOrWhiteSpace(rawId))
+                seenIds.Add(rawId);
+
             try
             {
                 var advert = MapListing(item);
@@ -44,10 +49,12 @@ public sealed class ApifyFacebookMarketplaceScraperProvider(HttpClient http, Ext
         else if (rawCount > 0)
             Console.WriteLine($"  Apify Facebook Marketplace: kept {adverts.Count}/{rawCount} Kinshasa listings ({filteredOut} filtered out).");
 
-        return adverts
+        var deduped = adverts
             .GroupBy(a => a.ExternalId ?? a.ExternalUrl, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .ToList();
+
+        return ProviderFetchResult.From(deduped, seenIds);
     }
 
     private object BuildInput()

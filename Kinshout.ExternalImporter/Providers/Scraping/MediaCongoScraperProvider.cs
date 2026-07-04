@@ -12,9 +12,13 @@ public sealed partial class MediaCongoScraperProvider(HttpClient http, ExternalP
 
     public string Name => settings.Name;
 
-    public async Task<IReadOnlyList<SourceFeedAdvert>> FetchAsync(CancellationToken ct)
+    public async Task<ProviderFetchResult> FetchAsync(CancellationToken ct)
     {
         var listingUrls = await CollectListingUrlsAsync(ct);
+        var seenIds = listingUrls
+            .Select(url => ListingIdRegex().Match(url).Groups[1].Value)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var adverts = new List<SourceFeedAdvert>();
 
         foreach (var listingUrl in listingUrls)
@@ -45,11 +49,13 @@ public sealed partial class MediaCongoScraperProvider(HttpClient http, ExternalP
             }
         }
 
-        return adverts
+        var deduped = adverts
             .Where(a => !string.IsNullOrWhiteSpace(a.ExternalUrl) && !string.IsNullOrWhiteSpace(a.Title))
             .GroupBy(a => a.ExternalId ?? a.ExternalUrl, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .ToList();
+
+        return ProviderFetchResult.From(deduped, seenIds);
     }
 
     private async Task<List<string>> CollectListingUrlsAsync(CancellationToken ct)

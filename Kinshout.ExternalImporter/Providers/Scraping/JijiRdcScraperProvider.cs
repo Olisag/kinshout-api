@@ -9,7 +9,7 @@ public sealed partial class JijiRdcScraperProvider(HttpClient http, ExternalProv
 {
     public string Name => settings.Name;
 
-    public async Task<IReadOnlyList<SourceFeedAdvert>> FetchAsync(CancellationToken ct)
+    public async Task<ProviderFetchResult> FetchAsync(CancellationToken ct)
     {
         var listingUrl = settings.RecentUrl ?? "https://jiji.cd/kinshasa/immobilier";
         ValidateCookieConfiguration();
@@ -40,8 +40,14 @@ public sealed partial class JijiRdcScraperProvider(HttpClient http, ExternalProv
         if (adverts.Count == 0)
             Console.WriteLine("  Jiji RDC: no listings parsed. The page layout may have changed or content is JS-only.");
 
+        var seenIds = adverts
+            .Select(a => a.ExternalId ?? a.ExternalUrl)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         if (!settings.FetchDetails)
-            return adverts;
+            return ProviderFetchResult.From(adverts, seenIds);
 
         var enriched = new List<SourceFeedAdvert>();
         foreach (var stub in adverts)
@@ -65,10 +71,12 @@ public sealed partial class JijiRdcScraperProvider(HttpClient http, ExternalProv
             }
         }
 
-        return enriched
+        var deduped = enriched
             .GroupBy(a => a.ExternalId ?? a.ExternalUrl, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .ToList();
+
+        return ProviderFetchResult.From(deduped, seenIds);
     }
 
     private static List<SourceFeedAdvert> ParseListingHtml(string html, string baseUrl)

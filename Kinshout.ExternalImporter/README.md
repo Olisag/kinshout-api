@@ -16,7 +16,6 @@ The importer can scrape marketplace pages directly. Enable a scraper provider in
 | `mediacongo-scraper` | mediacongo.net | HTML listing + detail pages |
 | `zwandako-scraper` | zwandako.com | RSS feed + search pages + JSON-LD detail enrichment |
 | `jiji-scraper` | jiji.cd | **Cloudflare-protected** — requires browser `Cookie` via `${JIJI_COOKIE}` (see below) |
-| `facebook-scraper` / `sociavault-facebook-scraper` | Facebook Marketplace via [SociaVault](https://sociavault.com/) | Requires `apiKey` / `${SOCIAVAULT_API_KEY}` |
 | `apify-facebook-scraper` | Facebook Marketplace via [Apify](https://apify.com/apify/facebook-marketplace-scraper) | Requires `apifyToken` / `${APIFY_TOKEN}` |
 
 Scraper settings on each provider:
@@ -32,27 +31,11 @@ Scraper settings on each provider:
 
 Use `--dry-run` first to inspect counts without posting to Kinshout.
 
-### Facebook Marketplace via SociaVault
+### Removed listing detection
 
-Get an API key from [sociavault.com](https://sociavault.com/), then enable the provider:
+When `schedule.detectRemovedListings` is `true` (default), each scraper reports every listing ID seen during its crawl. After fetch, the importer compares those IDs to Kinshout’s known external adverts for that provider and posts `status: "removed"` for any missing IDs so the API hard-deletes stale rows.
 
-```json
-{
-  "name": "Facebook Marketplace Kinshasa (SociaVault)",
-  "provider": "facebook_marketplace",
-  "type": "sociavault-facebook-scraper",
-  "enabled": true,
-  "apiKey": "${SOCIAVAULT_API_KEY}",
-  "defaultCity": "Kinshasa, DRC",
-  "latitude": -4.325,
-  "longitude": 15.322,
-  "searchQueries": ["appartement", "maison", "immobilier"],
-  "maxPages": 3,
-  "fetchDetails": true
-}
-```
-
-Each search page costs 1 SociaVault credit; item detail fetches cost 1 credit each when `fetchDetails` is true.
+A safety gate skips mass deletion when the crawl looks incomplete (seen count is less than 25% of known count, when there are more than 10 known adverts). MediaCongo and Zwandako track IDs from listing pages before skipping known adverts for detail fetch.
 
 ### Facebook Marketplace via Apify
 
@@ -76,7 +59,7 @@ Get an API token from [Apify Console → Integrations](https://console.apify.com
 
 The provider starts the Apify actor, waits for completion, and maps the dataset to Kinshout import DTOs. One actor run covers all `searchQueries` in a single batch. Pricing is pay-per-listing on Apify (~$2.60/1,000 on the official actor).
 
-To compare SociaVault vs Apify, enable one provider at a time and run `dotnet run -- --once --dry-run`.
+Run `dotnet run -- --once --dry-run` to inspect counts before posting.
 
 ### Jiji RDC (jiji.cd)
 
@@ -142,7 +125,6 @@ Environment overrides:
 | `KINSHOUT_IMPORTER_IMPORT_PATH` | Defaults to `/api/imports/adverts` |
 | `KINSHOUT_IMPORTER_BATCH_SIZE` | Import batch size |
 | `KINSHOUT_IMPORTER_MAX_AGE_DAYS` | Freshness window override |
-| `SOCIAVAULT_API_KEY` | SociaVault API key for Facebook Marketplace scraper |
 | `APIFY_TOKEN` | Apify API token for Facebook Marketplace scraper |
 | `JIJI_COOKIE` | Browser cookie for Jiji scraper when Cloudflare blocks requests |
 
@@ -245,6 +227,7 @@ Set:
   "intervalHours": 360,
   "timeZoneId": "Africa/Kinshasa",
   "skipExisting": true,
+  "detectRemovedListings": true,
   "maxAdvertAgeDays": 60
 }
 ```

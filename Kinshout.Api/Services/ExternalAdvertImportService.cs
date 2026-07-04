@@ -80,6 +80,23 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
         if (string.IsNullOrWhiteSpace(item.Source.ExternalId))
             throw new ArgumentException("externalId requis.");
 
+        var existing = await db.Adverts
+            .FirstOrDefaultAsync(
+                a => a.SourceProvider == provider && a.SourceExternalId == item.Source.ExternalId.Trim(),
+                ct);
+
+        var isActive = !item.Status.Equals("inactive", StringComparison.OrdinalIgnoreCase)
+            && !item.Status.Equals("removed", StringComparison.OrdinalIgnoreCase);
+
+        if (!isActive)
+        {
+            if (existing is null)
+                return UpsertOutcome.Skipped;
+
+            db.Adverts.Remove(existing);
+            return UpsertOutcome.Updated;
+        }
+
         if (string.IsNullOrWhiteSpace(item.Source.ExternalUrl))
             throw new ArgumentException("externalUrl requis.");
 
@@ -90,29 +107,6 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
         var importedAt = item.Source.ImportedAt ?? now;
         var lastSeenAt = item.Source.LastSeenAt ?? importedAt;
         var firstSeenAt = item.Source.FirstSeenAt ?? importedAt;
-        var isActive = !item.Status.Equals("inactive", StringComparison.OrdinalIgnoreCase)
-            && !item.Status.Equals("removed", StringComparison.OrdinalIgnoreCase);
-
-        var existing = await db.Adverts
-            .FirstOrDefaultAsync(
-                a => a.SourceProvider == provider && a.SourceExternalId == item.Source.ExternalId.Trim(),
-                ct);
-
-        if (!isActive)
-        {
-            if (existing is null)
-                return UpsertOutcome.Skipped;
-
-            if (existing.IsPublished)
-            {
-                existing.IsPublished = false;
-                existing.SourceLastSeenAt = lastSeenAt;
-                existing.UpdatedAt = now;
-                return UpsertOutcome.Updated;
-            }
-
-            return UpsertOutcome.Unchanged;
-        }
 
         var category = await AiCategoryCatalog.GetOrCreateAsync(
             db,

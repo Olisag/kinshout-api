@@ -12,15 +12,21 @@ public sealed partial class ZwandakoScraperProvider(HttpClient http, ExternalPro
 
     public string Name => settings.Name;
 
-    public async Task<IReadOnlyList<SourceFeedAdvert>> FetchAsync(CancellationToken ct)
+    public async Task<ProviderFetchResult> FetchAsync(CancellationToken ct)
     {
         var stubs = new Dictionary<string, SourceFeedAdvert>(StringComparer.OrdinalIgnoreCase);
 
         await CollectFromFeedAsync(stubs, ct);
         await CollectFromSearchPagesAsync(stubs, ct);
 
+        var seenIds = stubs.Values
+            .Select(s => s.ExternalId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         if (!settings.FetchDetails)
-            return stubs.Values.ToList();
+            return ProviderFetchResult.From(stubs.Values.ToList(), seenIds);
 
         var enriched = new List<SourceFeedAdvert>();
         foreach (var stub in stubs.Values)
@@ -43,11 +49,13 @@ public sealed partial class ZwandakoScraperProvider(HttpClient http, ExternalPro
             }
         }
 
-        return enriched
+        var deduped = enriched
             .Where(a => !string.IsNullOrWhiteSpace(a.ExternalUrl) && !string.IsNullOrWhiteSpace(a.Title))
             .GroupBy(a => a.ExternalId ?? a.ExternalUrl, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())
             .ToList();
+
+        return ProviderFetchResult.From(deduped, seenIds);
     }
 
     private async Task CollectFromFeedAsync(Dictionary<string, SourceFeedAdvert> stubs, CancellationToken ct)

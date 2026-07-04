@@ -80,14 +80,6 @@ public static partial class SettingsLoader
                     provider.ApifyToken = value;
             }
         });
-        Override(Environment.GetEnvironmentVariable("SOCIAVAULT_API_KEY"), value =>
-        {
-            foreach (var provider in settings.Providers)
-            {
-                if (string.IsNullOrWhiteSpace(provider.ApiKey))
-                    provider.ApiKey = value;
-            }
-        });
         Override(Environment.GetEnvironmentVariable("JIJI_COOKIE"), value =>
         {
             foreach (var provider in settings.Providers)
