@@ -474,13 +474,14 @@ public class DiscussionsController(
     IMemoryCache cache,
     IOpenAiService openAi,
     IDiscussionService discussions,
-    ILikedDiscussionService likedDiscussions) : ControllerBase
+    ILikedDiscussionService likedDiscussions,
+    IDiscussionTopicBackfillScheduler topicBackfill) : ControllerBase
 {
     private static readonly TimeSpan DiscussionCategoriesCacheDuration = TimeSpan.FromMinutes(15);
 
     /// <summary>
     /// List AI-generated discussion topic categories (sport, politique, etc.) ordered by popularity.
-    /// Uncategorized discussions are batch-assigned on first load.
+    /// Legacy discussions are backfilled in the background (keyword-based, non-blocking).
     /// Requires frontend client token only.
     /// </summary>
     [HttpGet("categories")]
@@ -491,7 +492,7 @@ public class DiscussionsController(
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        await AiDiscussionCategoryCatalog.EnsureFromDiscussionsAsync(db, openAi, cache, ct);
+        topicBackfill.ScheduleBatchBackfill();
 
         var (normalizedPage, normalizedPageSize) = NormalizeDiscussionCategoriesPageSize(page, pageSize);
         var generation = cache.Get<int?>(ApiCacheKeys.DiscussionCategoriesGeneration) ?? 0;

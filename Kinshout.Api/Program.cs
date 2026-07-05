@@ -79,6 +79,7 @@ builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
+builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -264,6 +265,8 @@ using (var scope = app.Services.CreateScope())
     {
         app.Logger.LogWarning(ex, "Database schema patch failed — discussion endpoints may error.");
     }
+
+    app.Services.GetRequiredService<IDiscussionTopicBackfillScheduler>().ScheduleBatchBackfill();
 }
 
 if (app.Environment.IsDevelopment())

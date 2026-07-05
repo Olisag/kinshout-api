@@ -56,7 +56,8 @@ public static class AiDiscussionCategoryCatalog
         KinshoutDbContext db,
         string? topicSlug,
         IMemoryCache? cache = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool invalidateCache = true)
     {
         var resolved = ResolveTopicSlug(topicSlug);
         var (slug, label, icon) = DescribeTopic(resolved);
@@ -75,7 +76,8 @@ public static class AiDiscussionCategoryCatalog
                 }
 
                 await db.SaveChangesAsync(ct);
-                InvalidateCategoryCache(cache);
+                if (invalidateCache)
+                    InvalidateCategoryCache(cache);
             }
 
             return existing;
@@ -92,17 +94,18 @@ public static class AiDiscussionCategoryCatalog
 
         db.Categories.Add(category);
         await db.SaveChangesAsync(ct);
-        InvalidateCategoryCache(cache);
+        if (invalidateCache)
+            InvalidateCategoryCache(cache);
         return category;
     }
 
-    public static async Task EnsureFromDiscussionsAsync(
+    /// <summary>Fast keyword backfill for legacy/uncategorized discussions. Returns items processed in this batch.</summary>
+    public static async Task<int> BackfillUncategorizedAsync(
         KinshoutDbContext db,
-        IOpenAiService openAi,
         IMemoryCache cache,
         CancellationToken ct = default)
     {
-        const int batchSize = 25;
+        const int batchSize = 100;
 
         var uncategorized = await db.Discussions
             .Include(d => d.Category)
@@ -115,17 +118,29 @@ public static class AiDiscussionCategoryCatalog
             .ToListAsync(ct);
 
         if (uncategorized.Count == 0)
-            return;
+            return 0;
 
         var topicCategories = await db.Categories
-            .AsNoTracking()
             .Where(c => c.IsDiscussionTopic)
             .ToListAsync(ct);
 
+        var bySlug = topicCategories.ToDictionary(c => c.Slug, StringComparer.OrdinalIgnoreCase);
+        foreach (var slug in TopicSlugs)
+        {
+            if (bySlug.ContainsKey(slug))
+                continue;
+
+            var created = await GetOrCreateAsync(db, slug, cache: null, ct, invalidateCache: false);
+            bySlug[created.Slug] = created;
+            topicCategories.Add(created);
+        }
+
         foreach (var discussion in uncategorized)
         {
-            var analysis = await openAi.AnalyzeDiscussionAsync($"{discussion.Title}. {discussion.Body}", topicCategories, ct);
-            var category = await GetOrCreateAsync(db, analysis.TopicSlug, cache, ct);
+            var analysis = OpenAiService.FallbackDiscussionAnalysis(
+                $"{discussion.Title}. {discussion.Body}",
+                topicCategories);
+            var category = bySlug[analysis.TopicSlug];
             discussion.CategoryId = category.Id;
             discussion.TopicSlug = category.Slug;
             discussion.UpdatedAt = DateTime.UtcNow;
@@ -133,6 +148,7 @@ public static class AiDiscussionCategoryCatalog
 
         await db.SaveChangesAsync(ct);
         InvalidateCategoryCache(cache);
+        return uncategorized.Count;
     }
 
     public static void InvalidateCategoryCache(IMemoryCache? cache)

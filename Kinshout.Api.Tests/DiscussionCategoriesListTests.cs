@@ -5,12 +5,26 @@ using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Moq;
 
 namespace Kinshout.Api.Tests;
 
 public class DiscussionCategoriesListTests
 {
+    private static DiscussionsController CreateController(
+        KinshoutDbContext db,
+        IMemoryCache cache,
+        IOpenAiService? openAi = null,
+        IDiscussionTopicBackfillScheduler? backfill = null) =>
+        new(
+            db,
+            cache,
+            openAi ?? Mock.Of<IOpenAiService>(),
+            Mock.Of<IDiscussionService>(),
+            Mock.Of<ILikedDiscussionService>(),
+            backfill ?? Mock.Of<IDiscussionTopicBackfillScheduler>());
+
     [Fact]
     public async Task ListCategories_ReturnsOnlyDiscussionTopicsWithDiscussions()
     {
@@ -45,10 +59,8 @@ public class DiscussionCategoriesListTests
         });
         await db.SaveChangesAsync();
 
-        var openAi = Mock.Of<IOpenAiService>();
         var cache = TestDbFactory.CreateMemoryCache();
-        var controller = new DiscussionsController(db, cache, openAi, Mock.Of<IDiscussionService>(), Mock.Of<ILikedDiscussionService>());
-        var result = await controller.ListCategories();
+        var result = await CreateController(db, cache).ListCategories();
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var paged = Assert.IsType<PagedResultDto<CategoryDto>>(ok.Value);
@@ -58,7 +70,7 @@ public class DiscussionCategoriesListTests
     }
 
     [Fact]
-    public async Task ListCategories_AssignsUncategorizedDiscussionsInBatch()
+    public async Task ListCategories_SchedulesBackfillWithoutBlocking()
     {
         await using var db = TestDbFactory.Create();
         var (user, legacyCategory) = await TestDbFactory.SeedUserAndCategoryAsync(db);
@@ -78,18 +90,42 @@ public class DiscussionCategoriesListTests
         });
         await db.SaveChangesAsync();
 
-        var openAi = new Mock<IOpenAiService>();
-        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis("education"));
+        var backfill = new Mock<IDiscussionTopicBackfillScheduler>();
+        var cache = TestDbFactory.CreateMemoryCache();
+        var result = await CreateController(db, cache, backfill: backfill.Object).ListCategories();
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        backfill.Verify(b => b.ScheduleBatchBackfill(), Times.Once);
+
+        var discussion = await db.Discussions.SingleAsync();
+        Assert.Null(discussion.TopicSlug);
+    }
+
+    [Fact]
+    public async Task BackfillUncategorizedAsync_AssignsLegacyDiscussionsWithKeywords()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, legacyCategory) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        legacyCategory.Slug = Category.DiscussionSlug;
+        legacyCategory.Label = "Discussions";
+        legacyCategory.Icon = "💬";
+        legacyCategory.IsSystem = true;
+        await db.SaveChangesAsync();
+
+        db.Discussions.Add(new Discussion
+        {
+            UserId = user.Id,
+            CategoryId = legacyCategory.Id,
+            Title = "Résultats EXETAT 2026 Kinshasa Lukunga",
+            Body = "Les conditions d'examen vous semblent-elles équitables ?",
+        });
+        await db.SaveChangesAsync();
 
         var cache = TestDbFactory.CreateMemoryCache();
-        var controller = new DiscussionsController(db, cache, openAi.Object, Mock.Of<IDiscussionService>(), Mock.Of<ILikedDiscussionService>());
-        var result = await controller.ListCategories();
+        var processed = await AiDiscussionCategoryCatalog.BackfillUncategorizedAsync(db, cache);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var paged = Assert.IsType<PagedResultDto<CategoryDto>>(ok.Value);
-        Assert.Single(paged.Items);
-        Assert.Equal("education", paged.Items[0].Slug);
+        Assert.Equal(1, processed);
 
         var discussion = await db.Discussions.SingleAsync();
         Assert.Equal("education", discussion.TopicSlug);
@@ -155,10 +191,8 @@ public class DiscussionCategoriesListTests
             });
         await db.SaveChangesAsync();
 
-        var openAi = Mock.Of<IOpenAiService>();
         var cache = TestDbFactory.CreateMemoryCache();
-        var controller = new DiscussionsController(db, cache, openAi, Mock.Of<IDiscussionService>(), Mock.Of<ILikedDiscussionService>());
-        var result = await controller.ListCategories(pageSize: 10);
+        var result = await CreateController(db, cache).ListCategories(pageSize: 10);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var paged = Assert.IsType<PagedResultDto<CategoryDto>>(ok.Value);
@@ -193,10 +227,8 @@ public class DiscussionCategoriesListTests
         });
         await db.SaveChangesAsync();
 
-        var openAi = Mock.Of<IOpenAiService>();
         var cache = TestDbFactory.CreateMemoryCache();
-        var controller = new DiscussionsController(db, cache, openAi, Mock.Of<IDiscussionService>(), Mock.Of<ILikedDiscussionService>());
-        var result = await controller.ListCategories();
+        var result = await CreateController(db, cache).ListCategories();
 
         Assert.IsType<OkObjectResult>(result.Result);
     }
