@@ -77,6 +77,7 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
         : sp.GetRequiredService<LocalUploadStorage>();
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
+builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();

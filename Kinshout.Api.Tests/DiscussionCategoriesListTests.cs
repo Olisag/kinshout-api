@@ -15,12 +15,10 @@ public class DiscussionCategoriesListTests
     private static DiscussionsController CreateController(
         KinshoutDbContext db,
         IMemoryCache cache,
-        IOpenAiService? openAi = null,
         IDiscussionTopicBackfillScheduler? backfill = null) =>
         new(
             db,
             cache,
-            openAi ?? Mock.Of<IOpenAiService>(),
             Mock.Of<IDiscussionService>(),
             Mock.Of<ILikedDiscussionService>(),
             backfill ?? Mock.Of<IDiscussionTopicBackfillScheduler>());

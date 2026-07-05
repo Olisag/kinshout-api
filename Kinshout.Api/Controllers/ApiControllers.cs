@@ -472,7 +472,6 @@ public class CategorizeController(ISearchService search) : ControllerBase
 public class DiscussionsController(
     KinshoutDbContext db,
     IMemoryCache cache,
-    IOpenAiService openAi,
     IDiscussionService discussions,
     ILikedDiscussionService likedDiscussions,
     IDiscussionTopicBackfillScheduler topicBackfill) : ControllerBase

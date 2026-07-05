@@ -84,6 +84,7 @@ public record AdvertDto(
     string CategoryLabel,
     string CategoryIcon,
     IReadOnlyList<string> ImageUrls,
+    IReadOnlyList<string> ThumbnailUrls,
     string? ResumeUrl,
     string? WhatsAppNumber,
     IReadOnlyList<string> Tags,

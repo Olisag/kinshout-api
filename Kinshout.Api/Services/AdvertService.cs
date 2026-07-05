@@ -262,6 +262,7 @@ public class AdvertService(
             advert.Category.Label,
             advert.Category.Icon,
             imageUrls,
+            AdvertImageUrls.BuildListingUrls(imageUrls),
             advert.ResumeUrl,
             contact?.WhatsApp ?? advert.User?.WhatsAppNumber,
             tags,
@@ -331,7 +332,12 @@ public class AdvertService(
     {
         var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson ?? "[]") ?? [];
         foreach (var url in imageUrls)
+        {
             await TryDeleteUploadAsync(url, ct);
+            var thumb = AdvertImageUrls.GetThumbnailPath(url);
+            if (thumb is not null)
+                await TryDeleteUploadAsync(thumb, ct);
+        }
 
         if (!string.IsNullOrWhiteSpace(advert.ResumeUrl))
             await TryDeleteUploadAsync(advert.ResumeUrl, ct);

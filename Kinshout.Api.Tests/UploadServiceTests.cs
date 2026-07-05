@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Kinshout.Api.Tests;
 
@@ -30,7 +32,11 @@ public class UploadServiceTests : IDisposable
         moderation.Setup(m => m.EnsureDocumentAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        _service = new UploadService(storage, moderation.Object, Mock.Of<ILogger<UploadService>>());
+        _service = new UploadService(
+            storage,
+            new AdvertImageProcessor(Microsoft.Extensions.Logging.Abstractions.NullLogger<AdvertImageProcessor>.Instance),
+            moderation.Object,
+            Mock.Of<ILogger<UploadService>>());
     }
 
     [Fact]
@@ -38,7 +44,7 @@ public class UploadServiceTests : IDisposable
     {
         var files = new FormFileCollection
         {
-            CreateFormFile("photo.jpg", "image/jpeg", [0xFF, 0xD8, 0xFF, 0x00]),
+            CreateFormFile("photo.jpg", "image/jpeg", CreateJpegBytes()),
         };
 
         var urls = await _service.SaveImagesAsync(_userId, files);
@@ -49,6 +55,10 @@ public class UploadServiceTests : IDisposable
 
         var physicalPath = Path.Combine(_root, "wwwroot", urls[0].TrimStart('/'));
         Assert.True(File.Exists(physicalPath));
+
+        var thumbPath = AdvertImageUrls.GetThumbnailPath(urls[0])!;
+        var physicalThumb = Path.Combine(_root, "wwwroot", thumbPath.TrimStart('/'));
+        Assert.True(File.Exists(physicalThumb));
     }
 
     [Fact]
@@ -89,6 +99,14 @@ public class UploadServiceTests : IDisposable
     {
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
+    }
+
+    private static byte[] CreateJpegBytes()
+    {
+        using var image = new Image<Rgba32>(640, 480);
+        using var stream = new MemoryStream();
+        image.SaveAsJpeg(stream);
+        return stream.ToArray();
     }
 
     private static FormFile CreateFormFile(string fileName, string contentType, byte[] content)

@@ -24,6 +24,7 @@ public class UploadedFilesController(IUploadStorage storage) : ControllerBase
         if (file is null)
             return NotFound();
 
-        return File(file.Stream, file.ContentType);
+        Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+        return File(file.Stream, file.ContentType, enableRangeProcessing: true);
     }
 }
