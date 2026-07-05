@@ -52,6 +52,12 @@ builder.Services.AddDbContext<KinshoutDbContext>(options =>
 });
 
 builder.Services.AddHttpClient("OpenAI");
+builder.Services.AddHttpClient("ExternalImageMirror", client =>
+{
+    var mirrorTimeout = builder.Configuration.GetSection(ImportSettings.SectionName).Get<ImportSettings>()?.MirrorImageTimeoutSeconds ?? 30;
+    client.Timeout = TimeSpan.FromSeconds(mirrorTimeout);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("KinshoutImporter/1.0");
+});
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IClientAuthService, ClientAuthService>();
@@ -80,6 +86,8 @@ builder.Services.AddScoped<IUploadService, UploadService>();
 builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
 builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();
 builder.Services.AddSingleton<IAdvertImageVariantBackfillScheduler, AdvertImageVariantBackfillScheduler>();
+builder.Services.AddScoped<IExternalAdvertImageMirrorService, ExternalAdvertImageMirrorService>();
+builder.Services.AddSingleton<IExternalAdvertImageMirrorBackfillScheduler, ExternalAdvertImageMirrorBackfillScheduler>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();

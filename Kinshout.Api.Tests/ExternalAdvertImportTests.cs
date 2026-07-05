@@ -16,7 +16,7 @@ public class ExternalAdvertImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalAdvertImportService(db);
+        var service = CreateImportService(db);
 
         var dto = SampleImport("fb-123", "Premier titre");
         var first = await service.ImportAsync([dto]);
@@ -41,7 +41,7 @@ public class ExternalAdvertImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalAdvertImportService(db);
+        var service = CreateImportService(db);
         var dto = SampleImport("mc-1", "Stable");
 
         await service.ImportAsync([dto]);
@@ -58,7 +58,7 @@ public class ExternalAdvertImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalAdvertImportService(db);
+        var service = CreateImportService(db);
         var dto = SampleImport("rm-1", "À retirer");
 
         await service.ImportAsync([dto]);
@@ -73,7 +73,7 @@ public class ExternalAdvertImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalAdvertImportService(db);
+        var service = CreateImportService(db);
         var dto = SampleImport("in-1", "Inactif");
 
         await service.ImportAsync([dto]);
@@ -137,7 +137,7 @@ public class ExternalAdvertImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalAdvertImportService(db);
+        var service = CreateImportService(db);
 
         await service.ImportAsync([SampleImport("mc-99", "Test")]);
         var keys = await service.GetKnownAdvertKeysAsync();
@@ -145,6 +145,33 @@ public class ExternalAdvertImportTests
         Assert.Single(keys);
         Assert.Equal(AdvertSourceProvider.FacebookMarketplace, keys[0].Provider);
         Assert.Equal("mc-99", keys[0].ExternalId);
+    }
+
+    private static ExternalAdvertImportService CreateImportService(
+        KinshoutDbContext db,
+        IExternalAdvertImageMirrorService? mirror = null) =>
+        new(db, mirror ?? CreatePassthroughMirror());
+
+    private static IExternalAdvertImageMirrorService CreatePassthroughMirror()
+    {
+        var mock = new Mock<IExternalAdvertImageMirrorService>();
+        mock.Setup(m => m.MirrorAsync(
+                It.IsAny<IReadOnlyList<string>?>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((
+                IReadOnlyList<string>? urls,
+                string _,
+                string __,
+                Guid ___,
+                CancellationToken ____) =>
+                urls?.Where(u => !string.IsNullOrWhiteSpace(u)).Select(u => u.Trim()).Take(10).ToList()
+                ?? []);
+        mock.Setup(m => m.DeleteMirroredAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return mock.Object;
     }
 
     private static ImportExternalAdvertDto SampleImport(string externalId, string title) =>

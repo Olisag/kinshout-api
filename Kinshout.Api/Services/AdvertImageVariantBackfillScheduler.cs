@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Kinshout.Api.Data;
+using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Services;
@@ -9,11 +10,12 @@ public interface IAdvertImageVariantBackfillScheduler
     void ScheduleBackfill();
 }
 
-/// <summary>Generates missing listing/display WebP variants for existing native uploads.</summary>
+/// <summary>Generates missing listing thumbnail WebP variants for existing native Kinshout uploads.</summary>
 public sealed class AdvertImageVariantBackfillScheduler(
     IServiceScopeFactory scopeFactory,
     ILogger<AdvertImageVariantBackfillScheduler> logger) : IAdvertImageVariantBackfillScheduler
 {
+    private const int BatchSize = 25;
     private int _running;
 
     public void ScheduleBackfill()
@@ -28,11 +30,11 @@ public sealed class AdvertImageVariantBackfillScheduler(
     {
         try
         {
-            const int batchSize = 15;
-            const int maxAdverts = 150;
             var offset = 0;
+            var thumbnailsCreated = 0;
+            var displaysCreated = 0;
 
-            while (offset < maxAdverts)
+            while (true)
             {
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<KinshoutDbContext>();
@@ -41,10 +43,12 @@ public sealed class AdvertImageVariantBackfillScheduler(
 
                 var imageJsonRows = await db.Adverts
                     .AsNoTracking()
-                    .Where(a => a.IsPublished && a.ImageUrlsJson != "[]")
+                    .Where(a => a.IsPublished
+                        && a.ImageUrlsJson.Contains("/uploads/images/")
+                        && (a.SourceProvider == null || a.SourceProvider == AdvertSourceProvider.Kinshout))
                     .OrderBy(a => a.UpdatedAt)
                     .Skip(offset)
-                    .Take(batchSize)
+                    .Take(BatchSize)
                     .Select(a => a.ImageUrlsJson)
                     .ToListAsync();
 
@@ -60,12 +64,23 @@ public sealed class AdvertImageVariantBackfillScheduler(
                         if (path is null)
                             continue;
 
-                        await EnsureVariantAsync(storage, processor, path, AdvertImageUrls.ThumbnailSuffix);
-                        await EnsureVariantAsync(storage, processor, path, AdvertImageUrls.DisplaySuffix);
+                        if (await EnsureVariantAsync(storage, processor, path, AdvertImageUrls.ThumbnailSuffix))
+                            thumbnailsCreated++;
+
+                        if (await EnsureVariantAsync(storage, processor, path, AdvertImageUrls.DisplaySuffix))
+                            displaysCreated++;
                     }
                 }
 
                 offset += imageJsonRows.Count;
+            }
+
+            if (thumbnailsCreated > 0 || displaysCreated > 0)
+            {
+                logger.LogInformation(
+                    "Native advert image backfill created {ThumbnailCount} thumbnails and {DisplayCount} display variants.",
+                    thumbnailsCreated,
+                    displaysCreated);
             }
         }
         catch (Exception ex)
@@ -78,7 +93,7 @@ public sealed class AdvertImageVariantBackfillScheduler(
         }
     }
 
-    private static async Task EnsureVariantAsync(
+    internal static async Task<bool> EnsureVariantAsync(
         IUploadStorage storage,
         IAdvertImageProcessor processor,
         string originalPath,
@@ -86,11 +101,11 @@ public sealed class AdvertImageVariantBackfillScheduler(
     {
         var variantPath = AdvertImageUrls.GetVariantPath(originalPath, suffix);
         if (variantPath is null || await storage.ExistsAsync(variantPath))
-            return;
+            return false;
 
         var file = await storage.OpenReadAsync(originalPath);
         if (file is null)
-            return;
+            return false;
 
         await using (file.Stream)
         {
@@ -98,18 +113,19 @@ public sealed class AdvertImageVariantBackfillScheduler(
                 ? await processor.CreateListingThumbnailAsync(file.Stream)
                 : await processor.CreateDisplayImageAsync(file.Stream);
             if (variant is null)
-                return;
+                return false;
 
             var fileName = Path.GetFileName(variantPath);
             var userId = ExtractUserId(originalPath);
             if (userId is null)
-                return;
+                return false;
 
             await storage.SaveNamedAsync("images", userId.Value, variant, fileName);
+            return true;
         }
     }
 
-    private static Guid? ExtractUserId(string path)
+    internal static Guid? ExtractUserId(string path)
     {
         var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 4)

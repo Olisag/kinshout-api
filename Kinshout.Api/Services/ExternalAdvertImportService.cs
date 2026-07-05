@@ -15,7 +15,9 @@ public interface IExternalAdvertImportService
     Task<IReadOnlyList<ImportKnownAdvertKeyDto>> GetKnownAdvertKeysAsync(CancellationToken ct = default);
 }
 
-public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvertImportService
+public class ExternalAdvertImportService(
+    KinshoutDbContext db,
+    IExternalAdvertImageMirrorService imageMirror) : IExternalAdvertImportService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -93,6 +95,8 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
             if (existing is null)
                 return UpsertOutcome.Skipped;
 
+            var oldImages = DeserializeImages(existing.ImageUrlsJson);
+            await imageMirror.DeleteMirroredAsync(oldImages, ct);
             db.Adverts.Remove(existing);
             return UpsertOutcome.Updated;
         }
@@ -113,7 +117,15 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
             item.Subcategory,
             item.Category,
             ct: ct);
-        var mapped = MapFields(item, provider, category, importUser.Id, importedAt, lastSeenAt, firstSeenAt);
+
+        var mirroredImages = await imageMirror.MirrorAsync(
+            item.Images,
+            provider,
+            item.Source.ExternalId.Trim(),
+            importUser.Id,
+            ct);
+
+        var mapped = MapFields(item, provider, category, importUser.Id, importedAt, lastSeenAt, firstSeenAt, mirroredImages);
 
         if (existing is null)
         {
@@ -128,9 +140,18 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
             return UpsertOutcome.Unchanged;
         }
 
+        if (existing.ImageUrlsJson != mapped.ImageUrlsJson)
+        {
+            var oldImages = DeserializeImages(existing.ImageUrlsJson);
+            await imageMirror.DeleteMirroredAsync(oldImages, ct);
+        }
+
         ApplyUpdate(existing, mapped, lastSeenAt);
         return UpsertOutcome.Updated;
     }
+
+    private static List<string> DeserializeImages(string? json) =>
+        JsonSerializer.Deserialize<List<string>>(json ?? "[]", JsonOptions) ?? [];
 
     private static Advert MapFields(
         ImportExternalAdvertDto item,
@@ -139,11 +160,12 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
         Guid userId,
         DateTime importedAt,
         DateTime lastSeenAt,
-        DateTime firstSeenAt)
+        DateTime firstSeenAt,
+        IReadOnlyList<string> images)
     {
         var publishedAt = item.PublishedAt ?? importedAt;
         var tags = item.Ai?.Tags?.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).Distinct().ToList() ?? [];
-        var images = item.Images?.Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.Trim()).Take(10).ToList() ?? [];
+        var imageList = images.Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.Trim()).Take(10).ToList();
 
         return new Advert
         {
@@ -154,7 +176,7 @@ public class ExternalAdvertImportService(KinshoutDbContext db) : IExternalAdvert
             Price = Truncate(FormatPrice(item.Price), 64),
             Location = Truncate(FormatLocation(item.Location), 120),
             Intent = MapModality(item.Modality, item.Ai?.Intent),
-            ImageUrlsJson = JsonSerializer.Serialize(images, JsonOptions),
+            ImageUrlsJson = JsonSerializer.Serialize(imageList, JsonOptions),
             TagsJson = JsonSerializer.Serialize(tags, JsonOptions),
             AiConfidence = 1,
             AiSummary = item.Ai?.Summary,
