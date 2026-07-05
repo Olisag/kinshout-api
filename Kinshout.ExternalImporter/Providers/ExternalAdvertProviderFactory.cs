@@ -15,6 +15,7 @@ public static class ExternalAdvertProviderFactory
             "zwandako-scraper" => new ZwandakoScraperProvider(http, settings),
             "jiji-scraper" or "jiji-rdc-scraper" => new JijiRdcScraperProvider(http, settings),
             "apify-facebook-scraper" or "apify-facebook-marketplace-scraper" or "facebook-scraper" or "facebook-marketplace-scraper" => new ApifyFacebookMarketplaceScraperProvider(http, settings),
+            "apify-linkedin-jobs-scraper" or "linkedin-jobs-scraper" => new ApifyLinkedInJobsScraperProvider(http, settings),
             _ => throw new InvalidOperationException($"Unsupported provider type '{settings.Type}' for provider '{settings.Name}'."),
         };
 
@@ -25,7 +26,8 @@ public static class ExternalAdvertProviderFactory
             "zwandako" => new ZwandakoScraperProvider(http, settings),
             "jiji_rdc" or "jiji" => new JijiRdcScraperProvider(http, settings),
             "facebook_marketplace" or "facebook" => new ApifyFacebookMarketplaceScraperProvider(http, settings),
+            "linkedin_jobs" or "linkedin" => new ApifyLinkedInJobsScraperProvider(http, settings),
             _ => throw new InvalidOperationException(
-                $"Unknown scraper provider '{settings.Provider}'. Use mediacongo, zwandako, jiji_rdc, or facebook_marketplace."),
+                $"Unknown scraper provider '{settings.Provider}'. Use mediacongo, zwandako, jiji_rdc, facebook_marketplace, or linkedin_jobs."),
         };
 }

@@ -10,9 +10,9 @@ public class Advert
     public string? Price { get; set; }
     public string? Location { get; set; }
     public AdvertIntent Intent { get; set; } = AdvertIntent.Demande;
-    public string ImageUrlsJson { get; set; } = "[]";
+    public string? ImageUrlsJson { get; set; }
     public string? ResumeUrl { get; set; }
-    public string TagsJson { get; set; } = "[]";
+    public string? TagsJson { get; set; }
     public double AiConfidence { get; set; }
     public string? AiSummary { get; set; }
     public bool IsPublished { get; set; } = true;
@@ -30,8 +30,8 @@ public class Advert
     public DateTime? SourceLastSeenAt { get; set; }
     public DateTime? SourceFirstSeenAt { get; set; }
     public string? SubcategorySlug { get; set; }
-    public string DetailsJson { get; set; } = "{}";
-    public string ContactJson { get; set; } = "{}";
+    public string? DetailsJson { get; set; }
+    public string? ContactJson { get; set; }
     public string? DuplicateGroupId { get; set; }
     public DateTime? ExternalPublishedAt { get; set; }
 

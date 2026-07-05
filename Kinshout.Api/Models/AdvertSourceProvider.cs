@@ -7,6 +7,7 @@ public static class AdvertSourceProvider
     public const string MediaCongo = "mediacongo";
     public const string Zwandako = "zwandako";
     public const string JijiRdc = "jiji_rdc";
+    public const string LinkedInJobs = "linkedin_jobs";
     public const string Other = "other";
 
     public static readonly IReadOnlySet<string> KnownProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -16,6 +17,7 @@ public static class AdvertSourceProvider
         MediaCongo,
         Zwandako,
         JijiRdc,
+        LinkedInJobs,
         Other,
     };
 
@@ -35,6 +37,7 @@ public static class AdvertSourceProvider
             MediaCongo => "MediaCongo",
             Zwandako => "Zwandako",
             JijiRdc => "Jiji RDC",
+            LinkedInJobs => "LinkedIn Jobs",
             Other => "Autre source",
             _ => "Kinshout",
         };

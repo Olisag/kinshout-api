@@ -54,6 +54,10 @@ public sealed class ExternalProviderSettings
     public string? ApifyToken { get; set; }
     public string? ApifyActorId { get; set; }
     public string? MarketplaceLocation { get; set; }
+    /// <summary>LinkedIn jobs geoId (Kinshasa default: 107853273).</summary>
+    public string? LinkedInGeoId { get; set; }
+    /// <summary>Drop listings older than this many days at fetch time (0 = provider default).</summary>
+    public int MaxAdvertAgeDays { get; set; }
     public int ResultsLimit { get; set; }
     public int ActorTimeoutSeconds { get; set; } = 300;
     public double? Latitude { get; set; }

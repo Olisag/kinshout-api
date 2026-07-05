@@ -22,6 +22,8 @@ public static class DbSchemaPatcher
         await EnsureSearchQueryStatsSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
+        if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
+            await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
     }
 
     private static async Task ApplySqliteAsync(KinshoutDbContext db, CancellationToken ct)
@@ -72,6 +74,8 @@ public static class DbSchemaPatcher
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: false, ct);
 
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
+        if (await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "DetailsJson", ct))
+            await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
 
         if (await TableExistsAsync(connection, sqlServer: false, "SavedAdverts", ct))
         {
@@ -283,6 +287,35 @@ public static class DbSchemaPatcher
                   """;
             await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
         }
+    }
+
+    private static async Task EnsureAdvertJsonColumnDefaultsAsync(
+        KinshoutDbContext db,
+        CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE Adverts SET DetailsJson = '{}' WHERE DetailsJson IS NULL
+            """,
+            ct);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE Adverts SET ContactJson = '{}' WHERE ContactJson IS NULL
+            """,
+            ct);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE Adverts SET TagsJson = '[]' WHERE TagsJson IS NULL OR TagsJson = ''
+            """,
+            ct);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE Adverts SET ImageUrlsJson = '[]' WHERE ImageUrlsJson IS NULL OR ImageUrlsJson = ''
+            """,
+            ct);
     }
 
     private static async Task EnsureSearchQueryStatsSchemaAsync(

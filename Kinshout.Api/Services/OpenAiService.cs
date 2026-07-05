@@ -387,7 +387,7 @@ public partial class OpenAiService(
             .Select(a => new
             {
                 a.Id,
-                Score = MatchScore(terms, $"{a.Title} {a.Description} {a.Location} {a.Price} {a.TagsJson} {a.Category?.Label}"),
+                Score = MatchScore(terms, $"{a.Title} {a.Description} {a.Location} {a.Price} {a.TagsJson ?? ""} {a.Category?.Label}"),
             })
             .Where(x => x.Score > 0)
             .OrderByDescending(x => x.Score)

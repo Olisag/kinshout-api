@@ -247,8 +247,8 @@ public class AdvertService(
 
     internal static AdvertDto ToDto(Advert advert, bool isSaved = false)
     {
-        var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson) ?? [];
-        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
+        var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson ?? "[]") ?? [];
+        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson ?? "[]") ?? [];
         var contact = AdvertSourceMapper.ToContactDto(advert);
         var sortDate = AdvertSourceMapper.SortDate(advert);
         return new AdvertDto(
@@ -329,7 +329,7 @@ public class AdvertService(
 
     private async Task DeleteUploadFiles(Advert advert, CancellationToken ct)
     {
-        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
+        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson ?? "[]") ?? [];
         foreach (var url in imageUrls)
             await TryDeleteUploadAsync(url, ct);
 

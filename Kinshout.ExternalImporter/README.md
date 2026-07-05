@@ -17,6 +17,7 @@ The importer can scrape marketplace pages directly. Enable a scraper provider in
 | `zwandako-scraper` | zwandako.com | RSS feed + search pages + JSON-LD detail enrichment |
 | `jiji-scraper` | jiji.cd | **Cloudflare-protected** — requires browser `Cookie` via `${JIJI_COOKIE}` (see below) |
 | `apify-facebook-scraper` | Facebook Marketplace via [Apify](https://apify.com/apify/facebook-marketplace-scraper) | Requires `apifyToken` / `${APIFY_TOKEN}` |
+| `apify-linkedin-jobs-scraper` | LinkedIn Jobs via [Apify](https://apify.com/curious_coder/linkedin-jobs-scraper) | Kinshasa geo + DRC filter, last 30 days, non-expired only |
 
 Scraper settings on each provider:
 
@@ -61,6 +62,31 @@ The provider starts the Apify actor, waits for completion, and maps the dataset 
 
 Run `dotnet run -- --once --dry-run` to inspect counts before posting.
 
+### LinkedIn Jobs via Apify
+
+Uses the same `${APIFY_TOKEN}` as Facebook Marketplace. The provider builds a Kinshasa search URL (`geoId=107853273`) with LinkedIn’s past-month filter (`f_TPR=r2592000`), then drops Brazzaville / Republic-of-Congo listings, jobs older than 30 days, and postings that are no longer accepting applications.
+
+```json
+{
+  "name": "LinkedIn Jobs Kinshasa (Apify)",
+  "provider": "linkedin_jobs",
+  "providerName": "LinkedIn Jobs",
+  "type": "apify-linkedin-jobs-scraper",
+  "enabled": true,
+  "apifyToken": "${APIFY_TOKEN}",
+  "apifyActorId": "curious_coder/linkedin-jobs-scraper",
+  "linkedInGeoId": "107853273",
+  "resultsLimit": 100,
+  "maxAdvertAgeDays": 30,
+  "fetchDetails": false,
+  "actorTimeoutSeconds": 300,
+  "defaultCategory": "emploi_services",
+  "defaultSubcategory": "offre_emploi",
+  "defaultCity": "Kinshasa",
+  "defaultModality": "offre"
+}
+```
+
 ### Jiji RDC (jiji.cd)
 
 Jiji Congo is behind **Cloudflare**. Plain HTTP requests get a 403 challenge — the same blocker you see without a browser. Apify's [Jiji Listings Scraper](https://apify.com/piotrv1001/jiji-listings-scraper) only supports Nigeria, Kenya, Ghana, Tanzania, and Uganda today; a test against `jiji.cd` returned **0 listings**.
@@ -88,6 +114,7 @@ dotnet run -- --once --dry-run
 Configured provider keys:
 
 - `facebook_marketplace`
+- `linkedin_jobs`
 - `mediacongo`
 - `zwandako`
 - `jiji_rdc`
