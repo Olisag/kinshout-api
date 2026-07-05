@@ -65,6 +65,8 @@ builder.Services.AddScoped<ISavedAdvertService, SavedAdvertService>();
 builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IUploadUrlResolver, UploadUrlResolver>();
 builder.Services.AddSingleton<LocalUploadStorage>();
 builder.Services.AddSingleton<AzureBlobUploadStorage>();
 builder.Services.AddSingleton<IUploadStorage>(sp =>

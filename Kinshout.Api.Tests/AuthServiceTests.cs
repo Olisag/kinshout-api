@@ -3,6 +3,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -11,6 +12,8 @@ namespace Kinshout.Api.Tests;
 
 public class AuthServiceTests
 {
+    private const string ApiBase = "https://api.test";
+
     [Fact]
     public async Task UpdateProfileAsync_SavesNormalizedWhatsApp()
     {
@@ -143,16 +146,33 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task SetAvatarUrlAsync_SavesValidUploadUrl()
+    public async Task SetAvatarUrlAsync_SavesPathAndReturnsAbsoluteUrl()
     {
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var avatarUrl = $"/uploads/avatars/{user.Id:N}/abc123.png";
+        var avatarPath = $"/uploads/avatars/{user.Id:N}/abc123.png";
 
         var service = CreateService(db);
-        var profile = await service.SetAvatarUrlAsync(user.Id, avatarUrl);
+        var profile = await service.SetAvatarUrlAsync(user.Id, avatarPath);
 
-        Assert.Equal(avatarUrl, profile.AvatarUrl);
+        Assert.Equal($"{ApiBase}{avatarPath}", profile.AvatarUrl);
+
+        var saved = await db.Users.FindAsync(user.Id);
+        Assert.Equal(avatarPath, saved!.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task GetProfileAsync_ReturnsAbsoluteOAuthAvatarUrl()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        user.AvatarUrl = "https://cdn.example/avatar.jpg";
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var profile = await service.GetProfileAsync(user.Id);
+
+        Assert.Equal("https://cdn.example/avatar.jpg", profile!.AvatarUrl);
     }
 
     [Fact]
@@ -191,7 +211,13 @@ public class AuthServiceTests
                 UserAudience = "kinshout-user",
             })),
             Mock.Of<IUploadStorage>(),
+            CreateUploadUrlResolver(),
             Options.Create(new OAuthSettings()),
             Mock.Of<IFacebookAuthValidator>(),
             Mock.Of<ILogger<AuthService>>());
+
+    private static UploadUrlResolver CreateUploadUrlResolver() =>
+        new(
+            Options.Create(new UploadStorageSettings { PublicBaseUrl = ApiBase }),
+            Mock.Of<IHttpContextAccessor>());
 }
