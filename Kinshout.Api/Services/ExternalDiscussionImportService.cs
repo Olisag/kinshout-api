@@ -99,8 +99,7 @@ public class ExternalDiscussionImportService(
                     continue;
                 }
 
-                if (!force
-                    && !string.IsNullOrWhiteSpace(discussion.SourceRawBody)
+                if (!string.IsNullOrWhiteSpace(discussion.SourceRawBody)
                     && discussion.Title.Length > 0
                     && !LooksLikeRawPost(discussion))
                 {
@@ -131,11 +130,11 @@ public class ExternalDiscussionImportService(
             }
         }
 
-        var remaining = await CountRemainingRetransformsAsync(force, ct);
+        var remaining = await CountRemainingRetransformsAsync(ct);
         return new RetransformExternalDiscussionsResponseDto(transformed, unchanged, skipped, failed, remaining);
     }
 
-    private async Task<int> CountRemainingRetransformsAsync(bool force, CancellationToken ct)
+    private async Task<int> CountRemainingRetransformsAsync(CancellationToken ct)
     {
         var discussions = await db.Discussions
             .AsNoTracking()
@@ -151,11 +150,7 @@ public class ExternalDiscussionImportService(
             if (string.IsNullOrWhiteSpace(raw))
                 return false;
 
-            if (force)
-                return string.IsNullOrWhiteSpace(d.SourceRawBody) || LooksLikeRawTitle(d.Title);
-
-            return string.IsNullOrWhiteSpace(d.SourceRawBody)
-                || LooksLikeRawTitle(d.Title);
+            return string.IsNullOrWhiteSpace(d.SourceRawBody) || LooksLikeRawTitle(d.Title);
         });
     }
 
