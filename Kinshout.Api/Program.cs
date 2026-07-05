@@ -82,6 +82,7 @@ builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportSer
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
 builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
+builder.Services.AddHostedService<KinshoutStartupHostedService>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -243,32 +244,12 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
-        await DbSeed.SeedAsync(db);
-
-        var clientSecret = builder.Configuration["ClientAuth:KinshoutWebSecret"];
-        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<ApiClient>>();
-        await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
-        await ClientSeed.EnsureAllowedOriginsAsync(db);
-        await ImportSeed.EnsureImportUserAsync(db);
-
-        var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
-        await AiCategoryCatalog.SyncContentAsync(db, cache);
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Database seed failed.");
-    }
-
-    try
-    {
         await DbSchemaPatcher.ApplyAsync(db);
     }
     catch (Exception ex)
     {
         app.Logger.LogWarning(ex, "Database schema patch failed — discussion endpoints may error.");
     }
-
-    app.Services.GetRequiredService<IDiscussionTopicBackfillScheduler>().ScheduleBatchBackfill();
 }
 
 if (app.Environment.IsDevelopment())
@@ -283,8 +264,6 @@ else
 app.UseResponseCompression();
 app.UseCors("Kinshout");
 app.UseStaticFiles();
-app.UseMiddleware<ResponseTimingMiddleware>();
-app.UseMiddleware<ClientAuthMiddleware>();
 
 app.UseSwagger(options =>
 {
@@ -298,6 +277,9 @@ app.UseSwaggerUI(options =>
     options.EnablePersistAuthorization();
     SwaggerUiConfigurator.ConfigureUploadInterceptor(options);
 });
+
+app.UseMiddleware<ResponseTimingMiddleware>();
+app.UseMiddleware<ClientAuthMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
