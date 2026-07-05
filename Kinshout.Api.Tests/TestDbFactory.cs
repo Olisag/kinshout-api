@@ -58,4 +58,24 @@ internal static class TestDbFactory
             ["2 chambres", "Gombe"],
             0.9,
             "Recherche d'appartement à Gombe.");
+
+    public static AiDiscussionAnalysis SampleDiscussionAnalysis(string slug = "societe") =>
+        new(
+            slug,
+            slug switch
+            {
+                "sport" => "Sport & foot",
+                "politique" => "Politique",
+                "education" => "Éducation & examens",
+                _ => "Société & vie quotidienne",
+            },
+            slug switch
+            {
+                "sport" => "⚽",
+                "politique" => "🏛️",
+                "education" => "🎓",
+                _ => "👥",
+            },
+            0.9,
+            "Sujet classé — échange communautaire Kinshasa.");
 }

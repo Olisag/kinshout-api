@@ -166,6 +166,6 @@ public class DiscussionEngagementTests
         moderation.Setup(m => m.EnsureTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        return new DiscussionService(db, Mock.Of<IOpenAiService>(), moderation.Object);
+        return new DiscussionService(db, Mock.Of<IOpenAiService>(), moderation.Object, TestDbFactory.CreateMemoryCache());
     }
 }

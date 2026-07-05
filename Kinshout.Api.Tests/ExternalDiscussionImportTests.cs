@@ -4,8 +4,10 @@ using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 
 namespace Kinshout.Api.Tests;
 
@@ -33,6 +35,7 @@ public class ExternalDiscussionImportTests
         Assert.Equal(0, discussion.ViewCount);
         Assert.Equal(120, discussion.SourceEngagementScore);
         Assert.Equal("Test Page", discussion.SourceOriginalAuthor);
+        Assert.Equal("societe", discussion.TopicSlug);
     }
 
     [Fact]
@@ -137,13 +140,21 @@ public class ExternalDiscussionImportTests
         Assert.Equal(50, discussion.SourceEngagementScore);
     }
 
-    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db) =>
-        new(
+    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db)
+    {
+        var openAi = new Mock<IOpenAiService>();
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
+
+        return new ExternalDiscussionImportService(
             db,
             new ExternalDiscussionTransformService(
                 new TestHttpClientFactory(),
                 Options.Create(new OpenAiSettings { ApiKey = "", Model = "gpt-4o-mini" }),
-                NullLogger<ExternalDiscussionTransformService>.Instance));
+                NullLogger<ExternalDiscussionTransformService>.Instance),
+            openAi.Object,
+            new MemoryCache(new MemoryCacheOptions()));
+    }
 
     private static ImportExternalDiscussionDto SampleImport(string externalId, string rawBody) =>
         new(

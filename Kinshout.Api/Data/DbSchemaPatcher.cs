@@ -23,6 +23,7 @@ public static class DbSchemaPatcher
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
         await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
@@ -78,6 +79,7 @@ public static class DbSchemaPatcher
 
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
         await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "DetailsJson", ct))
@@ -335,6 +337,29 @@ public static class DbSchemaPatcher
                   WHERE SourceProvider IS NOT NULL AND SourceExternalId IS NOT NULL
                   """;
             await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsureDiscussionTopicSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "Categories", "IsDiscussionTopic", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Categories ADD IsDiscussionTopic bit NOT NULL CONSTRAINT DF_Categories_IsDiscussionTopic DEFAULT 0"
+                : "ALTER TABLE Categories ADD COLUMN IsDiscussionTopic INTEGER NOT NULL DEFAULT 0";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "TopicSlug", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD TopicSlug nvarchar(64) NULL"
+                : "ALTER TABLE Discussions ADD COLUMN TopicSlug TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
         }
     }
 

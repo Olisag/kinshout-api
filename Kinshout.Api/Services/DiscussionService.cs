@@ -2,6 +2,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kinshout.Api.Services;
 
@@ -9,6 +10,7 @@ public interface IDiscussionService
 {
     Task<PagedResultDto<DiscussionDto>> ListAsync(
         string? query = null,
+        Guid? categoryId = null,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
@@ -42,10 +44,12 @@ public interface IDiscussionService
 public class DiscussionService(
     KinshoutDbContext db,
     IOpenAiService openAi,
-    IAdvertModerationService moderation) : IDiscussionService
+    IAdvertModerationService moderation,
+    IMemoryCache cache) : IDiscussionService
 {
     public async Task<PagedResultDto<DiscussionDto>> ListAsync(
         string? query = null,
+        Guid? categoryId = null,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
@@ -59,6 +63,9 @@ public class DiscussionService(
             .Include(d => d.User)
             .Include(d => d.Category)
             .AsQueryable();
+
+        if (categoryId is not null)
+            q = q.Where(d => d.CategoryId == categoryId);
 
         if (!string.IsNullOrWhiteSpace(query))
         {
@@ -204,13 +211,12 @@ public class DiscussionService(
 
         await moderation.EnsureTextAllowedAsync($"{title}\n{body}", ct);
 
-        var categories = await db.Categories.AsNoTracking().ToListAsync(ct);
-        var analysis = await openAi.AnalyzeAdvertAsync($"{title}. {body}", categories, ct);
-        var category = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, ct);
+        var category = await AssignTopicCategoryAsync($"{title}. {body}", ct);
 
         discussion.Title = title;
         discussion.Body = body;
         discussion.CategoryId = category.Id;
+        discussion.TopicSlug = category.Slug;
         discussion.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
@@ -232,14 +238,13 @@ public class DiscussionService(
     {
         await moderation.EnsureTextAllowedAsync($"{request.Title}\n{request.Body}", ct);
 
-        var categories = await db.Categories.AsNoTracking().ToListAsync(ct);
-        var analysis = await openAi.AnalyzeAdvertAsync($"{request.Title}. {request.Body}", categories, ct);
-        var category = await CategoryResolver.ResolveOrCreateCategoryAsync(db, analysis, ct);
+        var category = await AssignTopicCategoryAsync($"{request.Title}. {request.Body}", ct);
 
         var discussion = new Discussion
         {
             UserId = userId,
             CategoryId = category.Id,
+            TopicSlug = category.Slug,
             Title = request.Title.Trim(),
             Body = request.Body.Trim(),
         };
@@ -408,6 +413,17 @@ public class DiscussionService(
             isLiked,
             d.IsExternal,
             DiscussionSourceMapper.ToSourceDto(d));
+
+    private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)
+    {
+        var topicCategories = await db.Categories
+            .AsNoTracking()
+            .Where(c => c.IsDiscussionTopic)
+            .ToListAsync(ct);
+
+        var analysis = await openAi.AnalyzeDiscussionAsync(text, topicCategories, ct);
+        return await AiDiscussionCategoryCatalog.GetOrCreateAsync(db, analysis.TopicSlug, cache, ct);
+    }
 }
 
 public static class TimeHelpers

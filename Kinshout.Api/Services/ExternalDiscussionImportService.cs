@@ -2,6 +2,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kinshout.Api.Services;
 
@@ -25,7 +26,9 @@ public interface IExternalDiscussionImportService
 
 public class ExternalDiscussionImportService(
     KinshoutDbContext db,
-    IExternalDiscussionTransformService transform) : IExternalDiscussionImportService
+    IExternalDiscussionTransformService transform,
+    IOpenAiService openAi,
+    IMemoryCache cache) : IExternalDiscussionImportService
 {
     public async Task<ImportExternalDiscussionsResponseDto> ImportAsync(
         IReadOnlyList<ImportExternalDiscussionDto> discussions,
@@ -35,7 +38,6 @@ public class ExternalDiscussionImportService(
             throw new ArgumentException("Aucune discussion à importer.");
 
         var importUser = await ImportSeed.EnsureImportUserAsync(db, ct);
-        var discussionCategory = await EnsureDiscussionCategoryAsync(db, ct);
 
         var created = 0;
         var updated = 0;
@@ -46,7 +48,7 @@ public class ExternalDiscussionImportService(
         {
             try
             {
-                var outcome = await UpsertAsync(item, importUser, discussionCategory, ct);
+                var outcome = await UpsertAsync(item, importUser, ct);
                 await db.SaveChangesAsync(ct);
                 switch (outcome)
                 {
@@ -243,7 +245,6 @@ public class ExternalDiscussionImportService(
     private async Task<UpsertOutcome> UpsertAsync(
         ImportExternalDiscussionDto item,
         User importUser,
-        Category discussionCategory,
         CancellationToken ct)
     {
         var provider = DiscussionSourceProvider.Normalize(item.Source.Provider);
@@ -286,6 +287,7 @@ public class ExternalDiscussionImportService(
 
         var platformName = item.Source.ProviderName ?? DiscussionSourceProvider.DisplayName(provider);
         var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
+        var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
 
         var now = DateTime.UtcNow;
         var importedAt = item.Source.ImportedAt ?? now;
@@ -295,7 +297,8 @@ public class ExternalDiscussionImportService(
             item,
             provider,
             importUser.Id,
-            discussionCategory.Id,
+            topicCategory.Id,
+            topicCategory.Slug,
             importedAt,
             lastSeenAt,
             firstSeenAt,
@@ -312,6 +315,8 @@ public class ExternalDiscussionImportService(
         existing.Title = mapped.Title;
         existing.Body = mapped.Body;
         existing.SourceRawBody = rawBody;
+        existing.CategoryId = mapped.CategoryId;
+        existing.TopicSlug = mapped.TopicSlug;
         existing.SourceProviderName = mapped.SourceProviderName;
         existing.SourceExternalUrl = mapped.SourceExternalUrl;
         existing.SourceImportedAt = existing.SourceImportedAt ?? importedAt;
@@ -330,6 +335,7 @@ public class ExternalDiscussionImportService(
         string provider,
         Guid userId,
         Guid categoryId,
+        string topicSlug,
         DateTime importedAt,
         DateTime lastSeenAt,
         DateTime firstSeenAt,
@@ -345,6 +351,7 @@ public class ExternalDiscussionImportService(
         {
             UserId = userId,
             CategoryId = categoryId,
+            TopicSlug = topicSlug,
             Title = title.Trim(),
             Body = body.Trim(),
             SourceRawBody = rawBody,
@@ -368,24 +375,15 @@ public class ExternalDiscussionImportService(
         };
     }
 
-    private static async Task<Category> EnsureDiscussionCategoryAsync(KinshoutDbContext db, CancellationToken ct)
+    private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)
     {
-        var category = await db.Categories
-            .FirstOrDefaultAsync(c => c.Slug == Category.DiscussionSlug, ct);
+        var topicCategories = await db.Categories
+            .AsNoTracking()
+            .Where(c => c.IsDiscussionTopic)
+            .ToListAsync(ct);
 
-        if (category is not null)
-            return category;
-
-        category = new Category
-        {
-            Slug = Category.DiscussionSlug,
-            Label = "Discussions",
-            Icon = "💬",
-            IsSystem = true,
-        };
-        db.Categories.Add(category);
-        await db.SaveChangesAsync(ct);
-        return category;
+        var analysis = await openAi.AnalyzeDiscussionAsync(text, topicCategories, ct);
+        return await AiDiscussionCategoryCatalog.GetOrCreateAsync(db, analysis.TopicSlug, cache, ct);
     }
 
     private static string? Clean(string? value) =>

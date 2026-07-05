@@ -28,6 +28,14 @@ public record AiAdvertAnalysis(
     bool RuleBasedFallback = false
 );
 
+public record AiDiscussionAnalysis(
+    string TopicSlug,
+    string TopicLabel,
+    string TopicIcon,
+    double Confidence,
+    string Summary,
+    bool RuleBasedFallback = false);
+
 public record AiSearchAnalysis(
     IReadOnlyList<Guid> AdvertIds,
     IReadOnlyList<Guid> DiscussionIds,
@@ -37,6 +45,7 @@ public record AiSearchAnalysis(
 public interface IOpenAiService
 {
     Task<AiAdvertAnalysis> AnalyzeAdvertAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
+    Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiSearchAnalysis> SearchAsync(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions, CancellationToken ct = default);
 }
 
@@ -113,6 +122,54 @@ public partial class OpenAiService(
         {
             logger.LogWarning(ex, "OpenAI advert analysis failed, using fallback.");
             return FallbackAdvertAnalysis(text, existingCategories);
+        }
+    }
+
+    public async Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(
+        string text,
+        IReadOnlyList<Category> existingCategories,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return FallbackDiscussionAnalysis(string.Empty, existingCategories);
+
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            return FallbackDiscussionAnalysis(text, existingCategories);
+
+        var topicList = string.Join("\n", AiDiscussionCategoryCatalog.TopicSlugs
+            .Select(slug =>
+            {
+                var (resolved, label, icon) = AiDiscussionCategoryCatalog.DescribeTopic(slug);
+                return $"- {resolved}: {label} ({icon})";
+            }));
+
+        var prompt = $$"""
+            Tu es l'IA de Kinshout (Kinshasa, RDC). Classe ce sujet de discussion dans UNE thématique.
+            Réponds UNIQUEMENT en JSON:
+            {
+              "topicSlug": "slug parmi la liste",
+              "topicLabel": "libellé français",
+              "topicIcon": "emoji",
+              "confidence": 0.0-1.0,
+              "summary": "phrase courte expliquant la thématique"
+            }
+
+            Thématiques disponibles:
+            {{topicList}}
+
+            Texte:
+            "{{text.Replace("\"", "\\\"")}}"
+            """;
+
+        try
+        {
+            var json = await ChatJsonAsync(prompt, ct);
+            return ParseDiscussionAnalysis(json, text);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI discussion analysis failed, using fallback.");
+            return FallbackDiscussionAnalysis(text, existingCategories);
         }
     }
 
@@ -193,6 +250,76 @@ public partial class OpenAiService(
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "{}";
     }
+
+    private static AiDiscussionAnalysis ParseDiscussionAnalysis(string json, string text)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var slug = AiDiscussionCategoryCatalog.ResolveTopicSlug(
+            root.TryGetProperty("topicSlug", out var slugEl) ? slugEl.GetString() : null);
+        var (resolved, defaultLabel, defaultIcon) = AiDiscussionCategoryCatalog.DescribeTopic(slug);
+        var label = root.TryGetProperty("topicLabel", out var labelEl) ? labelEl.GetString() : null;
+        var icon = root.TryGetProperty("topicIcon", out var iconEl) ? iconEl.GetString() : null;
+        var confidence = root.TryGetProperty("confidence", out var confEl) && confEl.TryGetDouble(out var c) ? c : 0.85;
+        var summary = root.TryGetProperty("summary", out var sumEl) ? sumEl.GetString() : null;
+
+        return new AiDiscussionAnalysis(
+            resolved,
+            string.IsNullOrWhiteSpace(label) ? defaultLabel : label.Trim(),
+            string.IsNullOrWhiteSpace(icon) ? defaultIcon : icon.Trim(),
+            confidence,
+            string.IsNullOrWhiteSpace(summary)
+                ? $"Sujet classé en « {defaultLabel} » — échange communautaire Kinshasa."
+                : summary.Trim());
+    }
+
+    internal static AiDiscussionAnalysis FallbackDiscussionAnalysis(string text, IReadOnlyList<Category> existingCategories)
+    {
+        var norm = NormalizeForMatch(text);
+        var scores = AiDiscussionCategoryCatalog.TopicSlugs.ToDictionary(slug => slug, _ => 0.0);
+
+        foreach (var (slug, keywords) in DiscussionTopicKeywordRules)
+        {
+            foreach (var kw in keywords)
+            {
+                if (norm.Contains(kw, StringComparison.Ordinal))
+                    scores[slug] += kw.Length > 6 ? 1.5 : 1.0;
+            }
+        }
+
+        var bestSlug = scores.OrderByDescending(kv => kv.Value).First().Key;
+        if (scores[bestSlug] <= 0)
+            bestSlug = "autres";
+
+        var existing = existingCategories.FirstOrDefault(c =>
+            c.IsDiscussionTopic && c.Slug.Equals(bestSlug, StringComparison.OrdinalIgnoreCase));
+        var (resolved, label, icon) = existing is null
+            ? AiDiscussionCategoryCatalog.DescribeTopic(bestSlug)
+            : (existing.Slug, existing.Label, existing.Icon);
+
+        var confidence = scores[bestSlug] > 0 ? Math.Min(0.95, 0.45 + scores[bestSlug] * 0.12) : 0.4;
+        return new AiDiscussionAnalysis(
+            resolved,
+            label,
+            icon,
+            confidence,
+            $"Sujet classé en « {label} » — échange communautaire Kinshasa.",
+            RuleBasedFallback: true);
+    }
+
+    private static readonly Dictionary<string, string[]> DiscussionTopicKeywordRules = new(StringComparer.Ordinal)
+    {
+        ["sport"] = ["léopard", "leopards", "football", "foot", "match", "coupe du monde", "as vita", "sport", "but"],
+        ["politique"] = ["fayulu", "opposition", "politique", "gouvernement", "tshisekedi", "élection", "parlement", "député"],
+        ["education"] = ["exetat", "examen", "école", "université", "étudiant", "diplôme", "lukunga"],
+        ["tech"] = ["starlink", "internet", "tech", "iphone", "application", "réseau", "wifi"],
+        ["economie"] = ["dollar", "économie", "business", "entreprise", "marché", "dette", "investissement"],
+        ["culture"] = ["musique", "concert", "film", "culture", "art", "festival", "artiste"],
+        ["sante"] = ["santé", "hôpital", "médical", "maladie", "docteur", "covid"],
+        ["securite"] = ["police", "sécurité", "vol", "criminalité", "justice", "altercation", "agression"],
+        ["transport"] = ["traffic", "embouteillage", "route", "transport", "motuka", "bus", "taxi", "boulevard"],
+        ["societe"] = ["quartier", "kinshasa", "communauté", "voisin", "famille", "mariage", "société"],
+    };
 
     private static AiAdvertAnalysis ParseAdvertAnalysis(string json, IReadOnlyList<Category> existing, string text)
     {
