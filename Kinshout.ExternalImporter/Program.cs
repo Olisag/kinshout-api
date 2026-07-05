@@ -6,6 +6,8 @@ DotEnvLoader.Load();
 var configPath = GetOption(args, "--config") ?? "appsettings.json";
 var dryRun = args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase);
 var once = args.Contains("--once", StringComparer.OrdinalIgnoreCase);
+var discussionsOnly = args.Contains("--discussions", StringComparer.OrdinalIgnoreCase);
+var advertsOnly = args.Contains("--adverts", StringComparer.OrdinalIgnoreCase);
 
 var settings = SettingsLoader.Load(configPath);
 if (once)
@@ -16,7 +18,6 @@ using var http = new HttpClient
     Timeout = TimeSpan.FromSeconds(320),
 };
 
-var runner = new ExternalImportRunner(http, settings, dryRun);
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {
@@ -24,26 +25,46 @@ Console.CancelKeyPress += (_, eventArgs) =>
     cts.Cancel();
 };
 
-if (settings.Schedule.RunOnce)
+async Task RunScheduledAsync()
 {
-    await runner.RunOnceAsync(cts.Token);
-    return;
-}
-
-Console.WriteLine($"Import scheduler active — next run at {ImportScheduleHelper.DescribeNextRun(settings.Schedule, DateTime.UtcNow)}.");
-
-while (!cts.IsCancellationRequested)
-{
-    var delay = ImportScheduleHelper.DelayUntilNextRun(settings.Schedule, DateTime.UtcNow);
-    if (delay > TimeSpan.Zero)
+    if (settings.Schedule.RunOnce)
     {
-        Console.WriteLine($"Waiting {delay:g} until next scheduled import…");
-        await Task.Delay(delay, cts.Token);
+        await RunImportsAsync();
+        return;
     }
 
-    await runner.RunOnceAsync(cts.Token);
-    Console.WriteLine($"Next run at {ImportScheduleHelper.DescribeNextRun(settings.Schedule, DateTime.UtcNow)}.");
+    Console.WriteLine($"Import scheduler active — next run at {ImportScheduleHelper.DescribeNextRun(settings.Schedule, DateTime.UtcNow)}.");
+
+    while (!cts.IsCancellationRequested)
+    {
+        var delay = ImportScheduleHelper.DelayUntilNextRun(settings.Schedule, DateTime.UtcNow);
+        if (delay > TimeSpan.Zero)
+        {
+            Console.WriteLine($"Waiting {delay:g} until next scheduled import…");
+            await Task.Delay(delay, cts.Token);
+        }
+
+        await RunImportsAsync();
+        Console.WriteLine($"Next run at {ImportScheduleHelper.DescribeNextRun(settings.Schedule, DateTime.UtcNow)}.");
+    }
 }
+
+async Task RunImportsAsync()
+{
+    if (!discussionsOnly)
+    {
+        var advertRunner = new ExternalImportRunner(http, settings, dryRun);
+        await advertRunner.RunOnceAsync(cts.Token);
+    }
+
+    if (!advertsOnly)
+    {
+        var discussionRunner = new ExternalDiscussionImportRunner(http, settings, dryRun);
+        await discussionRunner.RunOnceAsync(cts.Token);
+    }
+}
+
+await RunScheduledAsync();
 
 static string? GetOption(string[] args, string name)
 {

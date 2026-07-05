@@ -13,6 +13,7 @@ namespace Kinshout.Api.Controllers;
 [Produces("application/json")]
 public class ImportsController(
     IExternalAdvertImportService imports,
+    IExternalDiscussionImportService discussionImports,
     IOptions<ImportSettings> importOptions) : ControllerBase
 {
     /// <summary>
@@ -67,6 +68,48 @@ public class ImportsController(
 
         var adverts = await imports.GetKnownAdvertKeysAsync(ct);
         return Ok(new ImportKnownAdvertsResponseDto(adverts));
+    }
+
+    /// <summary>
+    /// Upsert discussion topics from external social sources (batch).
+    /// </summary>
+    [HttpPost("discussions")]
+    [ProducesResponseType(typeof(ImportExternalDiscussionsResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ImportExternalDiscussionsResponseDto>> ImportDiscussions(
+        [FromBody] ImportExternalDiscussionsRequestDto request,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        if (request.Discussions.Count == 0)
+            return BadRequest(new { error = "Aucune discussion à importer." });
+
+        try
+        {
+            return Ok(await discussionImports.ImportAsync(request.Discussions, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// List <c>provider</c> + <c>externalId</c> pairs for imported discussions.
+    /// </summary>
+    [HttpGet("known-discussions")]
+    [ProducesResponseType(typeof(ImportKnownDiscussionsResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ImportKnownDiscussionsResponseDto>> GetKnownDiscussions(CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        var discussions = await discussionImports.GetKnownDiscussionKeysAsync(ct);
+        return Ok(new ImportKnownDiscussionsResponseDto(discussions));
     }
 
     private bool IsAuthorized()

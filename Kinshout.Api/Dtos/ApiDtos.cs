@@ -220,6 +220,36 @@ public record ImportKnownAdvertKeyDto(string Provider, string ExternalId);
 
 public record ImportKnownAdvertsResponseDto(IReadOnlyList<ImportKnownAdvertKeyDto> Adverts);
 
+public record ImportExternalDiscussionSourceDto(
+    string Provider,
+    string? ProviderName,
+    string ExternalId,
+    string ExternalUrl,
+    DateTime? ImportedAt,
+    DateTime? LastSeenAt,
+    DateTime? FirstSeenAt);
+
+public record ImportExternalDiscussionDto(
+    ImportExternalDiscussionSourceDto Source,
+    string Title,
+    string Body,
+    string? OriginalAuthor = null,
+    int? EngagementScore = null,
+    string Status = "active",
+    DateTime? PublishedAt = null);
+
+public record ImportExternalDiscussionsRequestDto(IReadOnlyList<ImportExternalDiscussionDto> Discussions);
+
+public record ImportExternalDiscussionsResponseDto(
+    int Created,
+    int Updated,
+    int Unchanged,
+    int Skipped);
+
+public record ImportKnownDiscussionKeyDto(string Provider, string ExternalId);
+
+public record ImportKnownDiscussionsResponseDto(IReadOnlyList<ImportKnownDiscussionKeyDto> Discussions);
+
 public record CategoryDto(
     Guid Id,
     string Slug,
@@ -239,7 +269,22 @@ public record DiscussionDto(
     string? CategorySlug,
     int LikeCount,
     int ViewCount,
-    [property: JsonPropertyName("isLiked")] bool IsLiked = false);
+    [property: JsonPropertyName("isLiked")] bool IsLiked = false,
+    bool IsExternal = false,
+    DiscussionSourceDto? Source = null);
+
+/// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
+public record DiscussionSourceDto(
+    string Provider,
+    string ProviderName,
+    string ExternalId,
+    string ExternalUrl,
+    DateTime ImportedAt,
+    DateTime LastSeenAt,
+    DateTime FirstSeenAt,
+    string? OriginalAuthor = null,
+    int? EngagementScore = null,
+    DateTime? PublishedAt = null);
 
 public record DiscussionDetailDto(
     Guid Id,
@@ -253,7 +298,9 @@ public record DiscussionDetailDto(
     int ViewCount,
     int ReplyCount,
     [property: JsonPropertyName("isLiked")] bool IsLiked,
-    PagedResultDto<DiscussionReplyDto> Thread);
+    PagedResultDto<DiscussionReplyDto> Thread,
+    bool IsExternal = false,
+    DiscussionSourceDto? Source = null);
 
 public record DiscussionReplyDto(
     Guid Id,

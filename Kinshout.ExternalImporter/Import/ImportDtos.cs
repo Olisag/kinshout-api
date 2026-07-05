@@ -18,6 +18,40 @@ public sealed record ImportKnownAdvertKeyDto(
 public sealed record ImportKnownAdvertsResponseDto(
     [property: JsonPropertyName("adverts")] IReadOnlyList<ImportKnownAdvertKeyDto> Adverts);
 
+public sealed record ImportExternalDiscussionSourceDto(
+    [property: JsonPropertyName("provider")] string Provider,
+    [property: JsonPropertyName("providerName")] string? ProviderName,
+    [property: JsonPropertyName("externalId")] string ExternalId,
+    [property: JsonPropertyName("externalUrl")] string ExternalUrl,
+    [property: JsonPropertyName("importedAt")] DateTime? ImportedAt,
+    [property: JsonPropertyName("lastSeenAt")] DateTime? LastSeenAt,
+    [property: JsonPropertyName("firstSeenAt")] DateTime? FirstSeenAt);
+
+public sealed record ImportExternalDiscussionDto(
+    [property: JsonPropertyName("source")] ImportExternalDiscussionSourceDto Source,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("body")] string Body,
+    [property: JsonPropertyName("originalAuthor")] string? OriginalAuthor,
+    [property: JsonPropertyName("engagementScore")] int? EngagementScore,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("publishedAt")] DateTime? PublishedAt);
+
+public sealed record ImportExternalDiscussionsRequestDto(
+    [property: JsonPropertyName("discussions")] IReadOnlyList<ImportExternalDiscussionDto> Discussions);
+
+public sealed record ImportExternalDiscussionsResponseDto(
+    [property: JsonPropertyName("created")] int Created,
+    [property: JsonPropertyName("updated")] int Updated,
+    [property: JsonPropertyName("unchanged")] int Unchanged,
+    [property: JsonPropertyName("skipped")] int Skipped);
+
+public sealed record ImportKnownDiscussionKeyDto(
+    [property: JsonPropertyName("provider")] string Provider,
+    [property: JsonPropertyName("externalId")] string ExternalId);
+
+public sealed record ImportKnownDiscussionsResponseDto(
+    [property: JsonPropertyName("discussions")] IReadOnlyList<ImportKnownDiscussionKeyDto> Discussions);
+
 public sealed record ImportExternalAdvertDto(
     [property: JsonPropertyName("source")] ImportExternalAdvertSourceDto Source,
     [property: JsonPropertyName("category")] string Category,

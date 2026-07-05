@@ -76,10 +76,17 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.ReplyCount).HasDefaultValue(0);
             e.Property(x => x.LikeCount).HasDefaultValue(0);
             e.Property(x => x.ViewCount).HasDefaultValue(0);
+            e.Property(x => x.SourceProvider).HasMaxLength(64);
+            e.Property(x => x.SourceProviderName).HasMaxLength(120);
+            e.Property(x => x.SourceExternalId).HasMaxLength(128);
+            e.Property(x => x.SourceExternalUrl).HasMaxLength(2048);
+            e.Property(x => x.SourceOriginalAuthor).HasMaxLength(200);
             e.HasIndex(x => x.CreatedAt);
             e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
             e.HasIndex(x => new { x.ViewCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.UpdatedAt });
+            e.HasIndex(x => new { x.SourceProvider, x.SourceExternalId }).IsUnique()
+                .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
             e.HasOne(x => x.User).WithMany(x => x.Discussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Discussions).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
         });

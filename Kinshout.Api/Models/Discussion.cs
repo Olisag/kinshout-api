@@ -13,6 +13,21 @@ public class Discussion
     public int LikeCount { get; set; }
     public int ViewCount { get; set; }
 
+    /// <summary>Null or kinshout = native topic. Other values = imported external post.</summary>
+    public string? SourceProvider { get; set; }
+    public string? SourceProviderName { get; set; }
+    public string? SourceExternalId { get; set; }
+    public string? SourceExternalUrl { get; set; }
+    public DateTime? SourceImportedAt { get; set; }
+    public DateTime? SourceLastSeenAt { get; set; }
+    public DateTime? SourceFirstSeenAt { get; set; }
+    public string? SourceOriginalAuthor { get; set; }
+    public int? SourceEngagementScore { get; set; }
+    public DateTime? ExternalPublishedAt { get; set; }
+
+    public bool IsExternal => !string.IsNullOrWhiteSpace(SourceProvider)
+        && !SourceProvider.Equals(DiscussionSourceProvider.Kinshout, StringComparison.OrdinalIgnoreCase);
+
     public User User { get; set; } = null!;
     public Category? Category { get; set; }
     public ICollection<DiscussionReply> Replies { get; set; } = [];

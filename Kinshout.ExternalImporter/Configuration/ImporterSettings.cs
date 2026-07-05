@@ -5,6 +5,7 @@ public sealed class ImporterSettings
     public KinshoutApiSettings KinshoutApi { get; set; } = new();
     public ImportScheduleSettings Schedule { get; set; } = new();
     public List<ExternalProviderSettings> Providers { get; set; } = [];
+    public List<ExternalProviderSettings> DiscussionProviders { get; set; } = [];
 }
 
 public sealed class KinshoutApiSettings
@@ -12,6 +13,8 @@ public sealed class KinshoutApiSettings
     public string BaseUrl { get; set; } = "http://localhost:5000";
     public string ImportPath { get; set; } = "/api/imports/adverts";
     public string KnownAdvertsPath { get; set; } = "/api/imports/known-adverts";
+    public string ImportDiscussionsPath { get; set; } = "/api/imports/discussions";
+    public string KnownDiscussionsPath { get; set; } = "/api/imports/known-discussions";
     public string ImportKey { get; set; } = "";
     public int BatchSize { get; set; } = 100;
 }
@@ -58,6 +61,7 @@ public sealed class ExternalProviderSettings
     public string? LinkedInGeoId { get; set; }
     /// <summary>Drop listings older than this many days at fetch time (0 = provider default).</summary>
     public int MaxAdvertAgeDays { get; set; }
+    public int MinEngagementScore { get; set; }
     public int ResultsLimit { get; set; }
     public int ActorTimeoutSeconds { get; set; } = 300;
     public double? Latitude { get; set; }

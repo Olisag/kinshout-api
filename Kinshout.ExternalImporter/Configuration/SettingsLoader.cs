@@ -62,6 +62,9 @@ public static partial class SettingsLoader
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_API_BASE_URL"), value => settings.KinshoutApi.BaseUrl = value);
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_IMPORT_KEY"), value => settings.KinshoutApi.ImportKey = value);
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_IMPORT_PATH"), value => settings.KinshoutApi.ImportPath = value);
+        Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_KNOWN_ADVERTS_PATH"), value => settings.KinshoutApi.KnownAdvertsPath = value);
+        Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_IMPORT_DISCUSSIONS_PATH"), value => settings.KinshoutApi.ImportDiscussionsPath = value);
+        Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_KNOWN_DISCUSSIONS_PATH"), value => settings.KinshoutApi.KnownDiscussionsPath = value);
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_BATCH_SIZE"), value =>
         {
             if (int.TryParse(value, out var batchSize))

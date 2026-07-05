@@ -77,6 +77,7 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
 builder.Services.AddScoped<IUploadService, UploadService>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
+builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
 
 builder.Services
     .AddAuthentication(options =>

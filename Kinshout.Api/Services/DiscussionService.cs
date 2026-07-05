@@ -177,12 +177,14 @@ public class DiscussionService(
             d.UserId,
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
-            TimeHelpers.FormatRelative(d.CreatedAt),
+            TimeHelpers.FormatRelative(DiscussionSourceMapper.SortDate(d)),
             d.LikeCount,
             viewCount,
             d.ReplyCount,
             isLiked,
-            thread);
+            thread,
+            d.IsExternal,
+            DiscussionSourceMapper.ToSourceDto(d));
     }
 
     public async Task<DiscussionDetailDto> UpdateAsync(
@@ -399,11 +401,13 @@ public class DiscussionService(
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
             d.ReplyCount,
-            TimeHelpers.FormatRelative(d.CreatedAt),
+            TimeHelpers.FormatRelative(DiscussionSourceMapper.SortDate(d)),
             d.Category?.Slug,
             d.LikeCount,
             d.ViewCount,
-            isLiked);
+            isLiked,
+            d.IsExternal,
+            DiscussionSourceMapper.ToSourceDto(d));
 }
 
 public static class TimeHelpers

@@ -330,16 +330,5 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     }
 
     private static DiscussionDto ToDiscussionDto(Discussion d, bool isLiked = false) =>
-        new(
-            d.Id,
-            d.Title,
-            d.Body,
-            d.User.DisplayName,
-            TimeHelpers.Initials(d.User.DisplayName),
-            d.ReplyCount,
-            TimeHelpers.FormatRelative(d.CreatedAt),
-            d.Category?.Slug,
-            d.LikeCount,
-            d.ViewCount,
-            isLiked);
+        DiscussionService.ToListDto(d, isLiked);
 }

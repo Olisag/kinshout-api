@@ -56,4 +56,53 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
             .Select(a => ImportAdvertKeys.Format(a.Provider, a.ExternalId))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
+
+    public async Task<ImportExternalDiscussionsResponseDto> ImportDiscussionsAsync(
+        IReadOnlyList<ImportExternalDiscussionDto> discussions,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(new Uri(settings.BaseUrl.TrimEnd('/') + "/"), settings.ImportDiscussionsPath.TrimStart('/'));
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(new ImportExternalDiscussionsRequestDto(discussions), options: JsonOptions),
+        };
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout discussion import failed ({(int)response.StatusCode}): {body}");
+
+        return JsonSerializer.Deserialize<ImportExternalDiscussionsResponseDto>(body, JsonOptions)
+            ?? new ImportExternalDiscussionsResponseDto(0, 0, 0, discussions.Count);
+    }
+
+    public async Task<IReadOnlySet<string>> FetchKnownDiscussionKeysAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            settings.KnownDiscussionsPath.TrimStart('/'));
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout known-discussions failed ({(int)response.StatusCode}): {body}");
+
+        var parsed = JsonSerializer.Deserialize<ImportKnownDiscussionsResponseDto>(body, JsonOptions);
+        if (parsed?.Discussions is null || parsed.Discussions.Count == 0)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        return parsed.Discussions
+            .Where(d => !string.IsNullOrWhiteSpace(d.Provider) && !string.IsNullOrWhiteSpace(d.ExternalId))
+            .Select(d => ImportDiscussionKeys.Format(d.Provider, d.ExternalId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 }

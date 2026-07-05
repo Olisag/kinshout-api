@@ -22,6 +22,7 @@ public static class DbSchemaPatcher
         await EnsureSearchQueryStatsSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
         if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
     }
@@ -74,6 +75,7 @@ public static class DbSchemaPatcher
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: false, ct);
 
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
         if (await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
 
@@ -283,6 +285,48 @@ public static class DbSchemaPatcher
                 : """
                   CREATE UNIQUE INDEX IX_Adverts_SourceProvider_SourceExternalId
                   ON Adverts (SourceProvider, SourceExternalId)
+                  WHERE SourceProvider IS NOT NULL AND SourceExternalId IS NOT NULL
+                  """;
+            await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsureExternalDiscussionSourceSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        var columns = new (string Name, string SqlServerType, string SqliteType)[]
+        {
+            ("SourceProvider", "nvarchar(64) NULL", "TEXT"),
+            ("SourceProviderName", "nvarchar(120) NULL", "TEXT"),
+            ("SourceExternalId", "nvarchar(128) NULL", "TEXT"),
+            ("SourceExternalUrl", "nvarchar(2048) NULL", "TEXT"),
+            ("SourceImportedAt", "datetime2 NULL", "TEXT"),
+            ("SourceLastSeenAt", "datetime2 NULL", "TEXT"),
+            ("SourceFirstSeenAt", "datetime2 NULL", "TEXT"),
+            ("SourceOriginalAuthor", "nvarchar(200) NULL", "TEXT"),
+            ("SourceEngagementScore", "int NULL", "INTEGER"),
+            ("ExternalPublishedAt", "datetime2 NULL", "TEXT"),
+        };
+
+        foreach (var (name, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "Discussions", name, ct))
+                continue;
+
+            var sql = sqlServer
+                ? $"ALTER TABLE Discussions ADD {name} {sqlServerType}"
+                : $"ALTER TABLE Discussions ADD COLUMN {name} {sqliteType}";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Discussions_SourceProvider_SourceExternalId", ct))
+        {
+            var indexSql = """
+                  CREATE UNIQUE INDEX IX_Discussions_SourceProvider_SourceExternalId
+                  ON Discussions (SourceProvider, SourceExternalId)
                   WHERE SourceProvider IS NOT NULL AND SourceExternalId IS NOT NULL
                   """;
             await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
