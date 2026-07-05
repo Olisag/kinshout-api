@@ -30,4 +30,14 @@ internal static class DiscussionSourceMapper
 
     public static DateTime SortDate(Discussion discussion) =>
         discussion.ExternalPublishedAt ?? discussion.CreatedAt;
+
+    public static IQueryable<Discussion> OrderByPopular(IQueryable<Discussion> query) =>
+        query.OrderByDescending(d => d.ViewCount)
+            .ThenByDescending(d => d.SourceEngagementScore ?? 0)
+            .ThenByDescending(d => d.CreatedAt);
+
+    public static IEnumerable<Discussion> OrderByPopular(IEnumerable<Discussion> discussions) =>
+        discussions.OrderByDescending(d => d.ViewCount)
+            .ThenByDescending(d => d.SourceEngagementScore ?? 0)
+            .ThenByDescending(d => d.CreatedAt);
 }

@@ -24,7 +24,8 @@ public class ExternalDiscussionImportTests
         Assert.Equal("fb-post-1", discussion.SourceExternalId);
         Assert.True(discussion.IsExternal);
         Assert.Equal("Kinshasa traffic update", discussion.Title);
-        Assert.Equal(120, discussion.ViewCount);
+        Assert.Equal(0, discussion.ViewCount);
+        Assert.Equal(120, discussion.SourceEngagementScore);
 
         var updated = await service.ImportAsync([dto with { Title = "Updated Kinshasa topic" }]);
         Assert.Equal(1, updated.Updated);

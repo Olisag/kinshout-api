@@ -27,6 +27,26 @@ public class DiscussionServiceListTests
     }
 
     [Fact]
+    public async Task ListAsync_OrdersPopularByKinshoutViewsThenSourceEngagement()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        db.Discussions.AddRange(
+            CreateDiscussion(user, category, "Low platform buzz", viewCount: 0, sourceEngagementScore: 10),
+            CreateDiscussion(user, category, "High platform buzz", viewCount: 0, sourceEngagementScore: 200),
+            CreateDiscussion(user, category, "Kinshout favorite", viewCount: 3, sourceEngagementScore: 5));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListAsync(sort: ListSortHelper.Popular, pageSize: 10);
+
+        Assert.Equal(
+            ["Kinshout favorite", "High platform buzz", "Low platform buzz"],
+            results.Items.Select(d => d.Title).ToArray());
+    }
+
+    [Fact]
     public async Task ListAsync_FiltersAndPaginatesInDatabase()
     {
         await using var db = TestDbFactory.Create();
@@ -158,6 +178,7 @@ public class DiscussionServiceListTests
         string title,
         int replyCount = 0,
         int viewCount = 0,
+        int? sourceEngagementScore = null,
         DateTime? createdAt = null)
     {
         var at = createdAt ?? DateTime.UtcNow;
@@ -171,6 +192,7 @@ public class DiscussionServiceListTests
             UpdatedAt = at,
             ReplyCount = replyCount,
             ViewCount = viewCount,
+            SourceEngagementScore = sourceEngagementScore,
             User = user,
             Category = category,
         };

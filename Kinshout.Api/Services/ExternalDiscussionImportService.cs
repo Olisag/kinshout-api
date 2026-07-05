@@ -196,7 +196,6 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
         existing.SourceOriginalAuthor = mapped.SourceOriginalAuthor;
         existing.SourceEngagementScore = mapped.SourceEngagementScore;
         existing.ExternalPublishedAt = mapped.ExternalPublishedAt;
-        existing.ViewCount = Math.Max(existing.ViewCount, mapped.ViewCount);
         existing.UpdatedAt = now;
 
         return UpsertOutcome.Updated;
@@ -225,7 +224,7 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
             UpdatedAt = importedAt,
             ReplyCount = 0,
             LikeCount = 0,
-            ViewCount = Math.Max(engagement, 0),
+            ViewCount = 0,
             SourceProvider = provider,
             SourceProviderName = string.IsNullOrWhiteSpace(item.Source.ProviderName)
                 ? DiscussionSourceProvider.DisplayName(provider)

@@ -45,6 +45,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             .Include(d => d.User)
             .Include(d => d.Category)
             .OrderByDescending(d => d.ViewCount)
+            .ThenByDescending(d => d.SourceEngagementScore ?? 0)
             .ThenByDescending(d => d.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
@@ -134,21 +135,24 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         var advertMeta = matchedAdverts.ToDictionary(a => a.Id);
         var discussionMeta = matchedDiscussions.ToDictionary(d => d.Id);
 
-        var feed = new List<(string Kind, AdvertDto? Advert, DiscussionDto? Discussion, DateTime CreatedAt, int ViewCount)>();
+        var feed = new List<(string Kind, AdvertDto? Advert, DiscussionDto? Discussion, DateTime CreatedAt, int ViewCount, int SourceEngagement)>();
         foreach (var advert in advertResults)
         {
             var meta = advertMeta[advert.Id];
-            feed.Add(("advert", advert, null, AdvertSourceMapper.SortDate(meta), meta.ViewCount));
+            feed.Add(("advert", advert, null, AdvertSourceMapper.SortDate(meta), meta.ViewCount, 0));
         }
 
         foreach (var discussion in discussionResults)
         {
             var meta = discussionMeta[discussion.Id];
-            feed.Add(("discussion", null, discussion, meta.CreatedAt, meta.ViewCount));
+            feed.Add(("discussion", null, discussion, meta.CreatedAt, meta.ViewCount, meta.SourceEngagementScore ?? 0));
         }
 
         feed = sort == ListSortHelper.Popular
-            ? feed.OrderByDescending(x => x.ViewCount).ThenByDescending(x => x.CreatedAt).ToList()
+            ? feed.OrderByDescending(x => x.ViewCount)
+                .ThenByDescending(x => x.SourceEngagement)
+                .ThenByDescending(x => x.CreatedAt)
+                .ToList()
             : feed.OrderByDescending(x => x.CreatedAt).ToList();
 
         var totalItems = feed.Count;
@@ -210,7 +214,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     {
         var query = discussions.AsEnumerable();
         return sort == ListSortHelper.Popular
-            ? query.OrderByDescending(d => d.ViewCount).ThenByDescending(d => d.CreatedAt).ToList()
+            ? DiscussionSourceMapper.OrderByPopular(query).ToList()
             : query.OrderByDescending(d => d.CreatedAt).ToList();
     }
 

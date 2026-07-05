@@ -67,7 +67,7 @@ public class DiscussionService(
         }
 
         var ordered = ListSortHelper.IsPopular(sort)
-            ? q.OrderByDescending(d => d.ViewCount).ThenByDescending(d => d.CreatedAt)
+            ? DiscussionSourceMapper.OrderByPopular(q)
             : q.OrderByDescending(d => d.CreatedAt);
 
         var total = await ordered.CountAsync(ct);

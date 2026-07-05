@@ -24,6 +24,7 @@ public static class DbSchemaPatcher
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
+        await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
     }
@@ -78,6 +79,7 @@ public static class DbSchemaPatcher
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
+        await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
 
@@ -374,6 +376,23 @@ public static class DbSchemaPatcher
             """
             CREATE UNIQUE INDEX IX_ImportWatermarks_ImportKind_Provider
             ON ImportWatermarks (ImportKind, Provider)
+            """, ct);
+    }
+
+    private static async Task NormalizeExternalDiscussionViewCountsAsync(KinshoutDbContext db, CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            UPDATE Discussions
+            SET ViewCount = CASE
+                WHEN SourceEngagementScore IS NOT NULL AND ViewCount >= SourceEngagementScore
+                THEN ViewCount - SourceEngagementScore
+                ELSE ViewCount
+            END
+            WHERE SourceProvider IS NOT NULL
+              AND SourceProvider <> 'kinshout'
+              AND SourceEngagementScore IS NOT NULL
+              AND ViewCount > 0
             """, ct);
     }
 
