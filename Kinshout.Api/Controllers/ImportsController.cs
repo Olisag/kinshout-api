@@ -158,6 +158,22 @@ public class ImportsController(
         }
     }
 
+    /// <summary>
+    /// Re-run AI transform on imported external discussions (backfill / format upgrade).
+    /// </summary>
+    [HttpPost("discussions/retransform")]
+    [ProducesResponseType(typeof(RetransformExternalDiscussionsResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<RetransformExternalDiscussionsResponseDto>> RetransformDiscussions(
+        [FromQuery] bool force = false,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Ok(await discussionImports.RetransformAllAsync(force, ct));
+    }
+
     private bool IsAuthorized()
     {
         var configured = importOptions.Value.SecretKey;

@@ -256,6 +256,12 @@ public record DiscussionImportStateResponseDto(IReadOnlyList<DiscussionImportSta
 
 public record RecordDiscussionImportRunRequestDto(string Provider, DateTime? RunAt = null);
 
+public record RetransformExternalDiscussionsResponseDto(
+    int Transformed,
+    int Unchanged,
+    int Skipped,
+    int Failed);
+
 public record CategoryDto(
     Guid Id,
     string Slug,

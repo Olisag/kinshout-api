@@ -313,6 +313,7 @@ public static class DbSchemaPatcher
             ("SourceOriginalAuthor", "nvarchar(200) NULL", "TEXT"),
             ("SourceEngagementScore", "int NULL", "INTEGER"),
             ("ExternalPublishedAt", "datetime2 NULL", "TEXT"),
+            ("SourceRawBody", "nvarchar(max) NULL", "TEXT"),
         };
 
         foreach (var (name, sqlServerType, sqliteType) in columns)

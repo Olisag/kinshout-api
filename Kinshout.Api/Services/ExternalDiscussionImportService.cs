@@ -16,9 +16,15 @@ public interface IExternalDiscussionImportService
     Task<IReadOnlyList<DiscussionImportStateDto>> GetDiscussionImportStateAsync(CancellationToken ct = default);
 
     Task RecordDiscussionImportRunAsync(string provider, DateTime runAtUtc, CancellationToken ct = default);
+
+    Task<RetransformExternalDiscussionsResponseDto> RetransformAllAsync(
+        bool force = false,
+        CancellationToken ct = default);
 }
 
-public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDiscussionImportService
+public class ExternalDiscussionImportService(
+    KinshoutDbContext db,
+    IExternalDiscussionTransformService transform) : IExternalDiscussionImportService
 {
     public async Task<ImportExternalDiscussionsResponseDto> ImportAsync(
         IReadOnlyList<ImportExternalDiscussionDto> discussions,
@@ -57,6 +63,79 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
         }
 
         return new ImportExternalDiscussionsResponseDto(created, updated, unchanged, skipped);
+    }
+
+    public async Task<RetransformExternalDiscussionsResponseDto> RetransformAllAsync(
+        bool force = false,
+        CancellationToken ct = default)
+    {
+        var discussions = await db.Discussions
+            .Where(d => d.SourceProvider != null
+                && d.SourceExternalId != null
+                && d.SourceProvider != DiscussionSourceProvider.Kinshout)
+            .ToListAsync(ct);
+
+        var transformed = 0;
+        var unchanged = 0;
+        var skipped = 0;
+        var failed = 0;
+
+        foreach (var discussion in discussions)
+        {
+            try
+            {
+                var raw = discussion.SourceRawBody?.Trim() ?? discussion.Body.Trim();
+                if (string.IsNullOrWhiteSpace(raw))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                if (!force
+                    && !string.IsNullOrWhiteSpace(discussion.SourceRawBody)
+                    && discussion.Title.Length > 0
+                    && !LooksLikeRawPost(discussion))
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                var result = await transform.TransformAsync(
+                    raw,
+                    discussion.SourceOriginalAuthor,
+                    discussion.SourceProviderName ?? DiscussionSourceProvider.DisplayName(discussion.SourceProvider!),
+                    ct);
+
+                discussion.SourceRawBody = raw;
+                discussion.Title = result.Title;
+                discussion.Body = result.Body;
+                discussion.UpdatedAt = DateTime.UtcNow;
+                transformed++;
+            }
+            catch
+            {
+                failed++;
+                db.ChangeTracker.Clear();
+            }
+        }
+
+        if (transformed > 0)
+            await db.SaveChangesAsync(ct);
+
+        return new RetransformExternalDiscussionsResponseDto(transformed, unchanged, skipped, failed);
+    }
+
+    /// <summary>Heuristic: title still looks like a raw headline (emoji, hashtag, ALL CAPS burst).</summary>
+    private static bool LooksLikeRawPost(Discussion discussion)
+    {
+        var title = discussion.Title;
+        if (title.Contains('#')
+            || title.Contains("🔴", StringComparison.Ordinal)
+            || title.Contains("🚨", StringComparison.Ordinal))
+            return true;
+        if (title.Length > 90)
+            return true;
+        return title.Count(char.IsUpper) > 12 && title.Length < 80;
     }
 
     public async Task<IReadOnlyList<ImportKnownDiscussionKeyDto>> GetKnownDiscussionKeysAsync(CancellationToken ct = default)
@@ -161,17 +240,38 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
         if (string.IsNullOrWhiteSpace(item.Source.ExternalUrl))
             throw new ArgumentException("externalUrl requis.");
 
-        if (string.IsNullOrWhiteSpace(item.Title))
-            throw new ArgumentException("title requis.");
-
         if (string.IsNullOrWhiteSpace(item.Body))
             throw new ArgumentException("body requis.");
+
+        var rawBody = item.Body.Trim();
+        var engagement = item.EngagementScore;
+
+        if (existing is not null
+            && DiscussionSourceMapper.IsSameContent(existing, rawBody, engagement)
+            && existing.SourceLastSeenAt >= (item.Source.LastSeenAt ?? DateTime.UtcNow).AddMinutes(-1))
+        {
+            existing.SourceLastSeenAt = item.Source.LastSeenAt ?? DateTime.UtcNow;
+            return UpsertOutcome.Unchanged;
+        }
+
+        var platformName = item.Source.ProviderName ?? DiscussionSourceProvider.DisplayName(provider);
+        var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
 
         var now = DateTime.UtcNow;
         var importedAt = item.Source.ImportedAt ?? now;
         var lastSeenAt = item.Source.LastSeenAt ?? importedAt;
         var firstSeenAt = item.Source.FirstSeenAt ?? importedAt;
-        var mapped = MapFields(item, provider, importUser.Id, discussionCategory.Id, importedAt, lastSeenAt, firstSeenAt);
+        var mapped = MapFields(
+            item,
+            provider,
+            importUser.Id,
+            discussionCategory.Id,
+            importedAt,
+            lastSeenAt,
+            firstSeenAt,
+            transformed.Title,
+            transformed.Body,
+            rawBody);
 
         if (existing is null)
         {
@@ -179,15 +279,9 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
             return UpsertOutcome.Created;
         }
 
-        if (DiscussionSourceMapper.IsSameContent(existing, mapped)
-            && existing.SourceLastSeenAt >= lastSeenAt.AddMinutes(-1))
-        {
-            existing.SourceLastSeenAt = lastSeenAt;
-            return UpsertOutcome.Unchanged;
-        }
-
         existing.Title = mapped.Title;
         existing.Body = mapped.Body;
+        existing.SourceRawBody = rawBody;
         existing.SourceProviderName = mapped.SourceProviderName;
         existing.SourceExternalUrl = mapped.SourceExternalUrl;
         existing.SourceImportedAt = existing.SourceImportedAt ?? importedAt;
@@ -208,7 +302,10 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
         Guid categoryId,
         DateTime importedAt,
         DateTime lastSeenAt,
-        DateTime firstSeenAt)
+        DateTime firstSeenAt,
+        string title,
+        string body,
+        string rawBody)
     {
         var publishedAt = item.PublishedAt?.ToUniversalTime();
         var engagement = item.EngagementScore.GetValueOrDefault();
@@ -218,8 +315,9 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
         {
             UserId = userId,
             CategoryId = categoryId,
-            Title = item.Title.Trim(),
-            Body = item.Body.Trim(),
+            Title = title.Trim(),
+            Body = body.Trim(),
+            SourceRawBody = rawBody,
             CreatedAt = createdAt,
             UpdatedAt = importedAt,
             ReplyCount = 0,

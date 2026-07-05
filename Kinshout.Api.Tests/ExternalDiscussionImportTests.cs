@@ -1,21 +1,25 @@
+using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Kinshout.Api.Tests;
 
 public class ExternalDiscussionImportTests
 {
     [Fact]
-    public async Task ImportAsync_CreatesAndUpdatesExternalDiscussion()
+    public async Task ImportAsync_CreatesTransformedDiscussionAndStoresRawBody()
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalDiscussionImportService(db);
+        var service = CreateService(db);
 
-        var dto = SampleImport("fb-post-1", "Kinshasa traffic update");
+        const string raw = "Kinshasa traffic update on boulevard du 30 juin today.";
+        var dto = SampleImport("fb-post-1", raw);
         var first = await service.ImportAsync([dto]);
         Assert.Equal(1, first.Created);
 
@@ -23,13 +27,29 @@ public class ExternalDiscussionImportTests
         Assert.Equal(DiscussionSourceProvider.Facebook, discussion.SourceProvider);
         Assert.Equal("fb-post-1", discussion.SourceExternalId);
         Assert.True(discussion.IsExternal);
-        Assert.Equal("Kinshasa traffic update", discussion.Title);
+        Assert.Equal(raw, discussion.SourceRawBody);
+        Assert.DoesNotContain("?", discussion.Title);
+        Assert.True(discussion.Body.TrimEnd().EndsWith('?'));
         Assert.Equal(0, discussion.ViewCount);
         Assert.Equal(120, discussion.SourceEngagementScore);
+        Assert.Equal("Test Page", discussion.SourceOriginalAuthor);
+    }
 
-        var updated = await service.ImportAsync([dto with { Title = "Updated Kinshasa topic" }]);
+    [Fact]
+    public async Task ImportAsync_UpdatesWhenRawBodyChanges()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+
+        var dto = SampleImport("fb-post-2", "First raw Kinshasa topic about power cuts.");
+        await service.ImportAsync([dto]);
+
+        var updated = await service.ImportAsync([dto with { Body = "Updated raw Kinshasa topic about water shortages in Gombe." }]);
         Assert.Equal(1, updated.Updated);
-        Assert.Equal("Updated Kinshasa topic", (await db.Discussions.SingleAsync()).Title);
+
+        var discussion = await db.Discussions.SingleAsync();
+        Assert.Contains("water shortages", discussion.SourceRawBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -37,8 +57,8 @@ public class ExternalDiscussionImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalDiscussionImportService(db);
-        var dto = SampleImport("rm-1", "Temporary topic");
+        var service = CreateService(db);
+        var dto = SampleImport("rm-1", "Temporary topic about Kinshasa weather this week.");
 
         await service.ImportAsync([dto]);
         var removed = await service.ImportAsync([dto with { Status = "removed" }]);
@@ -52,10 +72,10 @@ public class ExternalDiscussionImportTests
     {
         await using var db = TestDbFactory.Create();
         await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new ExternalDiscussionImportService(db);
-        await service.ImportAsync([SampleImport("x-99", "Tweet topic") with
+        var service = CreateService(db);
+        await service.ImportAsync([SampleImport("x-99", "Tweet topic about Kinshasa nightlife.") with
         {
-            Source = SampleImport("x-99", "Tweet topic").Source with { Provider = "twitter" },
+            Source = SampleImport("x-99", "Tweet topic about Kinshasa nightlife.").Source with { Provider = "twitter" },
         }]);
 
         var keys = await service.GetKnownDiscussionKeysAsync();
@@ -69,7 +89,7 @@ public class ExternalDiscussionImportTests
     public async Task RecordDiscussionImportRunAsync_StoresAndReturnsProviderWatermark()
     {
         await using var db = TestDbFactory.Create();
-        var service = new ExternalDiscussionImportService(db);
+        var service = CreateService(db);
         var runAt = new DateTime(2026, 7, 1, 3, 0, 0, DateTimeKind.Utc);
 
         await service.RecordDiscussionImportRunAsync(DiscussionSourceProvider.Facebook, runAt);
@@ -85,7 +105,47 @@ public class ExternalDiscussionImportTests
         Assert.Equal(later, state.Single().LastRunAtUtc);
     }
 
-    private static ImportExternalDiscussionDto SampleImport(string externalId, string title) =>
+    [Fact]
+    public async Task RetransformAllAsync_FormatsExistingRawDiscussions()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        db.Discussions.Add(new Discussion
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "🚨 FLASH 🔥 Trois Léopards à Kinshasa",
+            Body = "🚨 FLASH 🔥 Trois Léopards sont aperçus à Kinshasa après l'élimination. #LeopardsRDC",
+            SourceProvider = DiscussionSourceProvider.Facebook,
+            SourceExternalId = "legacy-1",
+            SourceExternalUrl = "https://facebook.com/posts/legacy-1",
+            SourceEngagementScore = 50,
+            SourceOriginalAuthor = "Sports Page",
+        });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var result = await service.RetransformAllAsync(force: true);
+
+        Assert.Equal(1, result.Transformed);
+        var discussion = await db.Discussions.SingleAsync();
+        Assert.NotNull(discussion.SourceRawBody);
+        Assert.DoesNotContain("#", discussion.Title);
+        Assert.True(discussion.Body.TrimEnd().EndsWith('?'));
+        Assert.Equal("Sports Page", discussion.SourceOriginalAuthor);
+        Assert.Equal(50, discussion.SourceEngagementScore);
+    }
+
+    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db) =>
+        new(
+            db,
+            new ExternalDiscussionTransformService(
+                new TestHttpClientFactory(),
+                Options.Create(new OpenAiSettings { ApiKey = "", Model = "gpt-4o-mini" }),
+                NullLogger<ExternalDiscussionTransformService>.Instance));
+
+    private static ImportExternalDiscussionDto SampleImport(string externalId, string rawBody) =>
         new(
             Source: new ImportExternalDiscussionSourceDto(
                 Provider: DiscussionSourceProvider.Facebook,
@@ -95,10 +155,15 @@ public class ExternalDiscussionImportTests
                 ImportedAt: DateTime.UtcNow,
                 LastSeenAt: DateTime.UtcNow,
                 FirstSeenAt: DateTime.UtcNow),
-            Title: title,
-            Body: title,
+            Title: "ignored scraper title",
+            Body: rawBody,
             OriginalAuthor: "Test Page",
             EngagementScore: 120,
             Status: "active",
             PublishedAt: DateTime.UtcNow.AddDays(-1));
+
+    private sealed class TestHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
+    }
 }

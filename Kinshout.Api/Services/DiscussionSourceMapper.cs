@@ -5,10 +5,12 @@ namespace Kinshout.Api.Services;
 
 internal static class DiscussionSourceMapper
 {
-    public static bool IsSameContent(Discussion existing, Discussion mapped) =>
-        existing.Title == mapped.Title
-        && existing.Body == mapped.Body
-        && existing.SourceEngagementScore == mapped.SourceEngagementScore;
+    public static bool IsSameContent(Discussion existing, string rawBody, int? engagementScore) =>
+        string.Equals(NormalizeRaw(existing.SourceRawBody), NormalizeRaw(rawBody), StringComparison.Ordinal)
+        && existing.SourceEngagementScore == engagementScore;
+
+    private static string NormalizeRaw(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
 
     public static DiscussionSourceDto? ToSourceDto(Discussion discussion)
     {

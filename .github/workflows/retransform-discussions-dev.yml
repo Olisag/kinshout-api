@@ -1,0 +1,27 @@
+# One-off or manual backfill: AI-transform external discussions already in dev.
+name: Retransform external discussions (dev)
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Re-transform even if already formatted
+        type: boolean
+        default: true
+
+jobs:
+  retransform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Retransform discussions on dev API
+        env:
+          KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+        run: |
+          curl -sfS -X POST \
+            "https://kinshout-api-dev.azurewebsites.net/api/imports/discussions/retransform?force=${{ inputs.force }}" \
+            -H "X-Kinshout-Import-Key: ${KINSHOUT_IMPORTER_IMPORT_KEY}" \
+            -H "Content-Type: application/json"

@@ -24,6 +24,8 @@ public class Discussion
     public string? SourceOriginalAuthor { get; set; }
     public int? SourceEngagementScore { get; set; }
     public DateTime? ExternalPublishedAt { get; set; }
+    /// <summary>Original post text before AI discussion transform (audit).</summary>
+    public string? SourceRawBody { get; set; }
 
     public bool IsExternal => !string.IsNullOrWhiteSpace(SourceProvider)
         && !SourceProvider.Equals(DiscussionSourceProvider.Kinshout, StringComparison.OrdinalIgnoreCase);
