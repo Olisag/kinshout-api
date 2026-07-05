@@ -15,6 +15,8 @@ public sealed class KinshoutApiSettings
     public string KnownAdvertsPath { get; set; } = "/api/imports/known-adverts";
     public string ImportDiscussionsPath { get; set; } = "/api/imports/discussions";
     public string KnownDiscussionsPath { get; set; } = "/api/imports/known-discussions";
+    public string DiscussionImportStatePath { get; set; } = "/api/imports/discussion-import-state";
+    public string DiscussionImportRunsPath { get; set; } = "/api/imports/discussion-import-runs";
     public string ImportKey { get; set; } = "";
     public int BatchSize { get; set; } = 100;
 }
@@ -24,6 +26,8 @@ public sealed class ImportScheduleSettings
     public bool RunOnce { get; set; } = true;
     public int IntervalHours { get; set; } = 24;
     public int MaxAdvertAgeDays { get; set; } = 60;
+    /// <summary>Maximum lookback for the first discussion import run (days).</summary>
+    public int MaxDiscussionAgeDays { get; set; } = 7;
     /// <summary>When set, the daemon waits until this local hour (see TimeZoneId) before each run.</summary>
     public int? RunAtHour { get; set; } = 3;
     public string TimeZoneId { get; set; } = "Africa/Kinshasa";
@@ -72,4 +76,7 @@ public sealed class ExternalProviderSettings
 
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlySet<string>? KnownAdvertKeys { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTime? SincePublishedAt { get; set; }
 }

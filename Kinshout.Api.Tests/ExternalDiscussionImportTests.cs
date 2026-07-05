@@ -64,6 +64,26 @@ public class ExternalDiscussionImportTests
         Assert.Equal("x-99", keys[0].ExternalId);
     }
 
+    [Fact]
+    public async Task RecordDiscussionImportRunAsync_StoresAndReturnsProviderWatermark()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = new ExternalDiscussionImportService(db);
+        var runAt = new DateTime(2026, 7, 1, 3, 0, 0, DateTimeKind.Utc);
+
+        await service.RecordDiscussionImportRunAsync(DiscussionSourceProvider.Facebook, runAt);
+
+        var state = await service.GetDiscussionImportStateAsync();
+        Assert.Single(state);
+        Assert.Equal(DiscussionSourceProvider.Facebook, state[0].Provider);
+        Assert.Equal(runAt, state[0].LastRunAtUtc);
+
+        var later = runAt.AddDays(7);
+        await service.RecordDiscussionImportRunAsync(DiscussionSourceProvider.Facebook, later);
+        state = await service.GetDiscussionImportStateAsync();
+        Assert.Equal(later, state.Single().LastRunAtUtc);
+    }
+
     private static ImportExternalDiscussionDto SampleImport(string externalId, string title) =>
         new(
             Source: new ImportExternalDiscussionSourceDto(

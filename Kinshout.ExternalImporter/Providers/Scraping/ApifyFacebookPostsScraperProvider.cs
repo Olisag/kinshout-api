@@ -29,7 +29,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         var rawCount = doc.RootElement.GetArrayLength();
         var filteredOut = 0;
         var minEngagement = ResolveMinEngagement();
-        var minPostedAt = DateTime.UtcNow.AddDays(-ResolveMaxAgeDays());
+        var minPostedAt = ResolveMinPostedAt();
 
         foreach (var item in doc.RootElement.EnumerateArray())
         {
@@ -70,9 +70,8 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
     {
         var query = settings.SearchQueries.FirstOrDefault(q => !string.IsNullOrWhiteSpace(q)) ?? "Kinshasa";
         var count = settings.ResultsLimit > 0 ? settings.ResultsLimit : 50;
-        var maxAge = ResolveMaxAgeDays();
         var end = DateTime.UtcNow.Date;
-        var start = end.AddDays(-maxAge);
+        var start = ResolveMinPostedAt().Date;
 
         return new
         {
@@ -168,7 +167,11 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         return null;
     }
 
-    private int ResolveMaxAgeDays() => settings.MaxAdvertAgeDays > 0 ? settings.MaxAdvertAgeDays : 30;
+    private int ResolveMaxAgeDays() => settings.MaxAdvertAgeDays > 0 ? settings.MaxAdvertAgeDays : 7;
+
+    private DateTime ResolveMinPostedAt() =>
+        settings.SincePublishedAt?.ToUniversalTime()
+        ?? DateTime.UtcNow.AddDays(-ResolveMaxAgeDays());
     private int ResolveMinEngagement() => settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 20;
 
     private static string? ReadString(JsonElement element, string name) =>

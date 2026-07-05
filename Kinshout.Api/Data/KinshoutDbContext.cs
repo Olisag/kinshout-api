@@ -15,6 +15,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
+    public DbSet<ImportWatermark> ImportWatermarks => Set<ImportWatermark>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -89,6 +90,13 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
                 .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
             e.HasOne(x => x.User).WithMany(x => x.Discussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Discussions).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ImportWatermark>(e =>
+        {
+            e.Property(x => x.ImportKind).HasMaxLength(32);
+            e.Property(x => x.Provider).HasMaxLength(64);
+            e.HasIndex(x => new { x.ImportKind, x.Provider }).IsUnique();
         });
 
         modelBuilder.Entity<DiscussionReply>(e =>

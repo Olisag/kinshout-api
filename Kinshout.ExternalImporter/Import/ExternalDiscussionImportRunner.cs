@@ -11,26 +11,36 @@ public sealed class ExternalDiscussionImportRunner(
     public async Task RunOnceAsync(CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var minPublishedAt = now.AddDays(-Math.Max(1, settings.Schedule.MaxAdvertAgeDays));
-        var importDtos = new List<ImportExternalDiscussionDto>();
-        var removalDtos = new List<ImportExternalDiscussionDto>();
+        var maxDiscussionAgeDays = Math.Max(1, settings.Schedule.MaxDiscussionAgeDays);
         var skipExisting = settings.Schedule.SkipExisting;
-        var detectRemovals = settings.Schedule.DetectRemovedListings;
+        var importClient = new KinshoutImportClient(http, settings.KinshoutApi);
+        var totals = new ImportExternalDiscussionsResponseDto(0, 0, 0, 0);
 
         IReadOnlySet<string>? knownKeys = null;
-        if (skipExisting || detectRemovals)
+        IReadOnlyDictionary<string, DateTime> lastRunByProvider =
+            new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            lastRunByProvider = await importClient.FetchDiscussionImportStateAsync(ct);
+            Console.WriteLine($"Loaded discussion import state for {lastRunByProvider.Count} provider(s).");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Could not load discussion import state ({ex.Message}); using {maxDiscussionAgeDays}-day fallback window.");
+        }
+
+        if (skipExisting)
         {
             try
             {
-                var client = new KinshoutImportClient(http, settings.KinshoutApi);
-                knownKeys = await client.FetchKnownDiscussionKeysAsync(ct);
+                knownKeys = await importClient.FetchKnownDiscussionKeysAsync(ct);
                 Console.WriteLine($"Loaded {knownKeys.Count} existing external discussion(s) from Kinshout.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Could not load existing discussions ({ex.Message}); importing without skip/removal filters.");
+                Console.WriteLine($"Could not load existing discussions ({ex.Message}); importing without skip filter.");
                 skipExisting = false;
-                detectRemovals = false;
             }
         }
 
@@ -42,43 +52,27 @@ public sealed class ExternalDiscussionImportRunner(
                 continue;
             }
 
+            var sinceUtc = DiscussionImportWindow.ResolveSinceUtc(
+                providerSettings.Provider,
+                lastRunByProvider,
+                now,
+                maxDiscussionAgeDays);
+            providerSettings.SincePublishedAt = sinceUtc;
+            Console.WriteLine(
+                $"{providerSettings.Name}: importing discussions published since {sinceUtc:yyyy-MM-dd HH:mm} UTC.");
+
             try
             {
                 var provider = ExternalDiscussionProviderFactory.Create(http, providerSettings);
                 var fetchResult = await provider.FetchAsync(ct);
-                var sourceDiscussions = fetchResult.Discussions;
 
-                if (detectRemovals && knownKeys is { Count: > 0 })
-                {
-                    var knownForProvider = ImportDiscussionKeys.KnownExternalIdsForProvider(knownKeys, providerSettings.Provider).ToList();
-                    var removals = RemovedDiscussionDetector.BuildRemovals(
-                        providerSettings,
-                        fetchResult.SeenExternalIds,
-                        knownKeys,
-                        now);
-
-                    if (removals.Count > 0)
-                    {
-                        removalDtos.AddRange(removals);
-                        Console.WriteLine($"{provider.Name}: detected {removals.Count} removed discussion(s).");
-                    }
-                    else if (knownForProvider.Count > 0
-                             && !RemovedDiscussionDetector.ShouldDetectRemovals(
-                                 fetchResult.SeenExternalIds.Count,
-                                 knownForProvider.Count))
-                    {
-                        Console.WriteLine(
-                            $"{provider.Name}: skipped removal detection (seen {fetchResult.SeenExternalIds.Count} vs {knownForProvider.Count} known).");
-                    }
-                }
-
-                var mappedBeforeFreshness = sourceDiscussions
+                var mappedBeforeFreshness = fetchResult.Discussions
                     .Select(d => DiscussionMapper.ToImportDto(d, providerSettings, now))
                     .Where(d => d is not null)
                     .Cast<ImportExternalDiscussionDto>()
                     .ToList();
                 var mapped = mappedBeforeFreshness
-                    .Where(d => IsFresh(d, minPublishedAt))
+                    .Where(d => IsSinceLastImport(d, sinceUtc))
                     .ToList();
                 var skippedOld = mappedBeforeFreshness.Count - mapped.Count;
 
@@ -92,9 +86,34 @@ public sealed class ExternalDiscussionImportRunner(
                     skippedExisting = before - mapped.Count;
                 }
 
-                importDtos.AddRange(mapped);
+                var deduped = mapped
+                    .GroupBy(d => $"{d.Source.Provider}:{d.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+
                 Console.WriteLine(
-                    $"{provider.Name}: fetched {sourceDiscussions.Count}, seen {fetchResult.SeenExternalIds.Count}, mapped {mapped.Count}, skipped_old={skippedOld}, skipped_existing={skippedExisting}.");
+                    $"{provider.Name}: fetched {fetchResult.Discussions.Count}, seen {fetchResult.SeenExternalIds.Count}, mapped {deduped.Count}, skipped_old={skippedOld}, skipped_existing={skippedExisting}.");
+
+                if (dryRun)
+                    continue;
+
+                if (deduped.Count > 0)
+                {
+                    var batchSize = Math.Max(1, settings.KinshoutApi.BatchSize);
+                    foreach (var batch in deduped.Chunk(batchSize))
+                    {
+                        var response = await importClient.ImportDiscussionsAsync(batch, ct);
+                        totals = totals with
+                        {
+                            Created = totals.Created + response.Created,
+                            Updated = totals.Updated + response.Updated,
+                            Unchanged = totals.Unchanged + response.Unchanged,
+                            Skipped = totals.Skipped + response.Skipped,
+                        };
+                    }
+                }
+
+                await importClient.RecordDiscussionImportRunAsync(providerSettings.Provider, now, ct);
             }
             catch (Exception ex)
             {
@@ -102,57 +121,16 @@ public sealed class ExternalDiscussionImportRunner(
             }
         }
 
-        var deduped = importDtos
-            .GroupBy(d => $"{d.Source.Provider}:{d.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
-
-        var dedupedRemovals = removalDtos
-            .GroupBy(d => $"{d.Source.Provider}:{d.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
-
-        var payload = deduped
-            .Concat(dedupedRemovals)
-            .GroupBy(d => $"{d.Source.Provider}:{d.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.FirstOrDefault(d => d.Status is "removed" or "inactive") ?? g.First())
-            .ToList();
-
-        Console.WriteLine(
-            $"Total mapped discussions: {importDtos.Count}; after dedupe: {deduped.Count}; removals: {dedupedRemovals.Count}; payload: {payload.Count}.");
-
         if (dryRun)
         {
             Console.WriteLine("Dry run enabled; not posting discussions to Kinshout.");
             return;
         }
 
-        if (payload.Count == 0)
-        {
-            Console.WriteLine("Nothing to import.");
-            return;
-        }
-
-        var importClient = new KinshoutImportClient(http, settings.KinshoutApi);
-        var batchSize = Math.Max(1, settings.KinshoutApi.BatchSize);
-        var totals = new ImportExternalDiscussionsResponseDto(0, 0, 0, 0);
-
-        foreach (var batch in payload.Chunk(batchSize))
-        {
-            var response = await importClient.ImportDiscussionsAsync(batch, ct);
-            totals = totals with
-            {
-                Created = totals.Created + response.Created,
-                Updated = totals.Updated + response.Updated,
-                Unchanged = totals.Unchanged + response.Unchanged,
-                Skipped = totals.Skipped + response.Skipped,
-            };
-        }
-
         Console.WriteLine(
             $"Discussion import complete. created={totals.Created}, updated={totals.Updated}, unchanged={totals.Unchanged}, skipped={totals.Skipped}");
     }
 
-    private static bool IsFresh(ImportExternalDiscussionDto discussion, DateTime minPublishedAt) =>
-        discussion.PublishedAt is null || discussion.PublishedAt.Value.ToUniversalTime() >= minPublishedAt;
+    private static bool IsSinceLastImport(ImportExternalDiscussionDto discussion, DateTime sinceUtc) =>
+        discussion.PublishedAt is null || discussion.PublishedAt.Value.ToUniversalTime() >= sinceUtc;
 }

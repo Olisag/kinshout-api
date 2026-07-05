@@ -40,6 +40,14 @@ public static partial class SettingsLoader
                 headers[name] = Expand(value) ?? value;
             provider.Headers = headers;
         }
+
+        foreach (var provider in settings.DiscussionProviders)
+        {
+            provider.ApifyToken = Expand(provider.ApifyToken);
+            provider.ApifyActorId = Expand(provider.ApifyActorId);
+            provider.RecentUrl = Expand(provider.RecentUrl);
+            provider.PopularUrl = Expand(provider.PopularUrl);
+        }
     }
 
     private static string? Expand(string? value)
@@ -65,6 +73,8 @@ public static partial class SettingsLoader
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_KNOWN_ADVERTS_PATH"), value => settings.KinshoutApi.KnownAdvertsPath = value);
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_IMPORT_DISCUSSIONS_PATH"), value => settings.KinshoutApi.ImportDiscussionsPath = value);
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_KNOWN_DISCUSSIONS_PATH"), value => settings.KinshoutApi.KnownDiscussionsPath = value);
+        Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_DISCUSSION_IMPORT_STATE_PATH"), value => settings.KinshoutApi.DiscussionImportStatePath = value);
+        Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_DISCUSSION_IMPORT_RUNS_PATH"), value => settings.KinshoutApi.DiscussionImportRunsPath = value);
         Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_BATCH_SIZE"), value =>
         {
             if (int.TryParse(value, out var batchSize))
@@ -75,9 +85,20 @@ public static partial class SettingsLoader
             if (int.TryParse(value, out var maxAgeDays))
                 settings.Schedule.MaxAdvertAgeDays = maxAgeDays;
         });
+        Override(Environment.GetEnvironmentVariable("KINSHOUT_IMPORTER_MAX_DISCUSSION_AGE_DAYS"), value =>
+        {
+            if (int.TryParse(value, out var maxAgeDays))
+                settings.Schedule.MaxDiscussionAgeDays = maxAgeDays;
+        });
         Override(Environment.GetEnvironmentVariable("APIFY_TOKEN"), value =>
         {
             foreach (var provider in settings.Providers)
+            {
+                if (string.IsNullOrWhiteSpace(provider.ApifyToken))
+                    provider.ApifyToken = value;
+            }
+
+            foreach (var provider in settings.DiscussionProviders)
             {
                 if (string.IsNullOrWhiteSpace(provider.ApifyToken))
                     provider.ApifyToken = value;

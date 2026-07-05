@@ -112,6 +112,52 @@ public class ImportsController(
         return Ok(new ImportKnownDiscussionsResponseDto(discussions));
     }
 
+    /// <summary>
+    /// Last successful discussion import run per provider (incremental weekly fetch helper).
+    /// </summary>
+    [HttpGet("discussion-import-state")]
+    [ProducesResponseType(typeof(DiscussionImportStateResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<DiscussionImportStateResponseDto>> GetDiscussionImportState(CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        var providers = await discussionImports.GetDiscussionImportStateAsync(ct);
+        return Ok(new DiscussionImportStateResponseDto(providers));
+    }
+
+    /// <summary>
+    /// Record a completed discussion import run for a provider.
+    /// </summary>
+    [HttpPost("discussion-import-runs")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RecordDiscussionImportRun(
+        [FromBody] RecordDiscussionImportRunRequestDto request,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        if (string.IsNullOrWhiteSpace(request.Provider))
+            return BadRequest(new { error = "provider requis." });
+
+        try
+        {
+            await discussionImports.RecordDiscussionImportRunAsync(
+                request.Provider,
+                request.RunAt ?? DateTime.UtcNow,
+                ct);
+            return NoContent();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     private bool IsAuthorized()
     {
         var configured = importOptions.Value.SecretKey;

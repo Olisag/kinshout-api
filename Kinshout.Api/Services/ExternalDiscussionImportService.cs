@@ -12,6 +12,10 @@ public interface IExternalDiscussionImportService
         CancellationToken ct = default);
 
     Task<IReadOnlyList<ImportKnownDiscussionKeyDto>> GetKnownDiscussionKeysAsync(CancellationToken ct = default);
+
+    Task<IReadOnlyList<DiscussionImportStateDto>> GetDiscussionImportStateAsync(CancellationToken ct = default);
+
+    Task RecordDiscussionImportRunAsync(string provider, DateTime runAtUtc, CancellationToken ct = default);
 }
 
 public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDiscussionImportService
@@ -65,6 +69,64 @@ public class ExternalDiscussionImportService(KinshoutDbContext db) : IExternalDi
             .Select(d => new ImportKnownDiscussionKeyDto(d.SourceProvider!, d.SourceExternalId!))
             .Distinct()
             .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<DiscussionImportStateDto>> GetDiscussionImportStateAsync(CancellationToken ct = default)
+    {
+        const string importKind = "discussion";
+
+        var watermarks = await db.ImportWatermarks
+            .AsNoTracking()
+            .Where(w => w.ImportKind == importKind)
+            .Select(w => new DiscussionImportStateDto(w.Provider, w.LastRunAtUtc))
+            .ToListAsync(ct);
+
+        var fromDiscussions = await db.Discussions
+            .AsNoTracking()
+            .Where(d => d.SourceProvider != null
+                && d.SourceExternalId != null
+                && d.SourceProvider != DiscussionSourceProvider.Kinshout)
+            .GroupBy(d => d.SourceProvider!)
+            .Select(g => new DiscussionImportStateDto(
+                g.Key,
+                g.Max(d => d.SourceLastSeenAt ?? d.SourceImportedAt ?? d.CreatedAt)))
+            .ToListAsync(ct);
+
+        return watermarks
+            .Concat(fromDiscussions)
+            .GroupBy(s => s.Provider, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new DiscussionImportStateDto(
+                g.Key,
+                g.Max(s => s.LastRunAtUtc)))
+            .OrderBy(s => s.Provider, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task RecordDiscussionImportRunAsync(string provider, DateTime runAtUtc, CancellationToken ct = default)
+    {
+        var normalized = DiscussionSourceProvider.Normalize(provider);
+        if (string.IsNullOrWhiteSpace(normalized))
+            throw new ArgumentException("provider requis.");
+
+        var runAt = runAtUtc.ToUniversalTime();
+        var existing = await db.ImportWatermarks
+            .FirstOrDefaultAsync(w => w.ImportKind == "discussion" && w.Provider == normalized, ct);
+
+        if (existing is null)
+        {
+            db.ImportWatermarks.Add(new ImportWatermark
+            {
+                ImportKind = "discussion",
+                Provider = normalized,
+                LastRunAtUtc = runAt,
+            });
+        }
+        else
+        {
+            existing.LastRunAtUtc = runAt;
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     private enum UpsertOutcome { Created, Updated, Unchanged, Skipped }

@@ -52,6 +52,13 @@ public sealed record ImportKnownDiscussionKeyDto(
 public sealed record ImportKnownDiscussionsResponseDto(
     [property: JsonPropertyName("discussions")] IReadOnlyList<ImportKnownDiscussionKeyDto> Discussions);
 
+public sealed record ImportDiscussionImportStateDto(
+    [property: JsonPropertyName("provider")] string Provider,
+    [property: JsonPropertyName("lastRunAtUtc")] DateTime LastRunAtUtc);
+
+public sealed record ImportDiscussionImportStateResponseDto(
+    [property: JsonPropertyName("providers")] IReadOnlyList<ImportDiscussionImportStateDto> Providers);
+
 public sealed record ImportExternalAdvertDto(
     [property: JsonPropertyName("source")] ImportExternalAdvertSourceDto Source,
     [property: JsonPropertyName("category")] string Category,

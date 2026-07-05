@@ -250,6 +250,12 @@ public record ImportKnownDiscussionKeyDto(string Provider, string ExternalId);
 
 public record ImportKnownDiscussionsResponseDto(IReadOnlyList<ImportKnownDiscussionKeyDto> Discussions);
 
+public record DiscussionImportStateDto(string Provider, DateTime LastRunAtUtc);
+
+public record DiscussionImportStateResponseDto(IReadOnlyList<DiscussionImportStateDto> Providers);
+
+public record RecordDiscussionImportRunRequestDto(string Provider, DateTime? RunAt = null);
+
 public record CategoryDto(
     Guid Id,
     string Slug,

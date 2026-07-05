@@ -29,7 +29,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var rawCount = doc.RootElement.GetArrayLength();
         var filteredOut = 0;
         var minEngagement = ResolveMinEngagement();
-        var minPostedAt = DateTime.UtcNow.AddDays(-ResolveMaxAgeDays());
+        var minPostedAt = ResolveMinPostedAt();
         var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 50;
         var kept = 0;
 
@@ -78,8 +78,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
 
     private object BuildInput()
     {
-        var query = settings.SearchQueries.FirstOrDefault(q => !string.IsNullOrWhiteSpace(q))
-            ?? $"Kinshasa lang:fr min_faves:{Math.Max(5, ResolveMinEngagement() / 4)}";
+        var query = BuildQuery();
         var maxTweets = settings.ResultsLimit > 0 ? settings.ResultsLimit : 50;
         var sort = string.IsNullOrWhiteSpace(settings.RecentUrl) ? "Top" : settings.RecentUrl.Trim();
 
@@ -89,6 +88,20 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             sort,
             maxTweets,
         };
+    }
+
+    private string BuildQuery()
+    {
+        var query = settings.SearchQueries.FirstOrDefault(q => !string.IsNullOrWhiteSpace(q))
+            ?? $"Kinshasa lang:fr min_faves:{Math.Max(5, ResolveMinEngagement() / 4)}";
+
+        if (settings.SincePublishedAt is { } since
+            && !query.Contains("since:", StringComparison.OrdinalIgnoreCase))
+        {
+            query = $"{query} since:{since.ToUniversalTime():yyyy-MM-dd}";
+        }
+
+        return query;
     }
 
     private SourceFeedDiscussion? MapTweet(JsonElement item, int minEngagement, DateTime minPostedAt)
@@ -169,7 +182,11 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         return HtmlScrapeHelpers.ParseLooseDate(value.GetString());
     }
 
-    private int ResolveMaxAgeDays() => settings.MaxAdvertAgeDays > 0 ? settings.MaxAdvertAgeDays : 30;
+    private int ResolveMaxAgeDays() => settings.MaxAdvertAgeDays > 0 ? settings.MaxAdvertAgeDays : 7;
+
+    private DateTime ResolveMinPostedAt() =>
+        settings.SincePublishedAt?.ToUniversalTime()
+        ?? DateTime.UtcNow.AddDays(-ResolveMaxAgeDays());
     private int ResolveMinEngagement() => settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 20;
 
     private static string? ReadString(JsonElement element, string name) =>

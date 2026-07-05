@@ -237,6 +237,7 @@ Listings with `publishedAt` older than this window are skipped before posting to
 - Runs every **Monday** at **03:00 Kinshasa** (`02:00 UTC`)
 - Also runnable manually via **Actions → External discussion importer (dev, weekly Monday) → Run workflow**
 - Targets `https://kinshout-api-dev.azurewebsites.net` with `--once --discussions`
+- Each run only fetches posts **published since the last successful import** for that provider (7-day window on the first run)
 
 Add these repository secrets on `kinshout-api`:
 

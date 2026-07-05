@@ -23,6 +23,7 @@ public static class DbSchemaPatcher
         await EnsureDiscussionEngagementSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
         if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
     }
@@ -76,6 +77,7 @@ public static class DbSchemaPatcher
 
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
         if (await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
 
@@ -331,6 +333,48 @@ public static class DbSchemaPatcher
                   """;
             await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
         }
+    }
+
+    private static async Task EnsureImportWatermarkSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (await TableExistsAsync(connection, sqlServer, "ImportWatermarks", ct))
+            return;
+
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE ImportWatermarks (
+                    Id uniqueidentifier NOT NULL,
+                    ImportKind nvarchar(32) NOT NULL,
+                    Provider nvarchar(64) NOT NULL,
+                    LastRunAtUtc datetime2 NOT NULL,
+                    CONSTRAINT PK_ImportWatermarks PRIMARY KEY (Id)
+                )
+                """, ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE ImportWatermarks (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    ImportKind TEXT NOT NULL,
+                    Provider TEXT NOT NULL,
+                    LastRunAtUtc TEXT NOT NULL
+                )
+                """, ct);
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE UNIQUE INDEX IX_ImportWatermarks_ImportKind_Provider
+            ON ImportWatermarks (ImportKind, Provider)
+            """, ct);
     }
 
     private static async Task EnsureAdvertJsonColumnDefaultsAsync(
