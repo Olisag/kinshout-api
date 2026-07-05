@@ -19,6 +19,7 @@ public interface IExternalDiscussionImportService
 
     Task<RetransformExternalDiscussionsResponseDto> RetransformAllAsync(
         bool force = false,
+        int limit = 0,
         CancellationToken ct = default);
 }
 
@@ -67,21 +68,28 @@ public class ExternalDiscussionImportService(
 
     public async Task<RetransformExternalDiscussionsResponseDto> RetransformAllAsync(
         bool force = false,
+        int limit = 0,
         CancellationToken ct = default)
     {
-        var discussions = await db.Discussions
+        var pendingQuery = db.Discussions
             .Where(d => d.SourceProvider != null
                 && d.SourceExternalId != null
                 && d.SourceProvider != DiscussionSourceProvider.Kinshout)
-            .ToListAsync(ct);
+            .OrderBy(d => d.CreatedAt);
+
+        var candidates = await pendingQuery.ToListAsync(ct);
 
         var transformed = 0;
         var unchanged = 0;
         var skipped = 0;
         var failed = 0;
+        var processed = 0;
 
-        foreach (var discussion in discussions)
+        foreach (var discussion in candidates)
         {
+            if (limit > 0 && processed >= limit)
+                break;
+
             try
             {
                 var raw = discussion.SourceRawBody?.Trim() ?? discussion.Body.Trim();
@@ -100,6 +108,8 @@ public class ExternalDiscussionImportService(
                     continue;
                 }
 
+                processed++;
+
                 var result = await transform.TransformAsync(
                     raw,
                     discussion.SourceOriginalAuthor,
@@ -110,25 +120,50 @@ public class ExternalDiscussionImportService(
                 discussion.Title = result.Title;
                 discussion.Body = result.Body;
                 discussion.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
                 transformed++;
             }
             catch
             {
                 failed++;
+                processed++;
                 db.ChangeTracker.Clear();
             }
         }
 
-        if (transformed > 0)
-            await db.SaveChangesAsync(ct);
+        var remaining = await CountRemainingRetransformsAsync(force, ct);
+        return new RetransformExternalDiscussionsResponseDto(transformed, unchanged, skipped, failed, remaining);
+    }
 
-        return new RetransformExternalDiscussionsResponseDto(transformed, unchanged, skipped, failed);
+    private async Task<int> CountRemainingRetransformsAsync(bool force, CancellationToken ct)
+    {
+        var discussions = await db.Discussions
+            .AsNoTracking()
+            .Where(d => d.SourceProvider != null
+                && d.SourceExternalId != null
+                && d.SourceProvider != DiscussionSourceProvider.Kinshout)
+            .Select(d => new { d.SourceRawBody, d.Title, d.Body })
+            .ToListAsync(ct);
+
+        return discussions.Count(d =>
+        {
+            var raw = d.SourceRawBody?.Trim() ?? d.Body.Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            if (force)
+                return string.IsNullOrWhiteSpace(d.SourceRawBody) || LooksLikeRawTitle(d.Title);
+
+            return string.IsNullOrWhiteSpace(d.SourceRawBody)
+                || LooksLikeRawTitle(d.Title);
+        });
     }
 
     /// <summary>Heuristic: title still looks like a raw headline (emoji, hashtag, ALL CAPS burst).</summary>
-    private static bool LooksLikeRawPost(Discussion discussion)
+    private static bool LooksLikeRawPost(Discussion discussion) => LooksLikeRawTitle(discussion.Title);
+
+    private static bool LooksLikeRawTitle(string title)
     {
-        var title = discussion.Title;
         if (title.Contains('#')
             || title.Contains("🔴", StringComparison.Ordinal)
             || title.Contains("🚨", StringComparison.Ordinal))

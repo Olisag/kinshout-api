@@ -8,6 +8,10 @@ on:
         description: Re-transform even if already formatted
         type: boolean
         default: true
+      batch_size:
+        description: Discussions per API call
+        type: number
+        default: 15
 
 jobs:
   retransform:
@@ -17,11 +21,41 @@ jobs:
       contents: read
 
     steps:
-      - name: Retransform discussions on dev API
+      - name: Retransform discussions on dev API (batched)
         env:
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          FORCE: ${{ inputs.force }}
         run: |
-          curl -sfS -X POST \
-            "https://kinshout-api-dev.azurewebsites.net/api/imports/discussions/retransform?force=${{ inputs.force }}" \
-            -H "X-Kinshout-Import-Key: ${KINSHOUT_IMPORTER_IMPORT_KEY}" \
-            -H "Content-Type: application/json"
+          set -euo pipefail
+          total_transformed=0
+          total_failed=0
+          round=0
+
+          while true; do
+            round=$((round + 1))
+            echo "Batch ${round}..."
+            response=$(curl -sfS -X POST \
+              "https://kinshout-api-dev.azurewebsites.net/api/imports/discussions/retransform?force=${FORCE}&limit=${BATCH_SIZE}" \
+              -H "X-Kinshout-Import-Key: ${KINSHOUT_IMPORTER_IMPORT_KEY}" \
+              -H "Content-Type: application/json")
+
+            echo "$response"
+            transformed=$(echo "$response" | jq -r '.transformed')
+            remaining=$(echo "$response" | jq -r '.remaining')
+            failed=$(echo "$response" | jq -r '.failed')
+            total_transformed=$((total_transformed + transformed))
+            total_failed=$((total_failed + failed))
+
+            if [ "$remaining" -eq 0 ]; then
+              echo "Done. transformed=${total_transformed} failed=${total_failed}"
+              break
+            fi
+
+            if [ "$transformed" -eq 0 ] && [ "$failed" -eq 0 ]; then
+              echo "No progress in batch ${round}; remaining=${remaining}"
+              exit 1
+            fi
+
+            sleep 2
+          done

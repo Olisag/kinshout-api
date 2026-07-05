@@ -260,7 +260,8 @@ public record RetransformExternalDiscussionsResponseDto(
     int Transformed,
     int Unchanged,
     int Skipped,
-    int Failed);
+    int Failed,
+    int Remaining);
 
 public record CategoryDto(
     Guid Id,

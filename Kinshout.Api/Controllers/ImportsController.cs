@@ -166,12 +166,13 @@ public class ImportsController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<RetransformExternalDiscussionsResponseDto>> RetransformDiscussions(
         [FromQuery] bool force = false,
+        [FromQuery] int limit = 15,
         CancellationToken ct = default)
     {
         if (!IsAuthorized())
             return Unauthorized(new { error = "Clé d'import invalide." });
 
-        return Ok(await discussionImports.RetransformAllAsync(force, ct));
+        return Ok(await discussionImports.RetransformAllAsync(force, limit, ct));
     }
 
     private bool IsAuthorized()
