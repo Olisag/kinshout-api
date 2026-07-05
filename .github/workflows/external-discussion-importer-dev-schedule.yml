@@ -1,13 +1,13 @@
-# Advert import into dev every ~15 days at 03:00 Kinshasa (02:00 UTC on the 1st and 16th).
-name: External advert importer (dev, every 15 days)
+# Discussion import into dev every Monday at 03:00 Kinshasa (02:00 UTC).
+name: External discussion importer (dev, weekly Monday)
 
 on:
   schedule:
-    - cron: "0 2 1,16 * *"
+    - cron: "0 2 * * 1"
   workflow_dispatch:
 
 concurrency:
-  group: external-advert-importer-dev
+  group: external-discussion-importer-dev
   cancel-in-progress: false
 
 jobs:
@@ -29,10 +29,10 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Run external advert import (dev)
+      - name: Run external discussion import (dev)
         env:
           KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
           KINSHOUT_IMPORTER_BATCH_SIZE: 25
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-        run: dotnet run -- --once --adverts
+        run: dotnet run -- --once --discussions

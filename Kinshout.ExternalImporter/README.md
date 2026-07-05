@@ -226,11 +226,17 @@ Listings with `publishedAt` older than this window are skipped before posting to
 
 ### GitHub Actions (dev)
 
-Workflow: `.github/workflows/external-importer-dev-schedule.yml`
+**Adverts** — `.github/workflows/external-importer-dev-schedule.yml`
 
 - Runs every **~15 days** at **03:00 Kinshasa** (`02:00 UTC` on the **1st and 16th** of each month)
-- Also runnable manually via **Actions → External importer (dev, every 15 days) → Run workflow**
-- Targets `https://kinshout-api-dev.azurewebsites.net` with `--once` and `skipExisting`
+- Also runnable manually via **Actions → External advert importer (dev, every 15 days) → Run workflow**
+- Targets `https://kinshout-api-dev.azurewebsites.net` with `--once --adverts`
+
+**Discussions** — `.github/workflows/external-discussion-importer-dev-schedule.yml`
+
+- Runs every **Monday** at **03:00 Kinshasa** (`02:00 UTC`)
+- Also runnable manually via **Actions → External discussion importer (dev, weekly Monday) → Run workflow**
+- Targets `https://kinshout-api-dev.azurewebsites.net` with `--once --discussions`
 
 Add these repository secrets on `kinshout-api`:
 
