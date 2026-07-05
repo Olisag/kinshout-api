@@ -17,6 +17,19 @@ internal static class TestDbFactory
         return new KinshoutDbContext(options);
     }
 
+    public static async Task<KinshoutDbContext> CreateSqliteAsync()
+    {
+        var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<KinshoutDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var db = new KinshoutDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await DbSchemaPatcher.ApplyAsync(db);
+        return db;
+    }
+
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
 
     public static async Task<(User User, Category Category)> SeedUserAndCategoryAsync(

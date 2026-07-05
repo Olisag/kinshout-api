@@ -428,13 +428,13 @@ public static class DbSchemaPatcher
     {
         await db.Database.ExecuteSqlRawAsync(
             """
-            UPDATE Adverts SET DetailsJson = '{}' WHERE DetailsJson IS NULL
+            UPDATE Adverts SET DetailsJson = '{{}}' WHERE DetailsJson IS NULL
             """,
             ct);
 
         await db.Database.ExecuteSqlRawAsync(
             """
-            UPDATE Adverts SET ContactJson = '{}' WHERE ContactJson IS NULL
+            UPDATE Adverts SET ContactJson = '{{}}' WHERE ContactJson IS NULL
             """,
             ct);
 

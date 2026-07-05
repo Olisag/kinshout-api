@@ -165,4 +165,39 @@ public class DiscussionCategoriesListTests
         Assert.Equal("sport", paged.Items[0].Slug);
         Assert.Equal("autres", paged.Items[^1].Slug);
     }
+
+    [Fact]
+    public async Task ListCategories_TranslatesOrderByOnRelationalProvider()
+    {
+        await using var db = await TestDbFactory.CreateSqliteAsync();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var sport = new Category
+        {
+            Slug = "sport",
+            Label = "Sport & foot",
+            Icon = "⚽",
+            IsAiGenerated = true,
+            IsDiscussionTopic = true,
+        };
+        db.Categories.Add(sport);
+        await db.SaveChangesAsync();
+
+        db.Discussions.Add(new Discussion
+        {
+            UserId = user.Id,
+            CategoryId = sport.Id,
+            TopicSlug = sport.Slug,
+            Title = "Léopards",
+            Body = "Comment accueillez-vous le retour ?",
+        });
+        await db.SaveChangesAsync();
+
+        var openAi = Mock.Of<IOpenAiService>();
+        var cache = TestDbFactory.CreateMemoryCache();
+        var controller = new DiscussionsController(db, cache, openAi, Mock.Of<IDiscussionService>(), Mock.Of<ILikedDiscussionService>());
+        var result = await controller.ListCategories();
+
+        Assert.IsType<OkObjectResult>(result.Result);
+    }
 }

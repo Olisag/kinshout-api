@@ -308,7 +308,7 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
                 where c.Slug != Category.DiscussionSlug
                 where c.IsAiGenerated
                 where parentSlugs.Contains(c.Slug)
-                orderby CategoryBrowseOrdering.AutresLastKey(c.Slug), p.AdvertCount descending, p.ViewCount descending, p.LikeCount descending, c.Label
+                orderby (c.Slug == CategoryBrowseOrdering.AutresSlug ? 1 : 0), p.AdvertCount descending, p.ViewCount descending, p.LikeCount descending, c.Label
                 select new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated);
 
             var total = await query.CountAsync(ct);
@@ -516,7 +516,7 @@ public class DiscussionsController(
                 from c in db.Categories.AsNoTracking()
                 join p in popularity on c.Id equals p.CategoryId
                 where c.IsDiscussionTopic
-                orderby CategoryBrowseOrdering.AutresLastKey(c.Slug), p.DiscussionCount descending, p.ViewCount descending, p.LikeCount descending, c.Label
+                orderby (c.Slug == CategoryBrowseOrdering.AutresSlug ? 1 : 0), p.DiscussionCount descending, p.ViewCount descending, p.LikeCount descending, c.Label
                 select new CategoryDto(c.Id, c.Slug, c.Label, c.Icon, c.IsAiGenerated);
 
             var total = await query.CountAsync(ct);

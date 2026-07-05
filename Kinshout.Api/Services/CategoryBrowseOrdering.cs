@@ -2,7 +2,9 @@ namespace Kinshout.Api.Services;
 
 internal static class CategoryBrowseOrdering
 {
-    /// <summary>0 = normal categories first, 1 = autres always last.</summary>
-    public static int AutresLastKey(string slug) =>
-        string.Equals(slug, "autres", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+    public const string AutresSlug = "autres";
+
+    /// <summary>Sort key for EF queries — autres last. Do not use static helpers; EF cannot translate them.</summary>
+    public static int AutresLastSortKey(string slug) =>
+        string.Equals(slug, AutresSlug, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
 }
