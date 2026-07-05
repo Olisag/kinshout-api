@@ -78,7 +78,7 @@ public class AdvertSavedStateTests
         db.Adverts.Add(advert);
         await db.SaveChangesAsync();
 
-        var savedService = new SavedAdvertService(db);
+        var savedService = new SavedAdvertService(db, TestDbFactory.CreateAdvertDtoMapper());
         await savedService.SaveAsync(user.Id, advert.Id);
 
         var saved = await savedService.ListSavedAsync(user.Id);
@@ -92,7 +92,7 @@ public class AdvertSavedStateTests
         moderation.Setup(m => m.EnsureTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        return new AdvertService(db, Mock.Of<IOpenAiService>(), moderation.Object, Mock.Of<IUploadStorage>());
+        return new AdvertService(db, Mock.Of<IOpenAiService>(), moderation.Object, Mock.Of<IUploadStorage>(), TestDbFactory.CreateAdvertDtoMapper());
     }
 
     private static Advert CreateAdvert(User user, Category category, string title) =>

@@ -1,8 +1,12 @@
+using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
+using Moq;
 
 namespace Kinshout.Api.Tests;
 
@@ -31,6 +35,11 @@ internal static class TestDbFactory
     }
 
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
+
+    public static IAdvertDtoMapper CreateAdvertDtoMapper(string baseUrl = "https://api.test") =>
+        new AdvertDtoMapper(new UploadUrlResolver(
+            Options.Create(new UploadStorageSettings { PublicBaseUrl = baseUrl }),
+            Mock.Of<IHttpContextAccessor>()));
 
     public static async Task<(User User, Category Category)> SeedUserAndCategoryAsync(
         KinshoutDbContext db,

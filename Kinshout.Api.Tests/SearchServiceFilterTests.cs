@@ -28,7 +28,7 @@ public class SearchServiceFilterTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([offre.Id, demande.Id], [], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "all", Intent: SearchIntentHelper.Offre));
 
         Assert.Single(result.Items!);
@@ -56,7 +56,7 @@ public class SearchServiceFilterTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([offre.Id, demande.Id], [], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "all", Intent: SearchIntentHelper.Demande));
 
         Assert.Single(result.Items!);
@@ -86,7 +86,7 @@ public class SearchServiceFilterTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([offre.Id, discussionAdvert.Id], [discussion.Id], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("quartier", "all", Intent: SearchIntentHelper.Discussion));
 
         Assert.Equal(2, result.Items!.Count);

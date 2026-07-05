@@ -24,7 +24,7 @@ public class SearchServicePaginationTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis(advertIds, [], "5 annonces"));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
 
         var page1 = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", Page: 1, PageSize: 2));
         Assert.Equal(2, page1.Adverts.Count);
@@ -73,7 +73,7 @@ public class SearchServicePaginationTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis(advertIds, [], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("test", "annonces", Page: 1, PageSize: 999));
 
         Assert.Equal(50, result.Pagination.PageSize);
@@ -92,7 +92,7 @@ public class SearchServicePaginationTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([], [], ""));
 
-        return new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        return new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
     }
 
     private static async Task<List<Guid>> SeedAdvertsAsync(

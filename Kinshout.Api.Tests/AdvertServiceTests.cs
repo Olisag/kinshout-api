@@ -28,7 +28,7 @@ public class AdvertServiceTests
         var moderationMock = moderation ?? CreatePassThroughModeration();
         var uploadStorage = storage ?? CreateStorage();
 
-        return new AdvertService(db, openAi.Object, moderationMock.Object, uploadStorage);
+        return new AdvertService(db, openAi.Object, moderationMock.Object, uploadStorage, TestDbFactory.CreateAdvertDtoMapper());
     }
 
     private static Mock<IAdvertModerationService> CreatePassThroughModeration()
@@ -147,7 +147,8 @@ public class AdvertServiceTests
 
         Assert.Equal("Appartement à Gombe", created.Title);
         Assert.Equal(2, created.ImageUrls.Count);
-        Assert.Equal("/uploads/cv.pdf", created.ResumeUrl);
+        Assert.StartsWith("https://api.test/uploads/images/", created.ImageUrls[0]);
+        Assert.Equal("https://api.test/uploads/cv.pdf", created.ResumeUrl);
         Assert.Equal("+243900000001", created.WhatsAppNumber);
         Assert.Equal("demande", created.Intent);
 

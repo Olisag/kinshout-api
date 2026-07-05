@@ -16,7 +16,7 @@ public interface ISearchService
         CancellationToken ct = default);
 }
 
-public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryCache cache) : ISearchService
+public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryCache cache, IAdvertDtoMapper advertDtos) : ISearchService
 {
     private const int DefaultPageSize = 20;
     private const int MaxPageSize = 50;
@@ -81,7 +81,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             viewerUserId,
             matchedDiscussions.Select(d => d.Id),
             ct);
-        var advertResults = AdvertService.ToDtos(matchedAdverts, savedIds);
+        var advertResults = advertDtos.ToDtos(matchedAdverts, savedIds);
         var discussionResults = matchedDiscussions
             .Select(d => ToDiscussionDto(d, likedDiscussionIds.Contains(d.Id)))
             .ToList();

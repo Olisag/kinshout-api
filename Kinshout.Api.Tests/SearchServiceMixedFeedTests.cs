@@ -33,7 +33,7 @@ public class SearchServiceMixedFeedTests
                 [hotDiscussion.Id],
                 ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("kinshasa", "all", PageSize: 10, Sort: ListSortHelper.Popular));
 
         Assert.NotNull(result.Items);
@@ -65,7 +65,7 @@ public class SearchServiceMixedFeedTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([advert.Id], [discussion.Id], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
 
         var page1 = await service.SearchAsync(new SearchRequestDto("kinshasa", "all", Page: 1, PageSize: 1));
         Assert.Single(page1.Items);

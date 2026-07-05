@@ -33,7 +33,7 @@ public class SavedAdvertServiceTests
         db.Adverts.Add(advert);
         await db.SaveChangesAsync();
 
-        var service = new SavedAdvertService(db);
+        var service = new SavedAdvertService(db, TestDbFactory.CreateAdvertDtoMapper());
         var savedDto = await service.SaveAsync(user.Id, advert.Id);
         var saved = await service.ListSavedAsync(user.Id);
 
@@ -67,7 +67,7 @@ public class SavedAdvertServiceTests
         db.Adverts.Add(advert);
         await db.SaveChangesAsync();
 
-        var service = new SavedAdvertService(db);
+        var service = new SavedAdvertService(db, TestDbFactory.CreateAdvertDtoMapper());
         await service.SaveAsync(user.Id, advert.Id);
         var unsavedDto = await service.UnsaveAsync(user.Id, advert.Id);
 

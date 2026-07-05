@@ -59,6 +59,10 @@ public class UploadServiceTests : IDisposable
         var thumbPath = AdvertImageUrls.GetThumbnailPath(urls[0])!;
         var physicalThumb = Path.Combine(_root, "wwwroot", thumbPath.TrimStart('/'));
         Assert.True(File.Exists(physicalThumb));
+
+        var displayPath = AdvertImageUrls.GetDisplayPath(urls[0])!;
+        var physicalDisplay = Path.Combine(_root, "wwwroot", displayPath.TrimStart('/'));
+        Assert.True(File.Exists(physicalDisplay));
     }
 
     [Fact]

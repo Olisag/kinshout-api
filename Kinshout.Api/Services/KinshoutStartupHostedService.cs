@@ -39,6 +39,7 @@ public sealed class KinshoutStartupHostedService(
             await AiCategoryCatalog.SyncContentAsync(db, cache, ct);
 
             scope.ServiceProvider.GetRequiredService<IDiscussionTopicBackfillScheduler>().ScheduleBatchBackfill();
+            scope.ServiceProvider.GetRequiredService<IAdvertImageVariantBackfillScheduler>().ScheduleBackfill();
         }
         catch (Exception ex)
         {

@@ -78,6 +78,8 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
 builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
+builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();
+builder.Services.AddSingleton<IAdvertImageVariantBackfillScheduler, AdvertImageVariantBackfillScheduler>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();

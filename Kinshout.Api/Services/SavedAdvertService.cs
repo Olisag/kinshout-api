@@ -17,7 +17,7 @@ public interface ISavedAdvertService
     Task<IReadOnlyList<Guid>> ListSavedIdsAsync(Guid userId, CancellationToken ct = default);
 }
 
-public class SavedAdvertService(KinshoutDbContext db) : ISavedAdvertService
+public class SavedAdvertService(KinshoutDbContext db, IAdvertDtoMapper advertDtos) : ISavedAdvertService
 {
     public async Task<AdvertDto> SaveAsync(Guid userId, Guid advertId, CancellationToken ct = default)
     {
@@ -81,7 +81,7 @@ public class SavedAdvertService(KinshoutDbContext db) : ISavedAdvertService
             .ToListAsync(ct);
 
         return PagingHelper.Create(
-            AdvertService.ToDtos(items, items.Select(a => a.Id).ToHashSet()),
+            advertDtos.ToDtos(items, items.Select(a => a.Id).ToHashSet()),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -103,6 +103,6 @@ public class SavedAdvertService(KinshoutDbContext db) : ISavedAdvertService
             .FirstOrDefaultAsync(a => a.Id == advertId && a.IsPublished, ct)
             ?? throw new KeyNotFoundException("Annonce introuvable.");
 
-        return AdvertService.ToDto(advert, isSaved);
+        return advertDtos.ToDto(advert, isSaved, includeDisplayUrls: true);
     }
 }

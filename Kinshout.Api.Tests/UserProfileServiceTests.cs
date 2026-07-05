@@ -25,7 +25,7 @@ public class UserProfileServiceTests
         user.IsProfilePublic = false;
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db, CreateUploadUrlResolver());
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         var profile = await service.GetPublicProfileAsync(user.Id);
 
         Assert.Null(profile);
@@ -49,7 +49,7 @@ public class UserProfileServiceTests
         });
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db, CreateUploadUrlResolver());
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         var profile = await service.GetPublicProfileAsync(user.Id);
 
         Assert.NotNull(profile);
@@ -66,7 +66,7 @@ public class UserProfileServiceTests
         user.AvatarUrl = $"/uploads/avatars/{user.Id:N}/face.png";
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db, CreateUploadUrlResolver());
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         var profile = await service.GetPublicProfileAsync(user.Id);
 
         Assert.NotNull(profile);
@@ -81,7 +81,7 @@ public class UserProfileServiceTests
         user.IsProfilePublic = false;
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db, CreateUploadUrlResolver());
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             service.ListPublicAdvertsAsync(user.Id));
     }

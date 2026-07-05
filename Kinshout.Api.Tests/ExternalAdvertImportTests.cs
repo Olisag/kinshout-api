@@ -185,6 +185,6 @@ public class ExternalAdvertImportTests
         env.Setup(e => e.ContentRootPath).Returns(root);
         var storage = new LocalUploadStorage(env.Object, Mock.Of<ILogger<LocalUploadStorage>>());
 
-        return new AdvertService(db, Mock.Of<IOpenAiService>(), moderation.Object, storage);
+        return new AdvertService(db, Mock.Of<IOpenAiService>(), moderation.Object, storage, TestDbFactory.CreateAdvertDtoMapper());
     }
 }

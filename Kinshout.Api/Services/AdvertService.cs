@@ -32,7 +32,8 @@ public class AdvertService(
     KinshoutDbContext db,
     IOpenAiService openAi,
     IAdvertModerationService moderation,
-    IUploadStorage storage) : IAdvertService
+    IUploadStorage storage,
+    IAdvertDtoMapper advertDtos) : IAdvertService
 {
     private const int MaxImages = 10;
 
@@ -81,7 +82,7 @@ public class AdvertService(
 
         advert.Category = category;
         advert.User = user;
-        return ToDto(advert);
+        return advertDtos.ToDto(advert);
     }
 
     public async Task<AdvertDto> UpdateAsync(
@@ -135,7 +136,7 @@ public class AdvertService(
 
         advert.Category = category;
         advert.User = user;
-        return ToDto(advert);
+        return advertDtos.ToDto(advert);
     }
 
     public async Task<AdvertDto?> GetByIdAsync(Guid id, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -150,7 +151,7 @@ public class AdvertService(
 
         advert.ViewCount = await IncrementViewCountAsync(id, advert.ViewCount, ct);
         var isSaved = await IsSavedByUserAsync(db, viewerUserId, id, ct);
-        return ToDto(advert, isSaved);
+        return advertDtos.ToDto(advert, isSaved, includeDisplayUrls: true);
     }
 
     private async Task<int> IncrementViewCountAsync(Guid id, int currentCount, CancellationToken ct)
@@ -206,7 +207,7 @@ public class AdvertService(
             .ToListAsync(ct);
 
         var savedIds = await LoadSavedAdvertIdsAsync(db, viewerUserId, items.Select(a => a.Id), ct);
-        return PagingHelper.Create(ToDtos(items, savedIds), normalizedPage, normalizedPageSize, total);
+        return PagingHelper.Create(advertDtos.ToDtos(items, savedIds), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task<PagedResultDto<AdvertDto>> ListMineAsync(
@@ -230,7 +231,7 @@ public class AdvertService(
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
-        return PagingHelper.Create(items.Select(a => ToDto(a)).ToList(), normalizedPage, normalizedPageSize, total);
+        return PagingHelper.Create(items.Select(a => advertDtos.ToDto(a)).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default)
@@ -244,42 +245,6 @@ public class AdvertService(
         db.Adverts.Remove(advert);
         await db.SaveChangesAsync(ct);
     }
-
-    internal static AdvertDto ToDto(Advert advert, bool isSaved = false)
-    {
-        var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson ?? "[]") ?? [];
-        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson ?? "[]") ?? [];
-        var contact = AdvertSourceMapper.ToContactDto(advert);
-        var sortDate = AdvertSourceMapper.SortDate(advert);
-        return new AdvertDto(
-            advert.Id,
-            advert.Title,
-            advert.Description,
-            advert.Price,
-            advert.Location,
-            advert.Intent.ToString().ToLowerInvariant(),
-            advert.Category.Slug,
-            advert.Category.Label,
-            advert.Category.Icon,
-            imageUrls,
-            AdvertImageUrls.BuildListingUrls(imageUrls),
-            advert.ResumeUrl,
-            contact?.WhatsApp ?? advert.User?.WhatsAppNumber,
-            tags,
-            TimeHelpers.FormatRelative(sortDate),
-            advert.AiConfidence,
-            advert.AiSummary,
-            advert.ViewCount,
-            advert.LikeCount,
-            isSaved,
-            advert.IsExternal,
-            AdvertSourceMapper.ToSourceDto(advert),
-            AdvertSourceMapper.ToDetailsDto(advert),
-            contact);
-    }
-
-    internal static List<AdvertDto> ToDtos(IReadOnlyList<Advert> adverts, IReadOnlySet<Guid> savedIds) =>
-        adverts.Select(a => ToDto(a, savedIds.Contains(a.Id))).ToList();
 
     internal static async Task<HashSet<Guid>> LoadSavedAdvertIdsAsync(
         KinshoutDbContext db,
@@ -334,9 +299,11 @@ public class AdvertService(
         foreach (var url in imageUrls)
         {
             await TryDeleteUploadAsync(url, ct);
-            var thumb = AdvertImageUrls.GetThumbnailPath(url);
-            if (thumb is not null)
-                await TryDeleteUploadAsync(thumb, ct);
+            foreach (var variant in new[] { AdvertImageUrls.GetThumbnailPath(url), AdvertImageUrls.GetDisplayPath(url) })
+            {
+                if (variant is not null)
+                    await TryDeleteUploadAsync(variant, ct);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(advert.ResumeUrl))

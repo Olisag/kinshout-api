@@ -16,7 +16,7 @@ public interface IUserProfileService
         CancellationToken ct = default);
 }
 
-public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadUrls) : IUserProfileService
+public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadUrls, IAdvertDtoMapper advertDtos) : IUserProfileService
 {
     public async Task<PublicUserProfileDto?> GetPublicProfileAsync(Guid userId, CancellationToken ct = default)
     {
@@ -76,7 +76,7 @@ public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadU
             ct);
 
         return PagingHelper.Create(
-            AdvertService.ToDtos(items, savedIds),
+            advertDtos.ToDtos(items, savedIds),
             normalizedPage,
             normalizedPageSize,
             total);
