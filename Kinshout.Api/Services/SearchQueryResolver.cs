@@ -104,6 +104,11 @@ public static class SearchQueryResolver
             if (category.IsDiscussionTopic || category.Slug == Category.DiscussionSlug)
                 continue;
 
+            // Advert search SQL filters by CategoryId. We only want to match parent buckets here;
+            // fine-grained rent/sale subcategories are represented via `SubcategorySlug`.
+            if (!AiCategoryCatalog.IsParentBucket(category.Slug))
+                continue;
+
             var label = SearchTextNormalizer.Normalize(category.Label);
             var slug = SearchTextNormalizer.Normalize(category.Slug.Replace('_', ' '));
             if (normalized == label

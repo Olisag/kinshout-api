@@ -52,6 +52,9 @@ public class SearchQueryResolverTests
     private static List<Category> SampleAdvertCategories() =>
     [
         new() { Slug = "immobilier", Label = "Immobilier", Icon = "⌂", IsAiGenerated = true },
+        // Fine-grained subcategory-like categories might exist in DB (and share similar labels),
+        // but SearchQueryResolver should still resolve "appartement(s) à louer" to the parent bucket.
+        new() { Slug = "appartement_a_louer", Label = "Appartements à louer", Icon = "⌂", IsAiGenerated = true },
         new() { Slug = "vehicules", Label = "Véhicules", Icon = "🚗", IsAiGenerated = true },
         new() { Slug = "telephones", Label = "Téléphones & tablettes", Icon = "📱", IsAiGenerated = true },
     ];
