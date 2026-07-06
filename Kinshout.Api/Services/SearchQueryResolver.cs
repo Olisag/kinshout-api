@@ -31,6 +31,12 @@ public static class SearchQueryResolver
         "ngaba", "makala", "kasa vubu", "bumbu", "matete", "lemba", "binza",
     ];
 
+    private static readonly (string Token, string Label)[] CityTerms =
+    [
+        ("kinshasa", "Kinshasa"),
+        ("lubumbashi", "Lubumbashi"),
+    ];
+
     public static ParsedSearchQuery Parse(
         string query,
         IReadOnlyList<Category> advertCategories,
@@ -87,7 +93,7 @@ public static class SearchQueryResolver
         var tokens = textWithoutLocations
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (tokens.Length == 0)
-            return false;
+            return true;
 
         return tokens.All(token => token is "kinshasa" or "kin" or "rdc" or "congo");
     }
@@ -99,6 +105,9 @@ public static class SearchQueryResolver
 
     private static Category? TryMatchAdvertCategory(string normalized, IReadOnlyList<Category> categories)
     {
+        if (string.IsNullOrWhiteSpace(normalized))
+            return null;
+
         foreach (var category in categories)
         {
             if (category.IsDiscussionTopic || category.Slug == Category.DiscussionSlug)
@@ -243,6 +252,12 @@ public static class SearchQueryResolver
                 matches.Add(commune);
         }
 
+        foreach (var (token, label) in CityTerms)
+        {
+            if (normalized.Contains(token, StringComparison.Ordinal))
+                matches.Add(label);
+        }
+
         return matches
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(NormalizeLocationLabel)
@@ -257,6 +272,8 @@ public static class SearchQueryResolver
             "kasa vubu" => "Kasa-Vubu",
             "mont ngafula" => "Mont Ngafula",
             "ndjili" => "Ndjili",
+            "Kinshasa" => "Kinshasa",
+            "Lubumbashi" => "Lubumbashi",
             _ => char.ToUpperInvariant(commune[0]) + commune[1..],
         };
 

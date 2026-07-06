@@ -36,7 +36,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         var topicCategories = allCategories.Where(c => c.IsDiscussionTopic).ToList();
         var parsed = SearchQueryResolver.Parse(query, advertCategories, topicCategories);
         var adverts = await LoadAdvertsAsync(parsed, request, ct);
-        var discussions = await LoadDiscussionsAsync(parsed, request, ct);
+        var discussions = await LoadDiscussionsAsync(parsed, request, query, ct);
         var analysis = await AnalyzeAsync(query, parsed, adverts, discussions, ct);
         var sort = ListSortHelper.IsPopular(request.Sort) ? ListSortHelper.Popular : ListSortHelper.Recent;
         var advertById = adverts.ToDictionary(a => a.Id);
@@ -107,7 +107,11 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         return await LoadAllPublishedAdvertsAsync(request, ct);
 
     }
-    private async Task<List<Discussion>> LoadDiscussionsAsync(ParsedSearchQuery parsed, SearchRequestDto request, CancellationToken ct)
+    private async Task<List<Discussion>> LoadDiscussionsAsync(
+        ParsedSearchQuery parsed,
+        SearchRequestDto request,
+        string query,
+        CancellationToken ct)
     {
 
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
@@ -115,10 +119,12 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         if (!string.IsNullOrWhiteSpace(request.Intent)
             && request.Intent is SearchIntentHelper.Offre or SearchIntentHelper.Demande)
             return [];
-        if (parsed.DiscussionTopic is not null)
+        if (parsed.DiscussionTopic is not null || parsed.LocationTerms.Count > 0)
             return await LoadFilteredDiscussionsAsync(parsed, ct);
         if (parsed.IsStructuredAdvertSearch || parsed.IsAdvertCategoryBrowse)
             return [];
+        if (!string.IsNullOrWhiteSpace(query))
+            return await LoadDiscussionsMatchingQueryAsync(query, ct);
         return await LoadAllPublishedDiscussionsAsync(ct);
 
     }
@@ -139,6 +145,11 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         }
 
         var local = SearchMatchHelper.Rank(query, adverts, discussions);
+        if (adverts.Count == 0 && local.DiscussionIds.Count > 0)
+            return local;
+        if (adverts.Count == 0 && discussions.Count > 0 && local.DiscussionIds.Count == 0)
+            return local;
+
         var advertById = adverts.ToDictionary(a => a.Id);
         var discussionById = discussions.ToDictionary(d => d.Id);
         var advertCandidates = (local.AdvertIds.Count > 0
@@ -165,7 +176,12 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     }
 
     private static bool ShouldUseAiRanking(string query, ParsedSearchQuery parsed) =>
-        !string.IsNullOrWhiteSpace(query) || parsed.LocationTerms.Count > 0;
+        parsed.IsAdvertCategoryBrowse
+            || parsed.IsStructuredAdvertSearch
+            || parsed.IsDiscussionTopicBrowse
+            || parsed.IsDiscussionTopicSearch
+            ? false
+            : !string.IsNullOrWhiteSpace(query) || parsed.LocationTerms.Count > 0;
 
     private static string BuildBrowseSummary(ParsedSearchQuery parsed, int advertCount, int discussionCount)
     {
@@ -274,14 +290,66 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             AdvertSourceMapper.NormalizeListFilter(request.Source));
     }
     private async Task<List<Discussion>> LoadAllPublishedDiscussionsAsync(CancellationToken ct) =>
-        await db.Discussions
+        await OrderDiscussions(db.Discussions
             .AsNoTracking()
             .Include(d => d.User)
-            .Include(d => d.Category)
-            .OrderByDescending(d => d.ViewCount)
-            .ThenByDescending(d => d.SourceEngagementScore ?? 0)
-            .ThenByDescending(d => d.CreatedAt)
+            .Include(d => d.Category))
             .ToListAsync(ct);
+
+    private async Task<List<Discussion>> LoadDiscussionsMatchingQueryAsync(string query, CancellationToken ct)
+    {
+        var terms = SearchMatchHelper.ExtractTerms(query);
+        IQueryable<Discussion> discussionQuery = db.Discussions
+            .AsNoTracking()
+            .Include(d => d.User)
+            .Include(d => d.Category);
+        discussionQuery = ApplyDiscussionTextFilter(discussionQuery, terms);
+        return await OrderDiscussions(discussionQuery).ToListAsync(ct);
+    }
+
+    private static IQueryable<Discussion> OrderDiscussions(IQueryable<Discussion> query) =>
+        query.OrderByDescending(d => d.ViewCount)
+            .ThenByDescending(d => d.SourceEngagementScore ?? 0)
+            .ThenByDescending(d => d.CreatedAt);
+
+    private static IQueryable<Discussion> ApplyDiscussionTextFilter(
+        IQueryable<Discussion> query,
+        IReadOnlyList<string> terms)
+    {
+        if (terms.Count == 0)
+            return query;
+
+        if (terms.Count == 1)
+        {
+            var term = terms[0];
+            return query.Where(d => d.Title.Contains(term) || d.Body.Contains(term));
+        }
+
+        var t0 = terms[0];
+        var t1 = terms[1];
+        if (terms.Count == 2)
+        {
+            return query.Where(d =>
+                d.Title.Contains(t0) || d.Body.Contains(t0)
+                || d.Title.Contains(t1) || d.Body.Contains(t1));
+        }
+
+        var t2 = terms[2];
+        if (terms.Count == 3)
+        {
+            return query.Where(d =>
+                d.Title.Contains(t0) || d.Body.Contains(t0)
+                || d.Title.Contains(t1) || d.Body.Contains(t1)
+                || d.Title.Contains(t2) || d.Body.Contains(t2));
+        }
+
+        var t3 = terms[3];
+        return query.Where(d =>
+            d.Title.Contains(t0) || d.Body.Contains(t0)
+            || d.Title.Contains(t1) || d.Body.Contains(t1)
+            || d.Title.Contains(t2) || d.Body.Contains(t2)
+            || d.Title.Contains(t3) || d.Body.Contains(t3));
+    }
     private static string BuildAdvertSummary(ParsedSearchQuery parsed, int count)
     {
 
