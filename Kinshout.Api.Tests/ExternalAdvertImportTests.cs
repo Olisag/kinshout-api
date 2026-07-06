@@ -149,8 +149,49 @@ public class ExternalAdvertImportTests
 
     private static ExternalAdvertImportService CreateImportService(
         KinshoutDbContext db,
-        IExternalAdvertImageMirrorService? mirror = null) =>
-        new(db, mirror ?? CreatePassthroughMirror());
+        IExternalAdvertImageMirrorService? mirror = null,
+        IExternalAdvertImportEnrichmentService? enrichment = null) =>
+        new(db, mirror ?? CreatePassthroughMirror(), enrichment ?? CreatePassthroughEnrichment());
+
+    private static IExternalAdvertImportEnrichmentService CreatePassthroughEnrichment()
+    {
+        var mock = new Mock<IExternalAdvertImportEnrichmentService>();
+        mock.Setup(e => e.EnrichAsync(It.IsAny<ImportExternalAdvertDto>(), It.IsAny<Category>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ImportExternalAdvertDto item, Category _, CancellationToken __) =>
+                new ImportEnrichmentResult(
+                    item.Description?.Trim() ?? item.Title,
+                    ImportAdvertIntentResolver.Resolve(item),
+                    item.Ai?.Summary));
+        return mock.Object;
+    }
+
+    [Fact]
+    public async Task ImportAsync_SkipsAdvertsWithoutPhotos()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateImportService(db);
+        var dto = SampleImport("no-photo", "Sans photo") with { Images = [] };
+
+        var result = await service.ImportAsync([dto]);
+
+        Assert.Equal(1, result.Skipped);
+        Assert.Empty(await db.Adverts.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ImportAsync_SetsDemandeForSearchTitles()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateImportService(db);
+        var dto = SampleImport("search-1", "Cherche appartement meublé à Gombe");
+
+        await service.ImportAsync([dto]);
+
+        var advert = await db.Adverts.SingleAsync();
+        Assert.Equal(AdvertIntent.Demande, advert.Intent);
+    }
 
     private static IExternalAdvertImageMirrorService CreatePassthroughMirror()
     {

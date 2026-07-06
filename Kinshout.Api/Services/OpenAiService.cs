@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
+using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -42,11 +43,20 @@ public record AiSearchAnalysis(
     string Summary
 );
 
+public record ImportAdvertEnrichment(
+    string Description,
+    string Intent,
+    string? Summary);
+
 public interface IOpenAiService
 {
     Task<AiAdvertAnalysis> AnalyzeAdvertAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiSearchAnalysis> SearchAsync(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions, CancellationToken ct = default);
+    Task<ImportAdvertEnrichment?> EnrichImportedAdvertAsync(
+        ImportExternalAdvertDto item,
+        Category category,
+        CancellationToken ct = default);
 }
 
 public partial class OpenAiService(
@@ -123,6 +133,107 @@ public partial class OpenAiService(
             logger.LogWarning(ex, "OpenAI advert analysis failed, using fallback.");
             return FallbackAdvertAnalysis(text, existingCategories);
         }
+    }
+
+    public async Task<ImportAdvertEnrichment?> EnrichImportedAdvertAsync(
+        ImportExternalAdvertDto item,
+        Category category,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            return null;
+
+        var details = BuildImportDetailsSummary(item.Details);
+        var prompt = $$"""
+            Tu enrichis une annonce importée pour Kinshout (Kinshasa, RDC).
+            Rédige une description utile en français (2 à 4 phrases) à partir des champs fournis.
+            Détermine si l'annonce est une offre (le vendeur/loueur propose) ou une demande (le client cherche).
+            Réponds UNIQUEMENT en JSON:
+            {
+              "description": "description claire en français",
+              "intent": "offre|demande",
+              "summary": "phrase courte"
+            }
+
+            Règles:
+            - N'invente pas de faits absents des champs.
+            - "cherche", "recherche", "besoin" => demande.
+            - "à louer", "à vendre", "disponible", "recrute" => offre.
+            - Contexte Kinshasa.
+
+            Titre: "{{EscapeJson(item.Title)}}"
+            Catégorie: "{{EscapeJson(category.Label)}}" ({{EscapeJson(category.Slug)}})
+            Sous-catégorie: "{{EscapeJson(item.Subcategory)}}"
+            Modalité: "{{EscapeJson(item.Modality)}}"
+            Prix: "{{EscapeJson(FormatImportPrice(item.Price))}}"
+            Lieu: "{{EscapeJson(FormatImportLocation(item.Location))}}"
+            Détails: "{{EscapeJson(details)}}"
+            Description source: "{{EscapeJson(item.Description)}}"
+            Résumé source: "{{EscapeJson(item.Ai?.Summary)}}"
+            """;
+
+        try
+        {
+            var json = await ChatJsonAsync(prompt, ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var description = root.TryGetProperty("description", out var d) ? d.GetString() : null;
+            if (string.IsNullOrWhiteSpace(description))
+                return null;
+
+            var intent = root.TryGetProperty("intent", out var i) ? i.GetString() ?? "offre" : "offre";
+            var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+            return new ImportAdvertEnrichment(description.Trim(), intent, summary?.Trim());
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI import enrichment failed.");
+            return null;
+        }
+    }
+
+    private static string EscapeJson(string? value) =>
+        (value ?? string.Empty).Replace("\"", "\\\"");
+
+    private static string FormatImportPrice(ImportExternalAdvertPriceDto? price)
+    {
+        if (price is null)
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(price.Formatted))
+            return price.Formatted.Trim();
+
+        return price.Amount?.ToString() ?? string.Empty;
+    }
+
+    private static string FormatImportLocation(ImportExternalAdvertLocationDto? location)
+    {
+        if (location is null)
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(location.Formatted))
+            return location.Formatted.Trim();
+
+        return string.Join(", ", new[] { location.Commune, location.City }.Where(p => !string.IsNullOrWhiteSpace(p)));
+    }
+
+    private static string BuildImportDetailsSummary(ImportExternalAdvertDetailsDto? details)
+    {
+        if (details is null)
+            return string.Empty;
+
+        var parts = new List<string>();
+        if (details.Bedrooms is > 0)
+            parts.Add($"{details.Bedrooms} ch");
+        if (details.Bathrooms is > 0)
+            parts.Add($"{details.Bathrooms} sdb");
+        if (details.Area is > 0)
+            parts.Add($"{details.Area} m2");
+        if (details.Furnished == true)
+            parts.Add("meublé");
+        if (!string.IsNullOrWhiteSpace(details.PropertyType))
+            parts.Add(details.PropertyType.Trim());
+        return string.Join(", ", parts);
     }
 
     public async Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(

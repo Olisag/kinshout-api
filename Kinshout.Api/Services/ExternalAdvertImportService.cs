@@ -17,7 +17,8 @@ public interface IExternalAdvertImportService
 
 public class ExternalAdvertImportService(
     KinshoutDbContext db,
-    IExternalAdvertImageMirrorService imageMirror) : IExternalAdvertImportService
+    IExternalAdvertImageMirrorService imageMirror,
+    IExternalAdvertImportEnrichmentService enrichment) : IExternalAdvertImportService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -107,6 +108,14 @@ public class ExternalAdvertImportService(
         if (string.IsNullOrWhiteSpace(item.Title))
             throw new ArgumentException("title requis.");
 
+        var sourceImages = item.Images?
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Select(url => url.Trim())
+            .Take(10)
+            .ToList() ?? [];
+        if (sourceImages.Count == 0)
+            return UpsertOutcome.Skipped;
+
         var now = DateTime.UtcNow;
         var importedAt = item.Source.ImportedAt ?? now;
         var lastSeenAt = item.Source.LastSeenAt ?? importedAt;
@@ -119,13 +128,26 @@ public class ExternalAdvertImportService(
             ct: ct);
 
         var mirroredImages = await imageMirror.MirrorAsync(
-            item.Images,
+            sourceImages,
             provider,
             item.Source.ExternalId.Trim(),
             importUser.Id,
             ct);
 
-        var mapped = MapFields(item, provider, category, importUser.Id, importedAt, lastSeenAt, firstSeenAt, mirroredImages);
+        if (mirroredImages.Count == 0)
+            return UpsertOutcome.Skipped;
+
+        var enriched = await enrichment.EnrichAsync(item, category, ct);
+        var mapped = MapFields(
+            item,
+            provider,
+            category,
+            importUser.Id,
+            importedAt,
+            lastSeenAt,
+            firstSeenAt,
+            mirroredImages,
+            enriched);
 
         if (existing is null)
         {
@@ -161,7 +183,8 @@ public class ExternalAdvertImportService(
         DateTime importedAt,
         DateTime lastSeenAt,
         DateTime firstSeenAt,
-        IReadOnlyList<string> images)
+        IReadOnlyList<string> images,
+        ImportEnrichmentResult enriched)
     {
         var publishedAt = item.PublishedAt ?? importedAt;
         var tags = item.Ai?.Tags?.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).Distinct().ToList() ?? [];
@@ -172,14 +195,14 @@ public class ExternalAdvertImportService(
             UserId = userId,
             CategoryId = category.Id,
             Title = Truncate(item.Title.Trim(), 200) ?? string.Empty,
-            Description = item.Description?.Trim() ?? string.Empty,
+            Description = Truncate(enriched.Description, 4000) ?? string.Empty,
             Price = Truncate(FormatPrice(item.Price), 64),
             Location = Truncate(FormatLocation(item.Location), 120),
-            Intent = MapModality(item.Modality, item.Ai?.Intent),
+            Intent = enriched.Intent,
             ImageUrlsJson = JsonSerializer.Serialize(imageList, JsonOptions),
             TagsJson = JsonSerializer.Serialize(tags, JsonOptions),
             AiConfidence = 1,
-            AiSummary = item.Ai?.Summary,
+            AiSummary = enriched.Summary,
             IsPublished = true,
             SourceProvider = provider,
             SourceProviderName = Truncate(string.IsNullOrWhiteSpace(item.Source.ProviderName)
@@ -280,22 +303,6 @@ public class ExternalAdvertImportService(
 
         return parts.Count > 0 ? string.Join(", ", parts) : "Kinshasa";
     }
-
-    private static AdvertIntent MapModality(string? modality, IReadOnlyList<string>? aiIntent)
-    {
-        var tokens = new List<string>();
-        if (!string.IsNullOrWhiteSpace(modality))
-            tokens.Add(modality);
-
-        if (aiIntent is not null)
-            tokens.AddRange(aiIntent.Where(t => !string.IsNullOrWhiteSpace(t)));
-
-        var joined = string.Join(' ', tokens).ToLowerInvariant();
-        if (joined.Contains("demande") || joined.Contains("wanted") || joined.Contains("search"))
-            return AdvertIntent.Demande;
-
-        return AdvertIntent.Offre;
-    }
 }
 
 internal static class AdvertSourceMapper
@@ -305,6 +312,7 @@ internal static class AdvertSourceMapper
         && existing.Description == mapped.Description
         && existing.Price == mapped.Price
         && existing.Location == mapped.Location
+        && existing.Intent == mapped.Intent
         && existing.ImageUrlsJson == mapped.ImageUrlsJson
         && existing.DetailsJson == mapped.DetailsJson
         && existing.ContactJson == mapped.ContactJson;

@@ -88,6 +88,7 @@ builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();
 builder.Services.AddSingleton<IAdvertImageVariantBackfillScheduler, AdvertImageVariantBackfillScheduler>();
 builder.Services.AddScoped<IExternalAdvertImageMirrorService, ExternalAdvertImageMirrorService>();
 builder.Services.AddSingleton<IExternalAdvertImageMirrorBackfillScheduler, ExternalAdvertImageMirrorBackfillScheduler>();
+builder.Services.AddScoped<IExternalAdvertImportEnrichmentService, ExternalAdvertImportEnrichmentService>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();
