@@ -163,6 +163,14 @@ public static class AiDiscussionCategoryCatalog
     private static string? NormalizeSlug(string? slug) =>
         string.IsNullOrWhiteSpace(slug) ? null : slug.Trim().ToLowerInvariant();
 
+    public static string InferTopicSlugFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "autres";
+
+        return InferTopicFromUnknownSlug(SearchTextNormalizer.Normalize(text));
+    }
+
     private static string InferTopicFromUnknownSlug(string key)
     {
         if (ContainsAny(key, "sport", "foot", "football", "leopard", "leopards", "match", "coupe"))

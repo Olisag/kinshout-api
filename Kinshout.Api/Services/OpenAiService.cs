@@ -617,60 +617,8 @@ public partial class OpenAiService(
         ],
     };
 
-    private static AiSearchAnalysis FallbackSearch(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions)
-    {
-        var q = NormalizeForMatch(query);
-        var terms = SearchTerms(q);
-        var advertIds = adverts
-            .Select(a => new
-            {
-                a.Id,
-                Score = MatchScore(terms, $"{a.Title} {a.Description} {a.Location} {a.Price} {a.TagsJson ?? ""} {a.Category?.Label}"),
-            })
-            .Where(x => x.Score > 0)
-            .OrderByDescending(x => x.Score)
-            .Select(x => x.Id)
-            .ToList();
-        var discussionIds = discussions
-            .Select(d => new
-            {
-                d.Id,
-                Score = MatchScore(terms, $"{d.Title} {d.Body} {d.Category?.Label}"),
-            })
-            .Where(x => x.Score > 0)
-            .OrderByDescending(x => x.Score)
-            .Select(x => x.Id)
-            .ToList();
-
-        return new AiSearchAnalysis(advertIds, discussionIds, $"Résultats pour « {query} ».");
-    }
-
-    private static IReadOnlyList<string> SearchTerms(string query) =>
-        query
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(term => term.Length >= 3 && !SearchStopWords.Contains(term))
-            .Distinct()
-            .ToList();
-
-    private static int MatchScore(IReadOnlyList<string> terms, string text)
-    {
-        var normalized = NormalizeForMatch(text);
-        if (terms.Count == 0)
-            return normalized.Contains(text, StringComparison.Ordinal) ? 1 : 0;
-
-        return terms.Count(term => normalized.Contains(term, StringComparison.Ordinal));
-    }
-
-    private static readonly HashSet<string> SearchStopWords = new(StringComparer.Ordinal)
-    {
-        "avec",
-        "dans",
-        "des",
-        "les",
-        "louer",
-        "pour",
-        "une",
-    };
+    private static AiSearchAnalysis FallbackSearch(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions) =>
+        SearchMatchHelper.Rank(query, adverts, discussions);
 
     private static string? ExtractPrice(string text)
     {
