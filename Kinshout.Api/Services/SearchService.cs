@@ -20,7 +20,6 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
 
     private const int DefaultPageSize = 20;
     private const int MaxPageSize = 50;
-    private const int OpenAiCandidateLimit = 400;
     private static readonly TimeSpan PopularSearchesCacheDuration = TimeSpan.FromSeconds(30);
     public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
@@ -195,12 +194,12 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         var advertCandidates = (local.AdvertIds.Count > 0
                 ? local.AdvertIds.Where(advertById.ContainsKey).Select(id => advertById[id])
                 : adverts)
-            .Take(OpenAiCandidateLimit)
+            .Take(SearchRetrieval.OpenAiCandidateLimit)
             .ToList();
         var discussionCandidates = (local.DiscussionIds.Count > 0
                 ? local.DiscussionIds.Where(discussionById.ContainsKey).Select(id => discussionById[id])
                 : discussions)
-            .Take(OpenAiCandidateLimit)
+            .Take(SearchRetrieval.OpenAiCandidateLimit)
             .ToList();
         if (advertCandidates.Count == 0 && discussionCandidates.Count == 0)
             return local;
@@ -289,8 +288,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 a.Location != null && a.Location.ToLower().Contains(term));
         }
 
-        advertQuery = ApplyAdvertTextFilter(advertQuery, SearchMatchHelper.ExtractTerms(query));
-        return await advertQuery.ToListAsync(ct);
+        return await SearchRetrieval.LoadSemanticAdvertsAsync(db, advertQuery, query, ct);
     }
 
     private async Task<List<Discussion>> LoadDiscussionsByTopicIdAsync(Guid topicId, CancellationToken ct) =>
@@ -304,12 +302,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
 
     private async Task<List<Discussion>> LoadSemanticDiscussionsAsync(string query, SearchQueryHints hints, CancellationToken ct)
     {
-        var terms = SearchMatchHelper.ExtractTerms(query);
-        IQueryable<Discussion> discussionQuery = db.Discussions
-            .AsNoTracking()
-            .Include(d => d.User)
-            .Include(d => d.Category);
-        discussionQuery = ApplyDiscussionTextFilter(discussionQuery, terms);
+        IQueryable<Discussion> discussionQuery = db.Discussions.AsNoTracking();
         foreach (var location in hints.LocationTerms)
         {
             var term = location.ToLowerInvariant();
@@ -317,58 +310,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 d.Title.ToLower().Contains(term) || d.Body.ToLower().Contains(term));
         }
 
-        return await OrderDiscussions(discussionQuery).ToListAsync(ct);
-    }
-
-    private static IQueryable<Advert> ApplyAdvertTextFilter(IQueryable<Advert> query, IReadOnlyList<string> terms)
-    {
-        if (terms.Count == 0)
-            return query;
-
-        if (terms.Count == 1)
-        {
-            var term = terms[0].ToLowerInvariant();
-            return query.Where(a =>
-                a.Title.ToLower().Contains(term)
-                || a.Description.ToLower().Contains(term)
-                || (a.Location != null && a.Location.ToLower().Contains(term))
-                || (a.TagsJson != null && a.TagsJson.ToLower().Contains(term))
-                || (a.SubcategorySlug != null && a.SubcategorySlug.ToLower().Contains(term)));
-        }
-
-        var t0 = terms[0].ToLowerInvariant();
-        var t1 = terms[1].ToLowerInvariant();
-        if (terms.Count == 2)
-        {
-            return query.Where(a =>
-                a.Title.ToLower().Contains(t0) || a.Description.ToLower().Contains(t0)
-                || (a.Location != null && a.Location.ToLower().Contains(t0))
-                || (a.TagsJson != null && a.TagsJson.ToLower().Contains(t0))
-                || (a.SubcategorySlug != null && a.SubcategorySlug.ToLower().Contains(t0))
-                || a.Title.ToLower().Contains(t1) || a.Description.ToLower().Contains(t1)
-                || (a.Location != null && a.Location.ToLower().Contains(t1))
-                || (a.TagsJson != null && a.TagsJson.ToLower().Contains(t1))
-                || (a.SubcategorySlug != null && a.SubcategorySlug.ToLower().Contains(t1)));
-        }
-
-        var t2 = terms[2].ToLowerInvariant();
-        if (terms.Count == 3)
-        {
-            return query.Where(a =>
-                a.Title.ToLower().Contains(t0) || a.Description.ToLower().Contains(t0)
-                || (a.Location != null && a.Location.ToLower().Contains(t0))
-                || a.Title.ToLower().Contains(t1) || a.Description.ToLower().Contains(t1)
-                || (a.Location != null && a.Location.ToLower().Contains(t1))
-                || a.Title.ToLower().Contains(t2) || a.Description.ToLower().Contains(t2)
-                || (a.Location != null && a.Location.ToLower().Contains(t2)));
-        }
-
-        var t3 = terms[3].ToLowerInvariant();
-        return query.Where(a =>
-            a.Title.ToLower().Contains(t0) || a.Description.ToLower().Contains(t0)
-            || a.Title.ToLower().Contains(t1) || a.Description.ToLower().Contains(t1)
-            || a.Title.ToLower().Contains(t2) || a.Description.ToLower().Contains(t2)
-            || a.Title.ToLower().Contains(t3) || a.Description.ToLower().Contains(t3));
+        return await SearchRetrieval.LoadSemanticDiscussionsAsync(db, discussionQuery, query, ct);
     }
 
     private static IQueryable<Advert> ApplyRequestAdvertFilters(IQueryable<Advert> query, SearchRequestDto request)
@@ -393,45 +335,6 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         query.OrderByDescending(d => d.ViewCount)
             .ThenByDescending(d => d.SourceEngagementScore ?? 0)
             .ThenByDescending(d => d.CreatedAt);
-
-    private static IQueryable<Discussion> ApplyDiscussionTextFilter(
-        IQueryable<Discussion> query,
-        IReadOnlyList<string> terms)
-    {
-        if (terms.Count == 0)
-            return query;
-
-        if (terms.Count == 1)
-        {
-            var term = terms[0].ToLowerInvariant();
-            return query.Where(d => d.Title.ToLower().Contains(term) || d.Body.ToLower().Contains(term));
-        }
-
-        var t0 = terms[0].ToLowerInvariant();
-        var t1 = terms[1].ToLowerInvariant();
-        if (terms.Count == 2)
-        {
-            return query.Where(d =>
-                d.Title.ToLower().Contains(t0) || d.Body.ToLower().Contains(t0)
-                || d.Title.ToLower().Contains(t1) || d.Body.ToLower().Contains(t1));
-        }
-
-        var t2 = terms[2].ToLowerInvariant();
-        if (terms.Count == 3)
-        {
-            return query.Where(d =>
-                d.Title.ToLower().Contains(t0) || d.Body.ToLower().Contains(t0)
-                || d.Title.ToLower().Contains(t1) || d.Body.ToLower().Contains(t1)
-                || d.Title.ToLower().Contains(t2) || d.Body.ToLower().Contains(t2));
-        }
-
-        var t3 = terms[3].ToLowerInvariant();
-        return query.Where(d =>
-            d.Title.ToLower().Contains(t0) || d.Body.ToLower().Contains(t0)
-            || d.Title.ToLower().Contains(t1) || d.Body.ToLower().Contains(t1)
-            || d.Title.ToLower().Contains(t2) || d.Body.ToLower().Contains(t2)
-            || d.Title.ToLower().Contains(t3) || d.Body.ToLower().Contains(t3));
-    }
 
     private static SearchResultDto BuildMixedSearchResult(
         IReadOnlyList<AdvertDto> advertResults,

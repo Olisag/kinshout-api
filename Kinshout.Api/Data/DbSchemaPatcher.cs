@@ -25,6 +25,7 @@ public static class DbSchemaPatcher
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureSearchFullTextIndexesAsync(db, connection, ct);
         await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
@@ -519,6 +520,70 @@ public static class DbSchemaPatcher
                 ? "ALTER TABLE Users DROP COLUMN Username"
                 : "ALTER TABLE Users DROP COLUMN Username",
             ct);
+    }
+
+    private static async Task EnsureSearchFullTextIndexesAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        CancellationToken ct)
+    {
+        if (!await FullTextCatalogExistsAsync(connection, ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE FULLTEXT CATALOG KinshoutSearchCatalog AS DEFAULT",
+                ct);
+        }
+
+        if (!await FullTextIndexExistsAsync(connection, "Adverts", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE FULLTEXT INDEX ON Adverts(Title, Description, Location, TagsJson)
+                KEY INDEX PK_Adverts
+                ON KinshoutSearchCatalog
+                WITH CHANGE_TRACKING AUTO
+                """,
+                ct);
+        }
+
+        if (!await FullTextIndexExistsAsync(connection, "Discussions", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE FULLTEXT INDEX ON Discussions(Title, Body)
+                KEY INDEX PK_Discussions
+                ON KinshoutSearchCatalog
+                WITH CHANGE_TRACKING AUTO
+                """,
+                ct);
+        }
+    }
+
+    private static async Task<bool> FullTextCatalogExistsAsync(DbConnection connection, CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT 1
+            FROM sys.fulltext_catalogs
+            WHERE name = @name
+            """;
+        AddParameter(cmd, "@name", "KinshoutSearchCatalog");
+        return await cmd.ExecuteScalarAsync(ct) is not null;
+    }
+
+    private static async Task<bool> FullTextIndexExistsAsync(
+        DbConnection connection,
+        string table,
+        CancellationToken ct)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT 1
+            FROM sys.fulltext_indexes
+            WHERE object_id = OBJECT_ID(@table)
+            """;
+        AddParameter(cmd, "@table", table);
+        return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
     private static async Task<bool> IndexExistsAsync(
