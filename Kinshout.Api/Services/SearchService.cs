@@ -35,8 +35,8 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             .ToList();
         var topicCategories = allCategories.Where(c => c.IsDiscussionTopic).ToList();
         var parsed = SearchQueryResolver.Parse(query, advertCategories, topicCategories);
-        var adverts = await LoadAdvertsAsync(parsed, ct);
-        var discussions = await LoadDiscussionsAsync(parsed, ct);
+        var adverts = await LoadAdvertsAsync(parsed, request, ct);
+        var discussions = await LoadDiscussionsAsync(parsed, request, ct);
         var analysis = await AnalyzeAsync(query, parsed, adverts, discussions, ct);
         var sort = ListSortHelper.IsPopular(request.Sort) ? ListSortHelper.Popular : ListSortHelper.Recent;
         var advertById = adverts.ToDictionary(a => a.Id);
@@ -51,8 +51,6 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 .Where(discussionById.ContainsKey)
                 .Select(id => discussionById[id]),
             sort);
-        ApplyIntentFilter(request.Intent, ref matchedAdverts, ref matchedDiscussions);
-        ApplySourceFilter(request.Source, ref matchedAdverts);
         var savedIds = await AdvertService.LoadSavedAdvertIdsAsync(
             db,
             viewerUserId,
@@ -99,17 +97,24 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 skip + pagedDiscussions.Count < totalDiscussions));
 
     }
-    private async Task<List<Advert>> LoadAdvertsAsync(ParsedSearchQuery parsed, CancellationToken ct)
+    private async Task<List<Advert>> LoadAdvertsAsync(ParsedSearchQuery parsed, SearchRequestDto request, CancellationToken ct)
     {
 
+        if (request.Tab.Equals("discussions", StringComparison.OrdinalIgnoreCase))
+            return [];
         if (parsed.IsAdvertCategoryBrowse || parsed.IsStructuredAdvertSearch)
-            return await LoadFilteredAdvertsAsync(parsed, ct);
-        return await LoadAllPublishedAdvertsAsync(ct);
+            return await LoadFilteredAdvertsAsync(parsed, request, ct);
+        return await LoadAllPublishedAdvertsAsync(request, ct);
 
     }
-    private async Task<List<Discussion>> LoadDiscussionsAsync(ParsedSearchQuery parsed, CancellationToken ct)
+    private async Task<List<Discussion>> LoadDiscussionsAsync(ParsedSearchQuery parsed, SearchRequestDto request, CancellationToken ct)
     {
 
+        if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
+            return [];
+        if (!string.IsNullOrWhiteSpace(request.Intent)
+            && request.Intent is SearchIntentHelper.Offre or SearchIntentHelper.Demande)
+            return [];
         if (parsed.DiscussionTopic is not null)
             return await LoadFilteredDiscussionsAsync(parsed, ct);
         if (parsed.IsStructuredAdvertSearch || parsed.IsAdvertCategoryBrowse)
@@ -125,24 +130,14 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         CancellationToken ct)
     {
 
-        if (parsed.IsAdvertCategoryBrowse || parsed.IsStructuredAdvertSearch)
+        if (!ShouldUseAiRanking(query, parsed))
         {
-
             return new AiSearchAnalysis(
                 adverts.Select(a => a.Id).ToList(),
-                parsed.DiscussionTopic is not null ? discussions.Select(d => d.Id).ToList() : [],
-                BuildAdvertSummary(parsed, adverts.Count));
-
-        }
-        if (parsed.IsDiscussionTopicBrowse || parsed.IsDiscussionTopicSearch)
-        {
-
-            return new AiSearchAnalysis(
-                parsed.AdvertCategory is not null ? adverts.Select(a => a.Id).ToList() : [],
                 discussions.Select(d => d.Id).ToList(),
-                BuildDiscussionSummary(parsed, discussions.Count));
-
+                BuildBrowseSummary(parsed, adverts.Count, discussions.Count));
         }
+
         var local = SearchMatchHelper.Rank(query, adverts, discussions);
         var advertById = adverts.ToDictionary(a => a.Id);
         var discussionById = discussions.ToDictionary(d => d.Id);
@@ -158,11 +153,33 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             .ToList();
         if (advertCandidates.Count == 0 && discussionCandidates.Count == 0)
             return local;
+
         var ai = await openAi.SearchAsync(query, advertCandidates, discussionCandidates, ct);
+        if (ai.AdvertIds.Count == 0 && ai.DiscussionIds.Count == 0)
+            return local;
+
         return local.AdvertIds.Count == 0 && local.DiscussionIds.Count == 0
             ? ai
             : MergeLocalAndAiResults(local, ai);
 
+    }
+
+    private static bool ShouldUseAiRanking(string query, ParsedSearchQuery parsed) =>
+        !string.IsNullOrWhiteSpace(query) || parsed.LocationTerms.Count > 0;
+
+    private static string BuildBrowseSummary(ParsedSearchQuery parsed, int advertCount, int discussionCount)
+    {
+        if (parsed.IsDiscussionTopicBrowse || parsed.IsDiscussionTopicSearch)
+            return BuildDiscussionSummary(parsed, discussionCount);
+        if (parsed.AdvertCategory is not null)
+            return BuildAdvertSummary(parsed, advertCount);
+        if (advertCount > 0 && discussionCount > 0)
+            return $"{advertCount + discussionCount} résultats.";
+        if (advertCount > 0)
+            return $"{advertCount} annonce{(advertCount == 1 ? "" : "s")}.";
+        if (discussionCount > 0)
+            return $"{discussionCount} discussion{(discussionCount == 1 ? "" : "s")}.";
+        return "Aucun résultat.";
     }
     private static AiSearchAnalysis MergeLocalAndAiResults(AiSearchAnalysis local, AiSearchAnalysis ai)
     {
@@ -179,7 +196,10 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             string.IsNullOrWhiteSpace(ai.Summary) ? local.Summary : ai.Summary);
 
     }
-    private async Task<List<Advert>> LoadFilteredAdvertsAsync(ParsedSearchQuery parsed, CancellationToken ct)
+    private async Task<List<Advert>> LoadFilteredAdvertsAsync(
+        ParsedSearchQuery parsed,
+        SearchRequestDto request,
+        CancellationToken ct)
     {
 
         if (parsed.AdvertCategory is null || parsed.AdvertCategory.Id == Guid.Empty)
@@ -198,6 +218,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             query = query.Where(a => a.Location != null && a.Location.Contains(term));
 
         }
+        query = ApplyRequestAdvertFilters(query, request);
         return await query.ToListAsync(ct);
 
     }
@@ -224,13 +245,34 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             .ToListAsync(ct);
 
     }
-    private async Task<List<Advert>> LoadAllPublishedAdvertsAsync(CancellationToken ct) =>
-        await db.Adverts
+    private async Task<List<Advert>> LoadAllPublishedAdvertsAsync(SearchRequestDto request, CancellationToken ct)
+    {
+        IQueryable<Advert> query = db.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
-            .Where(a => a.IsPublished)
-            .ToListAsync(ct);
+            .Where(a => a.IsPublished);
+        query = ApplyRequestAdvertFilters(query, request);
+        return await query.ToListAsync(ct);
+    }
+
+    private static IQueryable<Advert> ApplyRequestAdvertFilters(IQueryable<Advert> query, SearchRequestDto request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.Intent))
+        {
+            var intent = request.Intent.Trim().ToLowerInvariant();
+            if (intent == SearchIntentHelper.Offre)
+                query = query.Where(a => a.Intent == AdvertIntent.Offre);
+            else if (intent == SearchIntentHelper.Demande)
+                query = query.Where(a => a.Intent == AdvertIntent.Demande);
+            else if (intent == SearchIntentHelper.Discussion)
+                query = query.Where(a => a.Intent == AdvertIntent.Discussion);
+        }
+
+        return AdvertSourceMapper.ApplySourceFilter(
+            query,
+            AdvertSourceMapper.NormalizeListFilter(request.Source));
+    }
     private async Task<List<Discussion>> LoadAllPublishedDiscussionsAsync(CancellationToken ct) =>
         await db.Discussions
             .AsNoTracking()
@@ -321,6 +363,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     }
     private static (int Page, int PageSize) NormalizePaging(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize));
+
     private static List<Advert> SortAdverts(IEnumerable<Advert> adverts, string sort)
     {
 
@@ -330,29 +373,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             : query.OrderByDescending(AdvertSourceMapper.SortDate).ToList();
 
     }
-    private static void ApplySourceFilter(string? source, ref List<Advert> adverts)
-    {
 
-        var sourceFilter = AdvertSourceMapper.NormalizeListFilter(source);
-        if (string.IsNullOrWhiteSpace(sourceFilter))
-            return;
-        if (sourceFilter == "external")
-        {
-
-            adverts = adverts.Where(a => a.IsExternal).ToList();
-            return;
-
-        }
-        if (sourceFilter == AdvertSourceProvider.Kinshout)
-        {
-
-            adverts = adverts.Where(a => !a.IsExternal).ToList();
-            return;
-
-        }
-        adverts = adverts.Where(a => a.SourceProvider == sourceFilter).ToList();
-
-    }
     private static List<Discussion> SortDiscussions(IEnumerable<Discussion> discussions, string sort)
     {
 
@@ -360,32 +381,6 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         return sort == ListSortHelper.Popular
             ? DiscussionSourceMapper.OrderByPopular(query).ToList()
             : query.OrderByDescending(d => d.CreatedAt).ToList();
-
-    }
-    private static void ApplyIntentFilter(
-        string? intent,
-        ref List<Advert> adverts,
-        ref List<Discussion> discussions)
-    {
-
-        if (string.IsNullOrWhiteSpace(intent))
-            return;
-        switch (intent.Trim().ToLowerInvariant())
-        {
-
-            case SearchIntentHelper.Offre:
-                adverts = adverts.Where(a => a.Intent == AdvertIntent.Offre).ToList();
-                discussions = [];
-                break;
-            case SearchIntentHelper.Demande:
-                adverts = adverts.Where(a => a.Intent == AdvertIntent.Demande).ToList();
-                discussions = [];
-                break;
-            case SearchIntentHelper.Discussion:
-                adverts = adverts.Where(a => a.Intent == AdvertIntent.Discussion).ToList();
-                break;
-
-        }
 
     }
     private async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)

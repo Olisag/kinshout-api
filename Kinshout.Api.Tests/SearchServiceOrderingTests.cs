@@ -57,7 +57,7 @@ public class SearchServiceOrderingTests
             .ReturnsAsync(new AiSearchAnalysis([recent.Id, popularOld.Id, popularNew.Id], [], ""));
 
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
-        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", PageSize: 10));
+        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", PageSize: 10, Sort: ListSortHelper.Recent));
 
         Assert.Equal(["Recent quiet", "Popular new", "Popular old"], result.Adverts.Select(a => a.Title).ToArray());
     }

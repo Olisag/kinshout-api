@@ -53,6 +53,15 @@ public class SearchServiceCategoryTests
         await db.SaveChangesAsync();
 
         var openAi = new Mock<IOpenAiService>();
+        openAi
+            .Setup(x => x.SearchAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<Advert>>(),
+                It.IsAny<IReadOnlyList<Discussion>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyList<Advert> loaded, IReadOnlyList<Discussion> _, CancellationToken __) =>
+                new AiSearchAnalysis(loaded.Select(a => a.Id).ToList(), [], ""));
+
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
 
         var search = await service.SearchAsync(new SearchRequestDto("Appartements a louer", "annonces", PageSize: 50));
@@ -65,7 +74,7 @@ public class SearchServiceCategoryTests
 
         openAi.Verify(
             x => x.SearchAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Advert>>(), It.IsAny<IReadOnlyList<Discussion>>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
 
         Assert.Equal(30, search.Pagination.TotalAdverts);
         Assert.Equal(30, list.TotalCount);
@@ -112,6 +121,15 @@ public class SearchServiceCategoryTests
         await db.SaveChangesAsync();
 
         var openAi = new Mock<IOpenAiService>();
+        openAi
+            .Setup(x => x.SearchAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<Advert>>(),
+                It.IsAny<IReadOnlyList<Discussion>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyList<Advert> loaded, IReadOnlyList<Discussion> _, CancellationToken __) =>
+                new AiSearchAnalysis(loaded.Select(a => a.Id).ToList(), [], ""));
+
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
 
         var result = await service.SearchAsync(new SearchRequestDto("appartement Gombe", "annonces"));
@@ -120,7 +138,7 @@ public class SearchServiceCategoryTests
         Assert.Equal("Appartement Gombe", result.Adverts[0].Title);
         openAi.Verify(
             x => x.SearchAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Advert>>(), It.IsAny<IReadOnlyList<Discussion>>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
     }
 
     [Fact]
@@ -220,6 +238,15 @@ public class SearchServiceCategoryTests
         await db.SaveChangesAsync();
 
         var openAi = new Mock<IOpenAiService>();
+        openAi
+            .Setup(x => x.SearchAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<Advert>>(),
+                It.IsAny<IReadOnlyList<Discussion>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyList<Advert> _, IReadOnlyList<Discussion> loaded, CancellationToken __) =>
+                new AiSearchAnalysis([], loaded.Select(d => d.Id).ToList(), ""));
+
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
 
         var result = await service.SearchAsync(new SearchRequestDto("Sport & foot", "discussions"));
@@ -227,6 +254,6 @@ public class SearchServiceCategoryTests
         Assert.Equal(4, result.Pagination.TotalDiscussions);
         openAi.Verify(
             x => x.SearchAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Advert>>(), It.IsAny<IReadOnlyList<Discussion>>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+            Times.Once);
     }
 }

@@ -94,6 +94,47 @@ public class SearchServiceFilterTests
         Assert.Contains(result.Items, i => i.Discussion?.Title == "Forum thread");
     }
 
+    [Fact]
+    public async Task SearchAsync_FiltersAdvertsBySourceAtLoadTime()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var native = CreateAdvert(user, category, "Kinshout listing", AdvertIntent.Offre);
+        native.SourceProvider = AdvertSourceProvider.Kinshout;
+
+        var external = CreateAdvert(user, category, "Facebook listing", AdvertIntent.Offre);
+        external.SourceProvider = AdvertSourceProvider.FacebookMarketplace;
+        external.SourceExternalId = "fb-1";
+        external.SourceExternalUrl = "https://facebook.com/item/1";
+
+        db.Adverts.AddRange(native, external);
+        await db.SaveChangesAsync();
+
+        var openAi = new Mock<IOpenAiService>();
+        openAi
+            .Setup(x => x.SearchAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<Advert>>(),
+                It.IsAny<IReadOnlyList<Discussion>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyList<Advert> loaded, IReadOnlyList<Discussion> _, CancellationToken __) =>
+                new AiSearchAnalysis(loaded.Select(a => a.Id).ToList(), [], ""));
+
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
+        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", Source: "kinshout"));
+
+        Assert.Single(result.Adverts);
+        Assert.Equal("Kinshout listing", result.Adverts[0].Title);
+        openAi.Verify(
+            x => x.SearchAsync(
+                It.IsAny<string>(),
+                It.Is<IReadOnlyList<Advert>>(ads => ads.Count == 1 && ads[0].Title == "Kinshout listing"),
+                It.IsAny<IReadOnlyList<Discussion>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private static Advert CreateAdvert(
         User user,
         Category category,
