@@ -6,6 +6,11 @@ public class SearchQueryResolverTests
 {
     [Theory]
     [InlineData("appartement Gombe", "appartement_a_louer", "Gombe")]
+    [InlineData("apartment Gombe", "appartement_a_louer", "Gombe")]
+    [InlineData("ndako Gombe", "maison_a_louer", "Gombe")]
+    [InlineData("apartment", null, null)]
+    [InlineData("car Toyota", "voiture", null)]
+    [InlineData("motuka", "voiture", null)]
     [InlineData("iPhone Kinshasa", null, "Kinshasa")]
     [InlineData("Voiture Toyota", "voiture", null)]
     [InlineData("moto", "moto", null)]

@@ -61,32 +61,38 @@ public static class SearchQueryResolver
     {
         if (parentSlug == "immobilier")
         {
-            if (ContainsAny(normalized, "studio"))
-                return ContainsAny(normalized, "vendre", "vente", "sale") ? "studio_a_vendre" : "studio_a_louer";
-            if (ContainsAny(normalized, "maison", "villa"))
-                return ContainsAny(normalized, "vendre", "vente", "sale") ? "maison_a_vendre" : "maison_a_louer";
-            if (ContainsAny(normalized, "appartement", "appartements", "flat", "apartment"))
-                return ContainsAny(normalized, "vendre", "vente", "sale") ? "appartement_a_vendre" : "appartement_a_louer";
-            if (ContainsAny(normalized, "parcelle", "terrain"))
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "studio"))
+                return SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale)
+                    ? "studio_a_vendre"
+                    : "studio_a_louer";
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "maison", "house", "villa", "ndako"))
+                return SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale)
+                    ? "maison_a_vendre"
+                    : "maison_a_louer";
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "appartement", "appartements", "flat", "apartment"))
+                return SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale)
+                    ? "appartement_a_vendre"
+                    : "appartement_a_louer";
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "parcelle", "terrain", "land", "plot"))
                 return "parcelle";
-            if (ContainsAny(normalized, "bureau", "commercial"))
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "bureau", "commercial", "office"))
                 return "bureau";
         }
 
         if (parentSlug == "vehicules")
         {
-            if (ContainsAny(normalized, "moto", "scooter", "yamaha"))
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "moto", "scooter", "yamaha", "motorcycle"))
                 return "moto";
-            if (ContainsAny(normalized, "camion", "bus"))
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "camion", "truck", "bus", "van"))
                 return "camion";
-            if (ContainsAny(normalized, "voiture", "automobile", "toyota", "jeep", "4x4"))
+            if (SearchTermExpander.NormalizedContainsAny(normalized, "voiture", "automobile", "toyota", "jeep", "4x4", "car", "motuka"))
                 return "voiture";
         }
 
-        if (parentSlug == "telephones" && ContainsAny(normalized, "tablette", "ipad"))
+        if (parentSlug == "telephones" && SearchTermExpander.NormalizedContainsAny(normalized, "tablette", "tablet", "ipad"))
             return "telephone";
 
-        if (parentSlug == "informatique" && ContainsAny(normalized, "imprimante", "printer"))
+        if (parentSlug == "informatique" && SearchTermExpander.NormalizedContainsAny(normalized, "imprimante", "printer"))
             return "informatique";
 
         if (parentSlug == "emplois")
@@ -97,58 +103,63 @@ public static class SearchQueryResolver
 
     private static string? InferParentSlug(string normalized)
     {
-        if (ContainsAny(normalized, "appartement", "appartements", "studio", "maison", "villa", "immobilier", "parcelle", "terrain", "ndako", "kofanda"))
-            return "immobilier";
-
-        if (ContainsAny(normalized, "voiture", "moto", "vehicule", "automobile", "toyota", "camion", "motuka"))
-            return "vehicules";
-
-        if (ContainsAny(normalized, "iphone", "samsung", "telephone", "smartphone", "tablette", "infinix", "tecno"))
-            return "telephones";
-
-        if (ContainsAny(normalized, "ordinateur", "macbook", "laptop", "pc ", " pc", "informatique"))
-            return "informatique";
-
-        if (ContainsAny(normalized, "electronique", "starlink", "generateur", "groupe electrogene", "panneau solaire", "playstation", "xbox"))
-            return "electronique";
-
-        if (ContainsAny(normalized, "emploi", "emplois", "travail", "job", "recrutement", "cv ", " cv", "stage", "mosala"))
-            return "emplois";
-
-        if (ContainsAny(normalized, "meuble", "canape", "decoration", "electromenager"))
-            return "meubles";
-
-        if (ContainsAny(normalized, "service", "plomberie", "nettoyage", "demenagement", "renovation"))
-            return "services";
-
-        if (ContainsAny(normalized, "vetement", "habit", "chaussure", "mode", "montre", "bijou", "sac "))
-            return "mode";
-
-        if (ContainsAny(normalized, "jouet", "jeu ", " jeu", "loisir"))
-            return "jouets";
+        foreach (var (slug, concept) in ParentConcepts)
+        {
+            if (SearchTermExpander.QueryMatchesConcept(normalized, concept))
+                return slug;
+        }
 
         return null;
     }
 
+    private static readonly (string Slug, SearchConcept Concept)[] ParentConcepts =
+    [
+        ("immobilier", SearchConcept.Immobilier),
+        ("vehicules", SearchConcept.Vehicules),
+        ("telephones", SearchConcept.Telephones),
+        ("informatique", SearchConcept.Informatique),
+        ("electronique", SearchConcept.Electronique),
+        ("emplois", SearchConcept.Emplois),
+        ("meubles", SearchConcept.Meubles),
+        ("services", SearchConcept.Services),
+        ("mode", SearchConcept.Mode),
+        ("jouets", SearchConcept.Jouets),
+    ];
+
     private static bool NamesExplicitSubcategory(string normalized, string parentSlug) =>
         parentSlug switch
         {
-            "immobilier" => ContainsAny(normalized, "studio", "maison", "villa", "parcelle", "terrain", "bureau"),
-            "vehicules" => ContainsAny(
+            "immobilier" => SearchTermExpander.NormalizedContainsAny(
+                normalized,
+                "studio",
+                "maison",
+                "house",
+                "villa",
+                "ndako",
+                "parcelle",
+                "terrain",
+                "land",
+                "bureau",
+                "office"),
+            "vehicules" => SearchTermExpander.NormalizedContainsAny(
                 normalized,
                 "moto",
                 "scooter",
                 "yamaha",
+                "motorcycle",
                 "voiture",
+                "car",
+                "motuka",
                 "automobile",
                 "toyota",
                 "jeep",
                 "4x4",
                 "camion",
+                "truck",
                 "bus",
-                "motuka"),
-            "telephones" => ContainsAny(normalized, "tablette", "ipad"),
-            "informatique" => ContainsAny(normalized, "imprimante", "printer"),
+                "van"),
+            "telephones" => SearchTermExpander.NormalizedContainsAny(normalized, "tablette", "tablet", "ipad"),
+            "informatique" => SearchTermExpander.NormalizedContainsAny(normalized, "imprimante", "printer"),
             _ => false,
         };
 
@@ -195,16 +206,5 @@ public static class SearchQueryResolver
         }
 
         return string.Join(' ', result.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-    }
-
-    private static bool ContainsAny(string text, params string[] needles)
-    {
-        foreach (var needle in needles)
-        {
-            if (text.Contains(needle, StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
     }
 }

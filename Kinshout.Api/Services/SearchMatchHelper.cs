@@ -13,15 +13,6 @@ public static class SearchMatchHelper
     private const int PhraseBonus = 15;
     private const int PopularityDivisor = 1_000;
 
-    private static readonly HashSet<string> SearchStopWords = new(StringComparer.Ordinal)
-    {
-        "avec",
-        "dans",
-        "des",
-        "les",
-        "pour",
-        "une",
-    };
 
     public static AiSearchAnalysis Rank(
         string query,
@@ -97,15 +88,8 @@ public static class SearchMatchHelper
         return score;
     }
 
-    internal static IReadOnlyList<string> ExtractTerms(string query)
-    {
-        var normalized = SearchTextNormalizer.Normalize(query);
-        return normalized
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(term => term.Length >= 3 && !SearchStopWords.Contains(term))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
+    internal static IReadOnlyList<string> ExtractTerms(string query) =>
+        SearchTermExpander.ExtractExpandedTerms(query);
 
     private static int ScoreFields(
         IReadOnlyList<string> terms,
