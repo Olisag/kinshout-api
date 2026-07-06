@@ -1,4 +1,3 @@
-using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 
 namespace Kinshout.Api.Tests;
@@ -6,62 +5,34 @@ namespace Kinshout.Api.Tests;
 public class SearchQueryResolverTests
 {
     [Theory]
-    [InlineData("Appartements a louer", "immobilier", null, null)]
-    [InlineData("Appartements à louer", "immobilier", null, null)]
-    [InlineData("Immobilier", "immobilier", null, null)]
-    [InlineData("iPhone Kinshasa", "telephones", null, null)]
-    [InlineData("Voiture Toyota", "vehicules", null, null)]
-    [InlineData("appartement Gombe", "immobilier", "appartement_a_louer", "Gombe")]
-    [InlineData("Football Kinshasa", null, null, null, "sport")]
-    [InlineData("Politique", null, null, null, "politique")]
-    public void Parse_ResolvesAdvertAndDiscussionQueries(
+    [InlineData("appartement Gombe", "appartement_a_louer", "Gombe")]
+    [InlineData("iPhone Kinshasa", null, "Kinshasa")]
+    [InlineData("Voiture Toyota", "voiture", null)]
+    [InlineData("moto", "moto", null)]
+    [InlineData("camion", "camion", null)]
+    [InlineData("Kinshasa", null, "Kinshasa")]
+    [InlineData("Football Kinshasa", null, "Kinshasa")]
+    [InlineData("Fruits", null, null)]
+    public void ParseHints_ExtractsSubcategoryAndLocation(
         string query,
-        string? advertSlug,
         string? subcategorySlug,
-        string? location,
-        string? topicSlug = null)
+        string? location)
     {
-        var parsed = SearchQueryResolver.Parse(query, SampleAdvertCategories(), SampleTopicCategories());
+        var hints = SearchQueryResolver.ParseHints(query);
 
-        if (advertSlug is null)
-            Assert.Null(parsed.AdvertCategory);
-        else
-            Assert.Equal(advertSlug, parsed.AdvertCategory!.Slug);
-
-        Assert.Equal(subcategorySlug, parsed.SubcategorySlug);
+        Assert.Equal(subcategorySlug, hints.SubcategorySlug);
 
         if (location is null)
-            Assert.Empty(parsed.LocationTerms);
+            Assert.Empty(hints.LocationTerms);
         else
-            Assert.Contains(location, parsed.LocationTerms, StringComparer.OrdinalIgnoreCase);
-
-        if (topicSlug is null)
-            Assert.Null(parsed.DiscussionTopic);
-        else
-            Assert.Equal(topicSlug, parsed.DiscussionTopic!.Slug);
+            Assert.Contains(location, hints.LocationTerms, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Parse_ReturnsEmptyForUnrelatedQuery()
+    public void ParseHints_ReturnsEmptyForUnrelatedQuery()
     {
-        var parsed = SearchQueryResolver.Parse("xyzqwerty unrelated", SampleAdvertCategories(), SampleTopicCategories());
-        Assert.Null(parsed.AdvertCategory);
-        Assert.Null(parsed.DiscussionTopic);
+        var hints = SearchQueryResolver.ParseHints("xyzqwerty unrelated");
+        Assert.Null(hints.SubcategorySlug);
+        Assert.Empty(hints.LocationTerms);
     }
-
-    private static List<Category> SampleAdvertCategories() =>
-    [
-        new() { Slug = "immobilier", Label = "Immobilier", Icon = "⌂", IsAiGenerated = true },
-        // Fine-grained subcategory-like categories might exist in DB (and share similar labels),
-        // but SearchQueryResolver should still resolve "appartement(s) à louer" to the parent bucket.
-        new() { Slug = "appartement_a_louer", Label = "Appartements à louer", Icon = "⌂", IsAiGenerated = true },
-        new() { Slug = "vehicules", Label = "Véhicules", Icon = "🚗", IsAiGenerated = true },
-        new() { Slug = "telephones", Label = "Téléphones & tablettes", Icon = "📱", IsAiGenerated = true },
-    ];
-
-    private static List<Category> SampleTopicCategories() =>
-    [
-        new() { Slug = "sport", Label = "Sport & foot", Icon = "⚽", IsDiscussionTopic = true, IsAiGenerated = true },
-        new() { Slug = "politique", Label = "Politique", Icon = "🏛️", IsDiscussionTopic = true, IsAiGenerated = true },
-    ];
 }

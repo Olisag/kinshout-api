@@ -1,25 +1,9 @@
-using Kinshout.Api.Models;
-
 namespace Kinshout.Api.Services;
 
-public sealed class ParsedSearchQuery
+public sealed class SearchQueryHints
 {
-    public Category? AdvertCategory { get; init; }
-    public string? SubcategorySlug { get; init; }
     public IReadOnlyList<string> LocationTerms { get; init; } = [];
-    public Category? DiscussionTopic { get; init; }
-
-    public bool IsAdvertCategoryBrowse =>
-        AdvertCategory is not null && SubcategorySlug is null && LocationTerms.Count == 0;
-
-    public bool IsStructuredAdvertSearch =>
-        AdvertCategory is not null && (SubcategorySlug is not null || LocationTerms.Count > 0);
-
-    public bool IsDiscussionTopicBrowse =>
-        DiscussionTopic is not null && LocationTerms.Count == 0 && AdvertCategory is null;
-
-    public bool IsDiscussionTopicSearch =>
-        DiscussionTopic is not null && LocationTerms.Count > 0;
+    public string? SubcategorySlug { get; init; }
 }
 
 public static class SearchQueryResolver
@@ -37,180 +21,40 @@ public static class SearchQueryResolver
         ("lubumbashi", "Lubumbashi"),
     ];
 
-    public static ParsedSearchQuery Parse(
-        string query,
-        IReadOnlyList<Category> advertCategories,
-        IReadOnlyList<Category> topicCategories)
+    /// <summary>
+    /// Extracts structured hints from a search query (location, subcategory).
+    /// Does not route to category/topic browse — that requires explicit categoryId/topicId on the request.
+    /// </summary>
+    public static SearchQueryHints ParseHints(string query)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return new ParsedSearchQuery();
+            return new SearchQueryHints();
 
         var normalized = SearchTextNormalizer.Normalize(query);
         if (normalized.Length < 2)
-            return new ParsedSearchQuery();
+            return new SearchQueryHints();
 
         var locationTerms = ExtractLocationTerms(normalized);
         var textWithoutLocations = RemoveLocations(normalized, locationTerms);
-
-        var advertCategory = TryMatchAdvertCategory(textWithoutLocations, advertCategories)
-            ?? TryMatchAdvertCategory(normalized, advertCategories)
-            ?? TryInferAdvertCategory(textWithoutLocations);
-
-        var discussionTopic = TryMatchDiscussionTopic(normalized, topicCategories)
-            ?? TryMatchDiscussionTopic(textWithoutLocations, topicCategories);
-
-        if (ShouldSkipDiscussionTopic(normalized, textWithoutLocations, advertCategory))
-            discussionTopic = null;
+        var subcategoryText = string.IsNullOrWhiteSpace(textWithoutLocations) ? normalized : textWithoutLocations;
+        var parentSlug = InferParentSlug(subcategoryText) ?? InferParentSlug(normalized);
 
         string? subcategory = null;
-        if (advertCategory is not null)
+        if (parentSlug is not null)
         {
-            var subcategoryText = string.IsNullOrWhiteSpace(textWithoutLocations) ? normalized : textWithoutLocations;
-            var inferred = InferSubcategorySlug(subcategoryText, advertCategory.Slug);
+            var inferred = InferSubcategorySlug(subcategoryText, parentSlug);
             if (inferred is not null
-                && (locationTerms.Count > 0 || NamesExplicitSubcategory(subcategoryText, advertCategory.Slug)))
+                && (locationTerms.Count > 0 || NamesExplicitSubcategory(subcategoryText, parentSlug)))
             {
                 subcategory = inferred;
             }
         }
 
-        if (advertCategory is not null)
-            advertCategory = advertCategories.FirstOrDefault(c =>
-                c.Id == advertCategory.Id || c.Slug.Equals(advertCategory.Slug, StringComparison.OrdinalIgnoreCase))
-                ?? advertCategory;
-
-        if (discussionTopic is not null)
-            discussionTopic = topicCategories.FirstOrDefault(c =>
-                c.Id == discussionTopic.Id || c.Slug.Equals(discussionTopic.Slug, StringComparison.OrdinalIgnoreCase))
-                ?? discussionTopic;
-
-        return new ParsedSearchQuery
+        return new SearchQueryHints
         {
-            AdvertCategory = advertCategory,
-            SubcategorySlug = subcategory,
             LocationTerms = locationTerms,
-            DiscussionTopic = discussionTopic,
+            SubcategorySlug = subcategory,
         };
-    }
-
-    private static bool ShouldSkipDiscussionTopic(string normalized, string textWithoutLocations, Category? advertCategory)
-    {
-        if (advertCategory is not null && !ContainsDiscussionIntent(normalized))
-            return true;
-
-        var tokens = textWithoutLocations
-            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (tokens.Length == 0)
-            return true;
-
-        return tokens.All(token => token is "kinshasa" or "kin" or "rdc" or "congo");
-    }
-
-    private static bool ContainsDiscussionIntent(string normalized) =>
-        normalized.Contains("discussion", StringComparison.Ordinal)
-        || normalized.Contains("forum", StringComparison.Ordinal)
-        || normalized.Contains("debat", StringComparison.Ordinal);
-
-    private static Category? TryMatchAdvertCategory(string normalized, IReadOnlyList<Category> categories)
-    {
-        if (string.IsNullOrWhiteSpace(normalized))
-            return null;
-
-        foreach (var category in categories)
-        {
-            if (category.IsDiscussionTopic || category.Slug == Category.DiscussionSlug)
-                continue;
-
-            // Advert search SQL filters by CategoryId. We only want to match parent buckets here;
-            // fine-grained rent/sale subcategories are represented via `SubcategorySlug`.
-            if (!AiCategoryCatalog.IsParentBucket(category.Slug))
-                continue;
-
-            var label = SearchTextNormalizer.Normalize(category.Label);
-            var slug = SearchTextNormalizer.Normalize(category.Slug.Replace('_', ' '));
-            if (normalized == label
-                || normalized == slug
-                || normalized.Contains(label, StringComparison.Ordinal)
-                || label.Contains(normalized, StringComparison.Ordinal)
-                || normalized.Contains(slug, StringComparison.Ordinal))
-            {
-                return category;
-            }
-        }
-
-        return null;
-    }
-
-    private static Category? TryInferAdvertCategory(string normalized)
-    {
-        var parentSlug = InferParentSlug(normalized);
-        if (parentSlug is null)
-            return null;
-
-        var (slug, label, icon) = AiCategoryCatalog.DescribeParent(parentSlug);
-        return new Category
-        {
-            Slug = slug,
-            Label = label,
-            Icon = icon,
-            IsAiGenerated = true,
-        };
-    }
-
-    private static Category? TryMatchDiscussionTopic(string normalized, IReadOnlyList<Category> topicCategories)
-    {
-        foreach (var topic in topicCategories)
-        {
-            var label = SearchTextNormalizer.Normalize(topic.Label);
-            var slug = SearchTextNormalizer.Normalize(topic.Slug.Replace('_', ' '));
-            if (normalized == label
-                || normalized == slug
-                || normalized.Contains(label, StringComparison.Ordinal)
-                || label.Contains(normalized, StringComparison.Ordinal)
-                || normalized.Contains(slug, StringComparison.Ordinal))
-            {
-                return topic;
-            }
-        }
-
-        var inferredSlug = AiDiscussionCategoryCatalog.InferTopicSlugFromText(normalized);
-        return topicCategories.FirstOrDefault(c =>
-            c.Slug.Equals(inferredSlug, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string? InferParentSlug(string normalized)
-    {
-        if (ContainsAny(normalized, "appartement", "appartements", "studio", "maison", "villa", "immobilier", "parcelle", "terrain", "ndako", "kofanda"))
-            return "immobilier";
-
-        if (ContainsAny(normalized, "voiture", "moto", "vehicule", "automobile", "toyota", "camion", "motuka"))
-            return "vehicules";
-
-        if (ContainsAny(normalized, "iphone", "samsung", "telephone", "smartphone", "tablette", "infinix", "tecno"))
-            return "telephones";
-
-        if (ContainsAny(normalized, "ordinateur", "macbook", "laptop", "pc ", " pc", "informatique"))
-            return "informatique";
-
-        if (ContainsAny(normalized, "electronique", "starlink", "generateur", "groupe electrogene", "panneau solaire", "playstation", "xbox"))
-            return "electronique";
-
-        if (ContainsAny(normalized, "emploi", "emplois", "travail", "job", "recrutement", "cv ", " cv", "stage", "mosala"))
-            return "emplois";
-
-        if (ContainsAny(normalized, "meuble", "canape", "decoration", "electromenager"))
-            return "meubles";
-
-        if (ContainsAny(normalized, "service", "plomberie", "nettoyage", "demenagement", "renovation"))
-            return "services";
-
-        if (ContainsAny(normalized, "vetement", "habit", "chaussure", "mode", "montre", "bijou", "sac "))
-            return "mode";
-
-        if (ContainsAny(normalized, "jouet", "jeu ", " jeu", "loisir"))
-            return "jouets";
-
-        return null;
     }
 
     internal static string? InferSubcategorySlug(string normalized, string parentSlug)
@@ -247,6 +91,41 @@ public static class SearchQueryResolver
 
         if (parentSlug == "emplois")
             return "offre_emploi";
+
+        return null;
+    }
+
+    private static string? InferParentSlug(string normalized)
+    {
+        if (ContainsAny(normalized, "appartement", "appartements", "studio", "maison", "villa", "immobilier", "parcelle", "terrain", "ndako", "kofanda"))
+            return "immobilier";
+
+        if (ContainsAny(normalized, "voiture", "moto", "vehicule", "automobile", "toyota", "camion", "motuka"))
+            return "vehicules";
+
+        if (ContainsAny(normalized, "iphone", "samsung", "telephone", "smartphone", "tablette", "infinix", "tecno"))
+            return "telephones";
+
+        if (ContainsAny(normalized, "ordinateur", "macbook", "laptop", "pc ", " pc", "informatique"))
+            return "informatique";
+
+        if (ContainsAny(normalized, "electronique", "starlink", "generateur", "groupe electrogene", "panneau solaire", "playstation", "xbox"))
+            return "electronique";
+
+        if (ContainsAny(normalized, "emploi", "emplois", "travail", "job", "recrutement", "cv ", " cv", "stage", "mosala"))
+            return "emplois";
+
+        if (ContainsAny(normalized, "meuble", "canape", "decoration", "electromenager"))
+            return "meubles";
+
+        if (ContainsAny(normalized, "service", "plomberie", "nettoyage", "demenagement", "renovation"))
+            return "services";
+
+        if (ContainsAny(normalized, "vetement", "habit", "chaussure", "mode", "montre", "bijou", "sac "))
+            return "mode";
+
+        if (ContainsAny(normalized, "jouet", "jeu ", " jeu", "loisir"))
+            return "jouets";
 
         return null;
     }

@@ -352,7 +352,9 @@ public record SearchRequestDto(
     int PageSize = 20,
     string Sort = "recent",
     string? Intent = null,
-    string? Source = null);
+    string? Source = null,
+    Guid? CategoryId = null,
+    Guid? TopicId = null);
 
 public record PopularSearchDto(string Query, int Count);
 

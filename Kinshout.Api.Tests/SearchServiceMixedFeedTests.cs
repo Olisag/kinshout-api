@@ -14,7 +14,7 @@ public class SearchServiceMixedFeedTests
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
-        var hotDiscussion = CreateDiscussion(user, category, "Hot thread", viewCount: 100, createdAt: DateTime.UtcNow.AddDays(-2));
+        var hotDiscussion = CreateDiscussion(user, category, "Hot thread Kinshasa", viewCount: 100, createdAt: DateTime.UtcNow.AddDays(-2));
         var quietAdvert = CreateAdvert(user, category, "Quiet advert", viewCount: 5, createdAt: DateTime.UtcNow);
         var warmAdvert = CreateAdvert(user, category, "Warm advert", viewCount: 40, createdAt: DateTime.UtcNow.AddDays(-1));
         db.Adverts.AddRange(quietAdvert, warmAdvert);
@@ -39,7 +39,7 @@ public class SearchServiceMixedFeedTests
         Assert.NotNull(result.Items);
         Assert.Empty(result.Adverts);
         Assert.Empty(result.Discussions);
-        Assert.Equal(["Hot thread", "Warm advert", "Quiet advert"], result.Items!.Select(i => i.Advert?.Title ?? i.Discussion?.Title).ToArray());
+        Assert.Equal(["Hot thread Kinshasa", "Warm advert", "Quiet advert"], result.Items!.Select(i => i.Advert?.Title ?? i.Discussion?.Title).ToArray());
         Assert.Equal(3, result.Pagination.TotalItems);
         Assert.False(result.Pagination.HasMore);
     }
@@ -51,7 +51,7 @@ public class SearchServiceMixedFeedTests
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
         var advert = CreateAdvert(user, category, "Advert", viewCount: 1, createdAt: DateTime.UtcNow.AddDays(-1));
-        var discussion = CreateDiscussion(user, category, "Discussion", viewCount: 1, createdAt: DateTime.UtcNow);
+        var discussion = CreateDiscussion(user, category, "Discussion Kinshasa", viewCount: 1, createdAt: DateTime.UtcNow);
         db.Adverts.Add(advert);
         db.Discussions.Add(discussion);
         await db.SaveChangesAsync();
@@ -69,7 +69,7 @@ public class SearchServiceMixedFeedTests
 
         var page1 = await service.SearchAsync(new SearchRequestDto("kinshasa", "all", Page: 1, PageSize: 1));
         Assert.Single(page1.Items);
-        Assert.Equal("Discussion", page1.Items![0].Discussion?.Title);
+        Assert.Equal("Discussion Kinshasa", page1.Items![0].Discussion?.Title);
         Assert.True(page1.Pagination.HasMore);
         Assert.Equal(2, page1.Pagination.TotalItems);
 
@@ -91,7 +91,7 @@ public class SearchServiceMixedFeedTests
             CategoryId = category.Id,
             Title = title,
             Description = "Description",
-            Location = "Gombe",
+            Location = "Gombe, Kinshasa",
             ViewCount = viewCount,
             CreatedAt = createdAt,
             UpdatedAt = createdAt,
@@ -109,7 +109,9 @@ public class SearchServiceMixedFeedTests
             UserId = user.Id,
             CategoryId = category.Id,
             Title = title,
-            Body = "Body",
+            Body = title.Contains("Kinshasa", StringComparison.OrdinalIgnoreCase)
+                ? "Discussion communautaire à Kinshasa."
+                : "Body",
             ViewCount = viewCount,
             CreatedAt = createdAt,
             UpdatedAt = createdAt,

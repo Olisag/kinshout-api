@@ -408,13 +408,15 @@ public class SearchController(ISearchService search) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? source = null,
+        [FromQuery] Guid? categoryId = null,
+        [FromQuery] Guid? topicId = null,
         CancellationToken ct = default)
     {
         if (!TryNormalizeSearchParams(sort, intent, out sort, out intent, out var error))
             return BadRequest(new { error });
 
         return Ok(await search.SearchAsync(
-            new SearchRequestDto(q, tab, page, pageSize, sort, intent, source),
+            new SearchRequestDto(q, tab, page, pageSize, sort, intent, source, categoryId, topicId),
             ControllerUserHelper.TryGetUserId(HttpContext),
             ct));
     }

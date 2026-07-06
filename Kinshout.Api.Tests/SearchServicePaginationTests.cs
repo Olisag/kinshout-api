@@ -74,7 +74,7 @@ public class SearchServicePaginationTests
             .ReturnsAsync(new AiSearchAnalysis(advertIds, [], ""));
 
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
-        var result = await service.SearchAsync(new SearchRequestDto("test", "annonces", Page: 1, PageSize: 999));
+        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", Page: 1, PageSize: 999));
 
         Assert.Equal(50, result.Pagination.PageSize);
         Assert.Equal(50, result.Adverts.Count);
@@ -108,7 +108,7 @@ public class SearchServicePaginationTests
             {
                 UserId = user.Id,
                 CategoryId = category.Id,
-                Title = $"Annonce {i + 1}",
+                Title = $"Appartement {i + 1}",
                 Description = "Appartement à Gombe",
                 Location = "Gombe",
                 IsPublished = true,

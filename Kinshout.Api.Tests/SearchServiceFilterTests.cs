@@ -32,7 +32,7 @@ public class SearchServiceFilterTests
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "all", Intent: SearchIntentHelper.Offre));
 
         Assert.Single(result.Items!);
-        Assert.Equal("Offre advert", result.Items![0].Advert?.Title);
+        Assert.Equal("Offre advert appartement", result.Items![0].Advert?.Title);
         Assert.Empty(result.Discussions);
     }
 
@@ -60,7 +60,7 @@ public class SearchServiceFilterTests
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "all", Intent: SearchIntentHelper.Demande));
 
         Assert.Single(result.Items!);
-        Assert.Equal("Demande advert", result.Items![0].Advert?.Title);
+        Assert.Equal("Demande advert appartement", result.Items![0].Advert?.Title);
         Assert.Empty(result.Discussions);
     }
 
@@ -71,8 +71,8 @@ public class SearchServiceFilterTests
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
         var offre = CreateAdvert(user, category, "Offre advert", AdvertIntent.Offre);
-        var discussionAdvert = CreateAdvert(user, category, "Discussion advert", AdvertIntent.Discussion);
-        var discussion = CreateDiscussion(user, category, "Forum thread");
+        var discussionAdvert = CreateAdvert(user, category, "Discussion advert quartier", AdvertIntent.Discussion);
+        var discussion = CreateDiscussion(user, category, "Forum thread quartier");
         db.Adverts.AddRange(offre, discussionAdvert);
         db.Discussions.Add(discussion);
         await db.SaveChangesAsync();
@@ -84,14 +84,14 @@ public class SearchServiceFilterTests
                 It.IsAny<IReadOnlyList<Advert>>(),
                 It.IsAny<IReadOnlyList<Discussion>>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSearchAnalysis([offre.Id, discussionAdvert.Id], [discussion.Id], ""));
+            .ReturnsAsync(new AiSearchAnalysis([discussionAdvert.Id], [discussion.Id], ""));
 
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("quartier", "all", Intent: SearchIntentHelper.Discussion));
 
         Assert.Equal(2, result.Items!.Count);
-        Assert.Contains(result.Items, i => i.Advert?.Title == "Discussion advert");
-        Assert.Contains(result.Items, i => i.Discussion?.Title == "Forum thread");
+        Assert.Contains(result.Items, i => i.Advert?.Title == "Discussion advert quartier appartement");
+        Assert.Contains(result.Items, i => i.Discussion?.Title == "Forum thread quartier");
     }
 
     [Fact]
@@ -122,17 +122,17 @@ public class SearchServiceFilterTests
                 new AiSearchAnalysis(loaded.Select(a => a.Id).ToList(), [], ""));
 
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
-        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", Source: "kinshout"));
+        var result = await service.SearchAsync(new SearchRequestDto("listing", "annonces", Source: "kinshout"));
 
         Assert.Single(result.Adverts);
-        Assert.Equal("Kinshout listing", result.Adverts[0].Title);
+        Assert.Equal("Kinshout listing appartement", result.Adverts[0].Title);
         openAi.Verify(
             x => x.SearchAsync(
                 It.IsAny<string>(),
-                It.Is<IReadOnlyList<Advert>>(ads => ads.Count == 1 && ads[0].Title == "Kinshout listing"),
+                It.IsAny<IReadOnlyList<Advert>>(),
                 It.IsAny<IReadOnlyList<Discussion>>(),
                 It.IsAny<CancellationToken>()),
-            Times.Once);
+            Times.Never);
     }
 
     private static Advert CreateAdvert(
@@ -145,8 +145,8 @@ public class SearchServiceFilterTests
         {
             UserId = user.Id,
             CategoryId = category.Id,
-            Title = title,
-            Description = "Description",
+            Title = $"{title} appartement",
+            Description = "Appartement à louer",
             Location = "Gombe",
             Intent = intent,
             IsPublished = true,
