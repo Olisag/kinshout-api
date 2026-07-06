@@ -63,8 +63,16 @@ public static class SearchQueryResolver
             discussionTopic = null;
 
         string? subcategory = null;
-        if (advertCategory is not null && locationTerms.Count > 0)
-            subcategory = InferSubcategorySlug(textWithoutLocations, advertCategory.Slug);
+        if (advertCategory is not null)
+        {
+            var subcategoryText = string.IsNullOrWhiteSpace(textWithoutLocations) ? normalized : textWithoutLocations;
+            var inferred = InferSubcategorySlug(subcategoryText, advertCategory.Slug);
+            if (inferred is not null
+                && (locationTerms.Count > 0 || NamesExplicitSubcategory(subcategoryText, advertCategory.Slug)))
+            {
+                subcategory = inferred;
+            }
+        }
 
         if (advertCategory is not null)
             advertCategory = advertCategories.FirstOrDefault(c =>
@@ -242,6 +250,28 @@ public static class SearchQueryResolver
 
         return null;
     }
+
+    private static bool NamesExplicitSubcategory(string normalized, string parentSlug) =>
+        parentSlug switch
+        {
+            "immobilier" => ContainsAny(normalized, "studio", "maison", "villa", "parcelle", "terrain", "bureau"),
+            "vehicules" => ContainsAny(
+                normalized,
+                "moto",
+                "scooter",
+                "yamaha",
+                "voiture",
+                "automobile",
+                "toyota",
+                "jeep",
+                "4x4",
+                "camion",
+                "bus",
+                "motuka"),
+            "telephones" => ContainsAny(normalized, "tablette", "ipad"),
+            "informatique" => ContainsAny(normalized, "imprimante", "printer"),
+            _ => false,
+        };
 
     private static IReadOnlyList<string> ExtractLocationTerms(string normalized)
     {
