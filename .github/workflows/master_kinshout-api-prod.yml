@@ -1,4 +1,6 @@
-# Deploy Kinshout API to production when Master branch is updated.
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+
 name: Build and deploy ASP.Net Core app to Azure Web App - kinshout-api-prod
 
 on:
@@ -6,11 +8,12 @@ on:
     branches:
       - Master
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: read #This is required for actions/checkout
 
     steps:
       - uses: actions/checkout@v4
@@ -36,26 +39,27 @@ jobs:
     runs-on: windows-latest
     needs: build
     permissions:
-      id-token: write
-      contents: read
+      id-token: write #This is required for requesting the JWT
+      contents: read #This is required for actions/checkout
 
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: .net-app
-
+      
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_1337B3058976429FB9074939041B8172 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_3FCE721D276A4239A5CCC54A1EE0B495 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_34B03CFC9ED44EAD9905F975EB67AF1C }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_19F6DFAABDC747A8B8A57AA4357F3312 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BA0E7AC063D7423B93689D49C6E14B50 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A4BFFEE8378E424FB38B9FDAFFB1C988 }}
 
       - name: Deploy to Azure Web App
+        id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'kinshout-api-prod'
-          resource-group-name: 'Phpnet20211126011001ResourceGroup'
           slot-name: 'Production'
           package: .
+          
