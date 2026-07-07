@@ -59,16 +59,16 @@ public class SearchRetrievalCapTests
             {
                 UserId = user.Id,
                 CategoryId = category.Id,
-                Title = $"Appartement {i}",
-                Description = "À louer Gombe",
+                Title = $"Annonce immobiliere {i}",
+                Description = "Appartement disponible a louer",
                 IsPublished = true,
             });
             db.Discussions.Add(new Discussion
             {
                 UserId = user.Id,
                 CategoryId = category.Id,
-                Title = $"Forum appartement {i}",
-                Body = "Discussion quartier",
+                Title = $"Forum logement {i}",
+                Body = "Discussion sur un appartement",
             });
         }
 

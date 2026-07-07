@@ -93,6 +93,70 @@ public static class SearchMatchHelper
     internal static IReadOnlyList<string> ExtractTerms(string query) =>
         SearchTermExpander.ExtractExpandedTerms(query);
 
+    public static bool IsConfidentLocalRank(
+        string query,
+        IReadOnlyList<Advert> adverts,
+        IReadOnlyList<Discussion> discussions)
+    {
+        var advertScores = RankAdvertScores(query, adverts);
+        var discussionScores = RankDiscussionScores(query, discussions);
+
+        if (advertScores.Count > 0 && discussionScores.Count > 0)
+            return IsConfidentScoreList(advertScores) && IsConfidentScoreList(discussionScores);
+
+        if (advertScores.Count > 0)
+            return IsConfidentScoreList(advertScores);
+
+        if (discussionScores.Count > 0)
+            return IsConfidentScoreList(discussionScores);
+
+        return false;
+    }
+
+    internal static IReadOnlyList<int> RankAdvertScores(string query, IReadOnlyList<Advert> adverts)
+    {
+        var terms = ExtractTerms(query);
+        var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
+        var normalizedQuery = SearchTextNormalizer.Normalize(subject);
+        return adverts
+            .Select(a => ScoreAdvert(terms, normalizedQuery, a))
+            .Where(score => score > 0)
+            .OrderByDescending(score => score)
+            .ToList();
+    }
+
+    internal static IReadOnlyList<int> RankDiscussionScores(string query, IReadOnlyList<Discussion> discussions)
+    {
+        var terms = ExtractTerms(query);
+        var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
+        var normalizedQuery = SearchTextNormalizer.Normalize(subject);
+        return discussions
+            .Select(d => ScoreDiscussion(terms, normalizedQuery, d))
+            .Where(score => score > 0)
+            .OrderByDescending(score => score)
+            .ToList();
+    }
+
+    private static bool IsConfidentScoreList(IReadOnlyList<int> scores)
+    {
+        if (scores.Count == 0)
+            return true;
+
+        var top = scores[0];
+        if (top >= PhraseBonus + TitleWeight)
+            return true;
+
+        if (top < TitleWeight)
+            return false;
+
+        if (scores.Count == 1)
+            return true;
+
+        var compareIndex = Math.Min(4, scores.Count - 1);
+        var compareScore = scores[compareIndex];
+        return compareScore == 0 || top >= compareScore * 2;
+    }
+
     private static int ScoreFields(
         IReadOnlyList<string> terms,
         string title,

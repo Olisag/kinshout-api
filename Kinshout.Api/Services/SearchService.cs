@@ -3,6 +3,7 @@ using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 namespace Kinshout.Api.Services;
 public interface ISearchService
 {
@@ -15,7 +16,12 @@ public interface ISearchService
         CancellationToken ct = default);
 
 }
-public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryCache cache, IAdvertDtoMapper advertDtos) : ISearchService
+public class SearchService(
+    KinshoutDbContext db,
+    IOpenAiService openAi,
+    IMemoryCache cache,
+    IAdvertDtoMapper advertDtos,
+    IServiceScopeFactory? scopeFactory = null) : ISearchService
 {
 
     private const int DefaultPageSize = 20;
@@ -30,7 +36,12 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         var isAdvertBrowse = IsExplicitAdvertBrowse(request);
         var isTopicBrowse = IsExplicitTopicBrowse(request);
         if (page == 1 && isSemanticSearch)
-            await RecordSearchQueryAsync(query, ct);
+        {
+            if (scopeFactory is null)
+                await RecordSearchQueryAsync(query, ct);
+            else
+                QueueRecordSearchQuery(query);
+        }
 
         var hints = SearchQueryHints(isSemanticSearch, query);
         var browseCategory = isAdvertBrowse
@@ -40,10 +51,24 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             ? await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == request.TopicId, ct)
             : null;
 
-        var adverts = await LoadAdvertsAsync(request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
-        var discussions = await LoadDiscussionsAsync(request, hints, query, isTopicBrowse, isSemanticSearch, ct);
+        List<Advert> adverts;
+        List<Discussion> discussions;
+        if (scopeFactory is not null)
+        {
+            var advertsTask = LoadAdvertsInScopeAsync(request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
+            var discussionsTask = LoadDiscussionsInScopeAsync(request, hints, query, isTopicBrowse, isSemanticSearch, ct);
+            await Task.WhenAll(advertsTask, discussionsTask);
+            adverts = await advertsTask;
+            discussions = await discussionsTask;
+        }
+        else
+        {
+            adverts = await LoadAdvertsAsync(request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
+            discussions = await LoadDiscussionsAsync(request, hints, query, isTopicBrowse, isSemanticSearch, ct);
+        }
         var analysis = await AnalyzeAsync(
             query,
+            hints,
             isAdvertBrowse,
             isTopicBrowse,
             isSemanticSearch,
@@ -120,7 +145,46 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     private static SearchQueryHints SearchQueryHints(bool isSemanticSearch, string query) =>
         isSemanticSearch ? SearchQueryResolver.ParseHints(query) : new SearchQueryHints();
 
+    private async Task<List<Advert>> LoadAdvertsInScopeAsync(
+        SearchRequestDto request,
+        SearchQueryHints hints,
+        string query,
+        bool isAdvertBrowse,
+        bool isSemanticSearch,
+        CancellationToken ct)
+    {
+        using var scope = scopeFactory!.CreateScope();
+        var scopedDb = scope.ServiceProvider.GetRequiredService<KinshoutDbContext>();
+        var scopedCache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+        return await LoadAdvertsCoreAsync(scopedDb, scopedCache, request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
+    }
+
+    private async Task<List<Discussion>> LoadDiscussionsInScopeAsync(
+        SearchRequestDto request,
+        SearchQueryHints hints,
+        string query,
+        bool isTopicBrowse,
+        bool isSemanticSearch,
+        CancellationToken ct)
+    {
+        using var scope = scopeFactory!.CreateScope();
+        var scopedDb = scope.ServiceProvider.GetRequiredService<KinshoutDbContext>();
+        var scopedCache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+        return await LoadDiscussionsCoreAsync(scopedDb, scopedCache, request, hints, query, isTopicBrowse, isSemanticSearch, ct);
+    }
+
     private async Task<List<Advert>> LoadAdvertsAsync(
+        SearchRequestDto request,
+        SearchQueryHints hints,
+        string query,
+        bool isAdvertBrowse,
+        bool isSemanticSearch,
+        CancellationToken ct) =>
+        await LoadAdvertsCoreAsync(db, cache, request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
+
+    private async Task<List<Advert>> LoadAdvertsCoreAsync(
+        KinshoutDbContext context,
+        IMemoryCache memoryCache,
         SearchRequestDto request,
         SearchQueryHints hints,
         string query,
@@ -132,14 +196,25 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         if (request.Tab.Equals("discussions", StringComparison.OrdinalIgnoreCase))
             return [];
         if (isAdvertBrowse)
-            return await LoadAdvertsByCategoryIdAsync(request.CategoryId!.Value, request, ct);
+            return await LoadAdvertsByCategoryIdAsync(context, request.CategoryId!.Value, request, ct);
         if (!isSemanticSearch)
             return [];
-        return await LoadSemanticAdvertsAsync(query, hints, request, ct);
+        return await LoadSemanticAdvertsAsync(context, memoryCache, query, hints, request, ct);
 
     }
 
     private async Task<List<Discussion>> LoadDiscussionsAsync(
+        SearchRequestDto request,
+        SearchQueryHints hints,
+        string query,
+        bool isTopicBrowse,
+        bool isSemanticSearch,
+        CancellationToken ct) =>
+        await LoadDiscussionsCoreAsync(db, cache, request, hints, query, isTopicBrowse, isSemanticSearch, ct);
+
+    private async Task<List<Discussion>> LoadDiscussionsCoreAsync(
+        KinshoutDbContext context,
+        IMemoryCache memoryCache,
         SearchRequestDto request,
         SearchQueryHints hints,
         string query,
@@ -154,15 +229,16 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             && request.Intent is SearchIntentHelper.Offre or SearchIntentHelper.Demande)
             return [];
         if (isTopicBrowse)
-            return await LoadDiscussionsByTopicIdAsync(request.TopicId!.Value, ct);
+            return await LoadDiscussionsByTopicIdAsync(context, request.TopicId!.Value, ct);
         if (!isSemanticSearch)
             return [];
-        return await LoadSemanticDiscussionsAsync(query, hints, ct);
+        return await LoadSemanticDiscussionsAsync(context, memoryCache, query, hints, ct);
 
     }
 
     private async Task<AiSearchAnalysis> AnalyzeAsync(
         string query,
+        SearchQueryHints hints,
         bool isAdvertBrowse,
         bool isTopicBrowse,
         bool isSemanticSearch,
@@ -182,6 +258,8 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         }
 
         var local = SearchMatchHelper.Rank(query, adverts, discussions);
+        if (ShouldUseLocalRankOnly(query, hints, adverts, discussions, local))
+            return local;
         if (adverts.Count == 0 && local.DiscussionIds.Count > 0)
             return local;
         if (discussions.Count == 0 && local.AdvertIds.Count > 0)
@@ -254,11 +332,12 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
 
     }
     private async Task<List<Advert>> LoadAdvertsByCategoryIdAsync(
+        KinshoutDbContext context,
         Guid categoryId,
         SearchRequestDto request,
         CancellationToken ct)
     {
-        IQueryable<Advert> query = db.Adverts
+        IQueryable<Advert> query = context.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
@@ -267,13 +346,15 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
         return await query.ToListAsync(ct);
     }
 
-    private async Task<List<Advert>> LoadSemanticAdvertsAsync(
+    private static async Task<List<Advert>> LoadSemanticAdvertsAsync(
+        KinshoutDbContext context,
+        IMemoryCache memoryCache,
         string query,
         SearchQueryHints hints,
         SearchRequestDto request,
         CancellationToken ct)
     {
-        IQueryable<Advert> advertQuery = db.Adverts
+        IQueryable<Advert> advertQuery = context.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
             .Include(a => a.User)
@@ -288,21 +369,29 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 a.Location != null && a.Location.ToLower().Contains(term));
         }
 
-        return await SearchRetrieval.LoadSemanticAdvertsAsync(db, advertQuery, query, ct);
+        return await SearchRetrieval.LoadSemanticAdvertsAsync(context, advertQuery, query, memoryCache, ct);
     }
 
-    private async Task<List<Discussion>> LoadDiscussionsByTopicIdAsync(Guid topicId, CancellationToken ct) =>
+    private static async Task<List<Discussion>> LoadDiscussionsByTopicIdAsync(
+        KinshoutDbContext context,
+        Guid topicId,
+        CancellationToken ct) =>
         await OrderDiscussions(
-            db.Discussions
+            context.Discussions
                 .AsNoTracking()
                 .Include(d => d.User)
                 .Include(d => d.Category)
                 .Where(d => d.CategoryId == topicId))
             .ToListAsync(ct);
 
-    private async Task<List<Discussion>> LoadSemanticDiscussionsAsync(string query, SearchQueryHints hints, CancellationToken ct)
+    private static async Task<List<Discussion>> LoadSemanticDiscussionsAsync(
+        KinshoutDbContext context,
+        IMemoryCache memoryCache,
+        string query,
+        SearchQueryHints hints,
+        CancellationToken ct)
     {
-        IQueryable<Discussion> discussionQuery = db.Discussions.AsNoTracking();
+        IQueryable<Discussion> discussionQuery = context.Discussions.AsNoTracking();
         foreach (var location in hints.LocationTerms)
         {
             var term = location.ToLowerInvariant();
@@ -310,7 +399,7 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
                 d.Title.ToLower().Contains(term) || d.Body.ToLower().Contains(term));
         }
 
-        return await SearchRetrieval.LoadSemanticDiscussionsAsync(db, discussionQuery, query, ct);
+        return await SearchRetrieval.LoadSemanticDiscussionsAsync(context, discussionQuery, query, memoryCache, ct);
     }
 
     private static IQueryable<Advert> ApplyRequestAdvertFilters(IQueryable<Advert> query, SearchRequestDto request)
@@ -395,6 +484,44 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
     private static (int Page, int PageSize) NormalizePaging(int page, int pageSize) =>
         (Math.Max(1, page), Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize));
 
+    private static bool ShouldUseLocalRankOnly(
+        string query,
+        SearchQueryHints hints,
+        IReadOnlyList<Advert> adverts,
+        IReadOnlyList<Discussion> discussions,
+        AiSearchAnalysis local)
+    {
+        if (SearchMatchHelper.IsConfidentLocalRank(query, adverts, discussions))
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(hints.SubcategorySlug)
+            && local.AdvertIds.Count > 0
+            && discussions.Count == 0)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private void QueueRecordSearchQuery(string query)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopeFactory!.CreateScope();
+                var scopedDb = scope.ServiceProvider.GetRequiredService<KinshoutDbContext>();
+                var scopedCache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+                await RecordSearchQueryAsync(scopedDb, scopedCache, query, CancellationToken.None);
+            }
+            catch
+            {
+                // Best-effort analytics only.
+            }
+        });
+    }
+
     private static List<Advert> SortAdverts(IEnumerable<Advert> adverts, string sort)
     {
 
@@ -414,7 +541,14 @@ public class SearchService(KinshoutDbContext db, IOpenAiService openAi, IMemoryC
             : query.OrderByDescending(d => d.CreatedAt).ToList();
 
     }
-    private async Task RecordSearchQueryAsync(string query, CancellationToken ct = default)
+    private Task RecordSearchQueryAsync(string query, CancellationToken ct = default) =>
+        RecordSearchQueryAsync(db, cache, query, ct);
+
+    private static async Task RecordSearchQueryAsync(
+        KinshoutDbContext db,
+        IMemoryCache cache,
+        string query,
+        CancellationToken ct)
     {
 
         var normalized = SearchQueryHelper.Normalize(query);

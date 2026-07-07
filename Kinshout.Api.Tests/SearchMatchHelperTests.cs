@@ -78,4 +78,48 @@ public class SearchMatchHelperTests
         Assert.Equal(titleMatch.Id, ranked[0]);
         Assert.Equal(bodyMatch.Id, ranked[1]);
     }
+
+    [Fact]
+    public void IsConfidentLocalRank_PhraseTitleMatch_ReturnsTrue()
+    {
+        var category = new Category { Label = "Immobilier" };
+        var strong = new Advert
+        {
+            Id = Guid.NewGuid(),
+            Title = "Studio meublé Gombe",
+            Description = "studio disponible",
+            Category = category,
+        };
+        var weak = new Advert
+        {
+            Id = Guid.NewGuid(),
+            Title = "Studio",
+            Description = "meublé quartier Gombe",
+            Category = category,
+        };
+
+        Assert.True(SearchMatchHelper.IsConfidentLocalRank("studio meuble gombe", [weak, strong], []));
+    }
+
+    [Fact]
+    public void IsConfidentLocalRank_AmbiguousScores_ReturnsFalse()
+    {
+        var category = new Category { Label = "Immobilier" };
+        var first = new Advert
+        {
+            Id = Guid.NewGuid(),
+            Title = "Belle offre",
+            Description = "Appartement Gombe",
+            Category = category,
+        };
+        var second = new Advert
+        {
+            Id = Guid.NewGuid(),
+            Title = "Bonne affaire",
+            Description = "Appartement Limete",
+            Category = category,
+        };
+
+        Assert.False(SearchMatchHelper.IsConfidentLocalRank("appartement", [first, second], []));
+    }
 }

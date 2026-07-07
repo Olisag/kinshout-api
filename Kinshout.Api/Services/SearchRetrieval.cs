@@ -3,6 +3,7 @@ using System.Data.Common;
 using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Kinshout.Api.Services;
 
@@ -10,17 +11,20 @@ public static class SearchRetrieval
 {
     public const int RetrieveCap = 500;
     public const int OpenAiCandidateLimit = 75;
+    private const string FullTextAvailabilityCacheKey = "search:fulltext-available";
+    private static readonly TimeSpan FullTextAvailabilityCacheDuration = TimeSpan.FromHours(1);
 
     public static async Task<List<Advert>> LoadSemanticAdvertsAsync(
         KinshoutDbContext db,
         IQueryable<Advert> baseQuery,
         string query,
+        IMemoryCache? cache,
         CancellationToken ct)
     {
         var terms = SearchMatchHelper.ExtractTerms(query);
         var filtered = ApplyAdvertTextFilter(baseQuery, terms);
 
-        if (await IsFullTextAvailableAsync(db, ct))
+        if (await IsFullTextAvailableAsync(db, cache, ct))
         {
             var fullTextIds = await LoadAdvertIdsByFullTextAsync(db, filtered, query, terms, ct);
             if (fullTextIds.Count > 0)
@@ -34,12 +38,13 @@ public static class SearchRetrieval
         KinshoutDbContext db,
         IQueryable<Discussion> baseQuery,
         string query,
+        IMemoryCache? cache,
         CancellationToken ct)
     {
         var terms = SearchMatchHelper.ExtractTerms(query);
         var filtered = ApplyDiscussionTextFilter(baseQuery, terms);
 
-        if (await IsFullTextAvailableAsync(db, ct))
+        if (await IsFullTextAvailableAsync(db, cache, ct))
         {
             var fullTextIds = await LoadDiscussionIdsByFullTextAsync(db, filtered, query, terms, ct);
             if (fullTextIds.Count > 0)
@@ -220,10 +225,6 @@ public static class SearchRetrieval
         if (containsExpression is null)
             return [];
 
-        var allowedIds = await filtered.Select(a => a.Id).ToListAsync(ct);
-        if (allowedIds.Count == 0)
-            return [];
-
         var rankedIds = await QueryFullTextIdsAsync(
             db,
             """
@@ -236,7 +237,16 @@ public static class SearchRetrieval
             containsExpression,
             ct);
 
-        return rankedIds.Where(allowedIds.Contains).Take(RetrieveCap).ToList();
+        if (rankedIds.Count == 0)
+            return [];
+
+        var allowedIds = await filtered
+            .Where(a => rankedIds.Contains(a.Id))
+            .Select(a => a.Id)
+            .ToListAsync(ct);
+
+        var allowed = allowedIds.ToHashSet();
+        return rankedIds.Where(allowed.Contains).Take(RetrieveCap).ToList();
     }
 
     private static async Task<List<Guid>> LoadDiscussionIdsByFullTextAsync(
@@ -250,10 +260,6 @@ public static class SearchRetrieval
         if (containsExpression is null)
             return [];
 
-        var allowedIds = await filtered.Select(d => d.Id).ToListAsync(ct);
-        if (allowedIds.Count == 0)
-            return [];
-
         var rankedIds = await QueryFullTextIdsAsync(
             db,
             """
@@ -264,7 +270,16 @@ public static class SearchRetrieval
             containsExpression,
             ct);
 
-        return rankedIds.Where(allowedIds.Contains).Take(RetrieveCap).ToList();
+        if (rankedIds.Count == 0)
+            return [];
+
+        var allowedIds = await filtered
+            .Where(d => rankedIds.Contains(d.Id))
+            .Select(d => d.Id)
+            .ToListAsync(ct);
+
+        var allowed = allowedIds.ToHashSet();
+        return rankedIds.Where(allowed.Contains).Take(RetrieveCap).ToList();
     }
 
     private static async Task<List<Guid>> QueryFullTextIdsAsync(
@@ -312,11 +327,27 @@ public static class SearchRetrieval
     private static string EscapeContainsTerm(string term) =>
         term.Replace("\"", "\"\"", StringComparison.Ordinal);
 
-    private static async Task<bool> IsFullTextAvailableAsync(KinshoutDbContext db, CancellationToken ct)
+    private static async Task<bool> IsFullTextAvailableAsync(
+        KinshoutDbContext db,
+        IMemoryCache? cache,
+        CancellationToken ct)
     {
         if (!db.Database.IsSqlServer())
             return false;
 
+        if (cache is not null
+            && cache.TryGetValue(FullTextAvailabilityCacheKey, out bool cached))
+        {
+            return cached;
+        }
+
+        var available = await CheckFullTextAvailableAsync(db, ct);
+        cache?.Set(FullTextAvailabilityCacheKey, available, FullTextAvailabilityCacheDuration);
+        return available;
+    }
+
+    private static async Task<bool> CheckFullTextAvailableAsync(KinshoutDbContext db, CancellationToken ct)
+    {
         var connection = db.Database.GetDbConnection();
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync(ct);
