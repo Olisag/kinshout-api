@@ -1,5 +1,6 @@
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
+using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Moq;
 
@@ -7,6 +8,34 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServicePopularTests
 {
+    [Fact]
+    public async Task GetPopularSearchesAsync_GroupsSpellingVariantsInResponse()
+    {
+        await using var db = TestDbFactory.Create();
+        db.SearchQueryStats.AddRange(
+            new SearchQueryStat
+            {
+                NormalizedQuery = "apartment gombe",
+                DisplayQuery = "Je cherche un apartment à Gombe",
+                SearchCount = 3,
+                LastSearchedAt = DateTime.UtcNow.AddHours(-2),
+            },
+            new SearchQueryStat
+            {
+                NormalizedQuery = "appartement gombe",
+                DisplayQuery = "Je cherche un appartement à Gombe",
+                SearchCount = 5,
+                LastSearchedAt = DateTime.UtcNow.AddHours(-1),
+            });
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var popular = await service.GetPopularSearchesAsync();
+
+        Assert.Single(popular.Items);
+        Assert.Equal(8, popular.Items[0].Count);
+    }
+
     [Fact]
     public async Task SearchAsync_IncrementsPopularCountForSameQuery()
     {

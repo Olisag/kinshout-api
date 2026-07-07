@@ -36,7 +36,7 @@ public sealed class KinshoutStartupHostedService(
             await ImportSeed.EnsureImportUserAsync(db);
 
             var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
-            await SearchQueryStatsConsolidator.ConsolidateHistoricalDuplicatesAsync(db, cache, ct);
+            await SearchQueryStatsConsolidator.ConsolidateHistoricalDuplicatesAsync(db, cache, logger, ct);
             await AiCategoryCatalog.SyncContentAsync(db, cache, ct);
 
             scope.ServiceProvider.GetRequiredService<IDiscussionTopicBackfillScheduler>().ScheduleBatchBackfill();
