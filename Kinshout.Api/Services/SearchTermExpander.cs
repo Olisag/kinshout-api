@@ -48,6 +48,18 @@ internal static class SearchTermExpander
         "koluka", "kolingi", "nalingi", "kolinga",
     ];
 
+    /// <summary>
+    /// Sale / rent boilerplate — intent context only, not product keywords.
+    /// Must not be used as SQL retrieval terms (e.g. "vente" matches almost every listing).
+    /// </summary>
+    private static readonly string[] OfferStopWords =
+    [
+        "vente", "ventes", "vendre", "vends", "vend", "vendu", "vendue",
+        "sale", "sell", "selling", "sold",
+        "koteka", "kotia", "kotisa",
+        "louer", "loue", "location", "rent", "rental", "lease",
+    ];
+
     private static readonly Dictionary<string, SearchConcept> ConceptBySlug = new(StringComparer.Ordinal)
     {
         ["immobilier"] = SearchConcept.Immobilier,
@@ -81,7 +93,10 @@ internal static class SearchTermExpander
         ["emploi", "emplois", "job", "jobs", "work", "travail", "mosala", "kozwa mosala", "recrutement", "stage", "cv"],
         ["meuble", "meubles", "furniture", "canape", "sofa", "decoration", "electromenager"],
         ["service", "services", "plomberie", "nettoyage", "demenagement", "renovation"],
-        ["vetement", "vetements", "clothes", "clothing", "habit", "chaussure", "shoes", "mode", "montre", "watch", "bijou", "sac", "bag"],
+        ["vetement", "vetements", "clothes", "clothing", "habit"],
+        ["chaussure", "shoes"],
+        ["mode", "montre", "watch", "bijou", "sac", "bag"],
+        ["enfant", "enfants", "kids", "children", "bebe", "bebes"],
         ["jouet", "jouets", "toy", "toys", "jeu", "game", "loisir"],
         ["electronique", "starlink", "generateur", "groupe electrogene", "panneau solaire", "playstation", "xbox", "console"],
         ["iphone", "samsung", "infinix", "tecno"],
@@ -168,12 +183,15 @@ internal static class SearchTermExpander
 
     internal static IReadOnlyList<string> Expand(IEnumerable<string> terms)
     {
+        var termList = terms as IList<string> ?? terms.ToList();
         var expanded = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var term in terms)
-        {
+        foreach (var term in termList)
             AddTerm(expanded, seen, term);
+
+        foreach (var term in termList)
+        {
             if (expanded.Count >= MaxExpandedTerms)
                 return expanded;
 
@@ -203,7 +221,8 @@ internal static class SearchTermExpander
         FrenchStopWords.Contains(term)
         || EnglishStopWords.Contains(term)
         || LingalaStopWords.Contains(term)
-        || DemandStopWords.Contains(term);
+        || DemandStopWords.Contains(term)
+        || OfferStopWords.Contains(term);
 
     private static Dictionary<string, HashSet<string>> BuildTermSynonyms()
     {
@@ -264,7 +283,7 @@ internal static class SearchTermExpander
             [SearchConcept.Mode] =
             [
                 "vetement", "vetements", "clothes", "clothing", "habit", "chaussure", "shoes", "mode", "montre", "watch",
-                "bijou", "jewelry", "sac", "bag", "beaute", "beauty",
+                "bijou", "jewelry", "sac", "bag", "beaute", "beauty", "enfant", "enfants", "kids", "children", "bebe", "bebes",
             ],
             [SearchConcept.Jouets] =
             [

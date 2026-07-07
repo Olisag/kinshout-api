@@ -375,6 +375,11 @@ public class SearchService(
             .Include(a => a.User)
             .Where(a => a.IsPublished);
         advertQuery = ApplyRequestAdvertFilters(advertQuery, request);
+        if (!string.IsNullOrWhiteSpace(hints.ParentCategorySlug))
+        {
+            var categorySlugs = SearchQueryResolver.CategorySlugsForParent(hints.ParentCategorySlug);
+            advertQuery = advertQuery.Where(a => a.Category != null && categorySlugs.Contains(a.Category.Slug));
+        }
         if (!string.IsNullOrWhiteSpace(hints.SubcategorySlug))
             advertQuery = advertQuery.Where(a => a.SubcategorySlug == hints.SubcategorySlug);
         foreach (var location in hints.LocationTerms)
@@ -388,7 +393,9 @@ public class SearchService(
     }
 
     private static bool HasStructuredHints(SearchQueryHints hints) =>
-        hints.LocationTerms.Count > 0 || !string.IsNullOrWhiteSpace(hints.SubcategorySlug);
+        hints.LocationTerms.Count > 0
+        || !string.IsNullOrWhiteSpace(hints.SubcategorySlug)
+        || !string.IsNullOrWhiteSpace(hints.ParentCategorySlug);
 
     private static async Task<List<Discussion>> LoadDiscussionsByTopicIdAsync(
         KinshoutDbContext context,

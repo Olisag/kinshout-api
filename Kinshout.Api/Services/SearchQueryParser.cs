@@ -106,6 +106,7 @@ public static partial class SearchQueryParser
         (FrenchJeVends(), SearchIntentHelper.Offre),
         (FrenchJePropose(), SearchIntentHelper.Offre),
         (FrenchAVendre(), SearchIntentHelper.Offre),
+        (FrenchVenteDe(), SearchIntentHelper.Offre),
         (EnglishSelling(), SearchIntentHelper.Offre),
         (EnglishForSale(), SearchIntentHelper.Offre),
         (LingalaNazaliKoteka(), SearchIntentHelper.Offre),
@@ -150,6 +151,9 @@ public static partial class SearchQueryParser
 
     [GeneratedRegex(@"^(?<subject>.+)\s+a vendre$", RegexOptions.CultureInvariant)]
     private static partial Regex FrenchAVendre();
+
+    [GeneratedRegex(@"^vente\s+(?:de|des|du|d)\s+(?<subject>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex FrenchVenteDe();
 
     [GeneratedRegex(@"^selling\s+(?:(?:a|an|my|the)\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex EnglishSelling();

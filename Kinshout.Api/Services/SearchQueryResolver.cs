@@ -4,6 +4,7 @@ public sealed class SearchQueryHints
 {
     public IReadOnlyList<string> LocationTerms { get; init; } = [];
     public string? SubcategorySlug { get; init; }
+    public string? ParentCategorySlug { get; init; }
 }
 
 public static class SearchQueryResolver
@@ -62,8 +63,17 @@ public static class SearchQueryResolver
         {
             LocationTerms = locationTerms,
             SubcategorySlug = subcategory,
+            ParentCategorySlug = parentSlug,
         };
     }
+
+    internal static IReadOnlyList<string> CategorySlugsForParent(string parentSlug) => parentSlug switch
+    {
+        "mode" => ["mode", "vetements_enfant"],
+        "vehicules" => ["vehicules", "vehicules_transport", "transport"],
+        "emplois" => ["emplois", "emploi_services"],
+        _ => [parentSlug],
+    };
 
     internal static string? InferSubcategorySlug(string normalized, string parentSlug, string? intentHint = null)
     {
