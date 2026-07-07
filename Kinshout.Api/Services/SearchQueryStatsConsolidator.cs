@@ -1,6 +1,7 @@
 using Kinshout.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 namespace Kinshout.Api.Services;
 
@@ -13,6 +14,7 @@ public static class SearchQueryStatsConsolidator
     public static async Task ConsolidateHistoricalDuplicatesAsync(
         KinshoutDbContext db,
         IMemoryCache cache,
+        ILogger? logger = null,
         CancellationToken ct = default)
     {
         var rows = await db.SearchQueryStats.ToListAsync(ct);
@@ -22,7 +24,7 @@ public static class SearchQueryStatsConsolidator
         var groups = new Dictionary<string, List<Models.SearchQueryStat>>(StringComparer.Ordinal);
         foreach (var row in rows)
         {
-            var key = SearchQueryHelper.CanonicalKey(row.DisplayQuery) ?? row.NormalizedQuery;
+            var key = SearchQueryHelper.ResolveStatKey(row);
             if (!groups.TryGetValue(key, out var group))
             {
                 group = [];
@@ -32,7 +34,9 @@ public static class SearchQueryStatsConsolidator
             group.Add(row);
         }
 
-        var changed = false;
+        var toRemove = new List<Models.SearchQueryStat>();
+        var updates = new List<(Models.SearchQueryStat Keeper, string Key, int Count)>();
+
         foreach (var (key, group) in groups)
         {
             var keeper = group
@@ -48,21 +52,38 @@ public static class SearchQueryStatsConsolidator
             if (!needsUpdate)
                 continue;
 
-            foreach (var duplicate in group.Where(r => r.Id != keeper.Id))
-            {
-                db.SearchQueryStats.Remove(duplicate);
-                changed = true;
-            }
-
-            keeper.NormalizedQuery = key;
-            keeper.SearchCount = mergedCount;
-            changed = true;
+            toRemove.AddRange(group.Where(r => r.Id != keeper.Id));
+            updates.Add((keeper, key, mergedCount));
         }
 
-        if (!changed)
+        if (toRemove.Count == 0 && updates.Count == 0)
             return;
 
-        await db.SaveChangesAsync(ct);
-        cache.Remove(ApiCacheKeys.PopularSearches);
+        try
+        {
+            if (toRemove.Count > 0)
+            {
+                db.SearchQueryStats.RemoveRange(toRemove);
+                await db.SaveChangesAsync(ct);
+            }
+
+            foreach (var (keeper, key, count) in updates)
+            {
+                keeper.NormalizedQuery = key;
+                keeper.SearchCount = count;
+            }
+
+            await db.SaveChangesAsync(ct);
+            cache.Remove(ApiCacheKeys.PopularSearches);
+            logger?.LogInformation(
+                "Consolidated popular search stats: removed {Removed}, updated {Updated}.",
+                toRemove.Count,
+                updates.Count);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to consolidate popular search stats.");
+            throw;
+        }
     }
 }

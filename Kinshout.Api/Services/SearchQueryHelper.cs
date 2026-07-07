@@ -87,6 +87,9 @@ public static partial class SearchQueryHelper
 
     public static string? Normalize(string? query) => CanonicalKey(query);
 
+    internal static string ResolveStatKey(Models.SearchQueryStat row) =>
+        CanonicalKey(row.DisplayQuery) ?? CanonicalKey(row.NormalizedQuery) ?? row.NormalizedQuery;
+
     public static string? CanonicalKey(string? query)
     {
         if (string.IsNullOrWhiteSpace(query))

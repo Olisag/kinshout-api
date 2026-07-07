@@ -632,16 +632,32 @@ public class SearchService(
         {
 
             entry.AbsoluteExpirationRelativeToNow = PopularSearchesCacheDuration;
-            var query = db.SearchQueryStats
-                .AsNoTracking()
-                .OrderByDescending(s => s.SearchCount)
-                .ThenByDescending(s => s.LastSearchedAt);
-            var total = await query.CountAsync(ct);
-            var items = await query
+            var rows = await db.SearchQueryStats.AsNoTracking().ToListAsync(ct);
+            var grouped = rows
+                .GroupBy(SearchQueryHelper.ResolveStatKey, StringComparer.Ordinal)
+                .Select(g =>
+                {
+                    var keeper = g
+                        .OrderByDescending(s => s.LastSearchedAt)
+                        .ThenByDescending(s => s.SearchCount)
+                        .First();
+                    return new
+                    {
+                        keeper.DisplayQuery,
+                        Count = g.Sum(s => s.SearchCount),
+                        LastSearchedAt = g.Max(s => s.LastSearchedAt),
+                    };
+                })
+                .OrderByDescending(x => x.Count)
+                .ThenByDescending(x => x.LastSearchedAt)
+                .ToList();
+
+            var total = grouped.Count;
+            var items = grouped
                 .Skip((normalizedPage - 1) * normalizedPageSize)
                 .Take(normalizedPageSize)
-                .Select(s => new PopularSearchDto(s.DisplayQuery, s.SearchCount))
-                .ToListAsync(ct);
+                .Select(x => new PopularSearchDto(x.DisplayQuery, x.Count))
+                .ToList();
             return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
 
         }) ?? PagingHelper.Create(Array.Empty<PopularSearchDto>(), normalizedPage, normalizedPageSize, 0);
