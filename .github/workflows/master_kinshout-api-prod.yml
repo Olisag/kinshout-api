@@ -1,12 +1,11 @@
-# Deploy Kinshout API to production when main branch is updated.
+# Deploy Kinshout API to production when Master branch is updated.
 name: Build and deploy ASP.Net Core app to Azure Web App - kinshout-api-prod
 
 on:
   push:
     branches:
-      - main
+      - Master
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: windows-latest
