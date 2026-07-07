@@ -22,6 +22,20 @@ public class SearchServicePopularTests
     }
 
     [Fact]
+    public async Task SearchAsync_MergesApartmentSpellingVariants()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        await service.SearchAsync(new SearchRequestDto("Je cherche un apartment à Gombe"));
+        await service.SearchAsync(new SearchRequestDto("Je cherche un appartement à Gombe"));
+
+        var popular = await service.GetPopularSearchesAsync();
+        Assert.Single(popular.Items);
+        Assert.Equal(2, popular.Items[0].Count);
+    }
+
+    [Fact]
     public async Task SearchAsync_MergesSimilarQueriesWithDifferentWording()
     {
         await using var db = TestDbFactory.Create();
