@@ -354,6 +354,21 @@ public class SearchService(
         SearchRequestDto request,
         CancellationToken ct)
     {
+        var strict = await LoadSemanticAdvertsWithHintsAsync(context, memoryCache, query, hints, request, ct);
+        if (strict.Count > 0 || !HasStructuredHints(hints))
+            return strict;
+
+        return await LoadSemanticAdvertsWithHintsAsync(context, memoryCache, query, new SearchQueryHints(), request, ct);
+    }
+
+    private static async Task<List<Advert>> LoadSemanticAdvertsWithHintsAsync(
+        KinshoutDbContext context,
+        IMemoryCache memoryCache,
+        string query,
+        SearchQueryHints hints,
+        SearchRequestDto request,
+        CancellationToken ct)
+    {
         IQueryable<Advert> advertQuery = context.Adverts
             .AsNoTracking()
             .Include(a => a.Category)
@@ -372,6 +387,9 @@ public class SearchService(
         return await SearchRetrieval.LoadSemanticAdvertsAsync(context, advertQuery, query, memoryCache, ct);
     }
 
+    private static bool HasStructuredHints(SearchQueryHints hints) =>
+        hints.LocationTerms.Count > 0 || !string.IsNullOrWhiteSpace(hints.SubcategorySlug);
+
     private static async Task<List<Discussion>> LoadDiscussionsByTopicIdAsync(
         KinshoutDbContext context,
         Guid topicId,
@@ -385,6 +403,20 @@ public class SearchService(
             .ToListAsync(ct);
 
     private static async Task<List<Discussion>> LoadSemanticDiscussionsAsync(
+        KinshoutDbContext context,
+        IMemoryCache memoryCache,
+        string query,
+        SearchQueryHints hints,
+        CancellationToken ct)
+    {
+        var strict = await LoadSemanticDiscussionsWithHintsAsync(context, memoryCache, query, hints, ct);
+        if (strict.Count > 0 || !HasStructuredHints(hints))
+            return strict;
+
+        return await LoadSemanticDiscussionsWithHintsAsync(context, memoryCache, query, new SearchQueryHints(), ct);
+    }
+
+    private static async Task<List<Discussion>> LoadSemanticDiscussionsWithHintsAsync(
         KinshoutDbContext context,
         IMemoryCache memoryCache,
         string query,
