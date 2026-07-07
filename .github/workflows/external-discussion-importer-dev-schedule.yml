@@ -1,0 +1,38 @@
+# Discussion import into dev every Monday at 03:00 Kinshasa (02:00 UTC).
+name: External discussion importer (dev, weekly Monday)
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: external-discussion-importer-dev
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: Kinshout.ExternalImporter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.x"
+
+      - name: Run external discussion import (dev)
+        env:
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
+          KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+          KINSHOUT_IMPORTER_BATCH_SIZE: 25
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: dotnet run -- --once --discussions

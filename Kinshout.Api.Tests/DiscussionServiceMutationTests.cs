@@ -26,8 +26,8 @@ public class DiscussionServiceMutationTests
         await db.SaveChangesAsync();
 
         var openAi = new Mock<IOpenAiService>();
-        openAi.Setup(o => o.AnalyzeAdvertAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(TestDbFactory.SampleAnalysis());
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
 
         var service = CreateService(db, openAi.Object);
         var updated = await service.UpdateAsync(user.Id, discussion.Id, new("New title", "New body"));
@@ -260,6 +260,6 @@ public class DiscussionServiceMutationTests
             .Returns(Task.CompletedTask);
 
         openAi ??= Mock.Of<IOpenAiService>();
-        return new DiscussionService(db, openAi, moderation.Object);
+        return new DiscussionService(db, openAi, moderation.Object, TestDbFactory.CreateMemoryCache());
     }
 }

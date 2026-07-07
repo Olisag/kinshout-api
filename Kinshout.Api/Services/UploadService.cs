@@ -11,6 +11,7 @@ public interface IUploadService
 
 public class UploadService(
     IUploadStorage storage,
+    IAdvertImageProcessor imageProcessor,
     IAdvertModerationService moderation,
     ILogger<UploadService> logger) : IUploadService
 {
@@ -52,8 +53,27 @@ public class UploadService(
 
             buffer.Position = 0;
             var extension = ValidateExtension(file.FileName, ImageExtensions);
-            var url = await storage.SaveAsync("images", userId, buffer, extension, ct);
+            var fileId = Guid.NewGuid().ToString("N");
+            var fileName = $"{fileId}{extension.ToLowerInvariant()}";
+            var url = await storage.SaveNamedAsync("images", userId, buffer, fileName, ct);
             logger.LogInformation("Stored image upload {Url} for user {UserId}", url, userId);
+
+            buffer.Position = 0;
+            await using var thumbnail = await imageProcessor.CreateListingThumbnailAsync(buffer, ct);
+            if (thumbnail is not null)
+            {
+                var thumbName = $"{fileId}{AdvertImageUrls.ThumbnailSuffix}{AdvertImageUrls.VariantExtension}";
+                await storage.SaveNamedAsync("images", userId, thumbnail, thumbName, ct);
+            }
+
+            buffer.Position = 0;
+            await using var display = await imageProcessor.CreateDisplayImageAsync(buffer, ct);
+            if (display is not null)
+            {
+                var displayName = $"{fileId}{AdvertImageUrls.DisplaySuffix}{AdvertImageUrls.VariantExtension}";
+                await storage.SaveNamedAsync("images", userId, display, displayName, ct);
+            }
+
             urls.Add(url);
         }
 

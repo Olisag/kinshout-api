@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
+using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -28,16 +29,34 @@ public record AiAdvertAnalysis(
     bool RuleBasedFallback = false
 );
 
+public record AiDiscussionAnalysis(
+    string TopicSlug,
+    string TopicLabel,
+    string TopicIcon,
+    double Confidence,
+    string Summary,
+    bool RuleBasedFallback = false);
+
 public record AiSearchAnalysis(
     IReadOnlyList<Guid> AdvertIds,
     IReadOnlyList<Guid> DiscussionIds,
     string Summary
 );
 
+public record ImportAdvertEnrichment(
+    string Description,
+    string Intent,
+    string? Summary);
+
 public interface IOpenAiService
 {
     Task<AiAdvertAnalysis> AnalyzeAdvertAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
+    Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiSearchAnalysis> SearchAsync(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions, CancellationToken ct = default);
+    Task<ImportAdvertEnrichment?> EnrichImportedAdvertAsync(
+        ImportExternalAdvertDto item,
+        Category category,
+        CancellationToken ct = default);
 }
 
 public partial class OpenAiService(
@@ -113,6 +132,155 @@ public partial class OpenAiService(
         {
             logger.LogWarning(ex, "OpenAI advert analysis failed, using fallback.");
             return FallbackAdvertAnalysis(text, existingCategories);
+        }
+    }
+
+    public async Task<ImportAdvertEnrichment?> EnrichImportedAdvertAsync(
+        ImportExternalAdvertDto item,
+        Category category,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            return null;
+
+        var details = BuildImportDetailsSummary(item.Details);
+        var prompt = $$"""
+            Tu enrichis une annonce importée pour Kinshout (Kinshasa, RDC).
+            Rédige une description utile en français (2 à 4 phrases) à partir des champs fournis.
+            Détermine si l'annonce est une offre (le vendeur/loueur propose) ou une demande (le client cherche).
+            Réponds UNIQUEMENT en JSON:
+            {
+              "description": "description claire en français",
+              "intent": "offre|demande",
+              "summary": "phrase courte"
+            }
+
+            Règles:
+            - N'invente pas de faits absents des champs.
+            - "cherche", "recherche", "besoin" => demande.
+            - "à louer", "à vendre", "disponible", "recrute" => offre.
+            - Contexte Kinshasa.
+
+            Titre: "{{EscapeJson(item.Title)}}"
+            Catégorie: "{{EscapeJson(category.Label)}}" ({{EscapeJson(category.Slug)}})
+            Sous-catégorie: "{{EscapeJson(item.Subcategory)}}"
+            Modalité: "{{EscapeJson(item.Modality)}}"
+            Prix: "{{EscapeJson(FormatImportPrice(item.Price))}}"
+            Lieu: "{{EscapeJson(FormatImportLocation(item.Location))}}"
+            Détails: "{{EscapeJson(details)}}"
+            Description source: "{{EscapeJson(item.Description)}}"
+            Résumé source: "{{EscapeJson(item.Ai?.Summary)}}"
+            """;
+
+        try
+        {
+            var json = await ChatJsonAsync(prompt, ct);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var description = root.TryGetProperty("description", out var d) ? d.GetString() : null;
+            if (string.IsNullOrWhiteSpace(description))
+                return null;
+
+            var intent = root.TryGetProperty("intent", out var i) ? i.GetString() ?? "offre" : "offre";
+            var summary = root.TryGetProperty("summary", out var s) ? s.GetString() : null;
+            return new ImportAdvertEnrichment(description.Trim(), intent, summary?.Trim());
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI import enrichment failed.");
+            return null;
+        }
+    }
+
+    private static string EscapeJson(string? value) =>
+        (value ?? string.Empty).Replace("\"", "\\\"");
+
+    private static string FormatImportPrice(ImportExternalAdvertPriceDto? price)
+    {
+        if (price is null)
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(price.Formatted))
+            return price.Formatted.Trim();
+
+        return price.Amount?.ToString() ?? string.Empty;
+    }
+
+    private static string FormatImportLocation(ImportExternalAdvertLocationDto? location)
+    {
+        if (location is null)
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(location.Formatted))
+            return location.Formatted.Trim();
+
+        return string.Join(", ", new[] { location.Commune, location.City }.Where(p => !string.IsNullOrWhiteSpace(p)));
+    }
+
+    private static string BuildImportDetailsSummary(ImportExternalAdvertDetailsDto? details)
+    {
+        if (details is null)
+            return string.Empty;
+
+        var parts = new List<string>();
+        if (details.Bedrooms is > 0)
+            parts.Add($"{details.Bedrooms} ch");
+        if (details.Bathrooms is > 0)
+            parts.Add($"{details.Bathrooms} sdb");
+        if (details.Area is > 0)
+            parts.Add($"{details.Area} m2");
+        if (details.Furnished == true)
+            parts.Add("meublé");
+        if (!string.IsNullOrWhiteSpace(details.PropertyType))
+            parts.Add(details.PropertyType.Trim());
+        return string.Join(", ", parts);
+    }
+
+    public async Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(
+        string text,
+        IReadOnlyList<Category> existingCategories,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return FallbackDiscussionAnalysis(string.Empty, existingCategories);
+
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            return FallbackDiscussionAnalysis(text, existingCategories);
+
+        var topicList = string.Join("\n", AiDiscussionCategoryCatalog.TopicSlugs
+            .Select(slug =>
+            {
+                var (resolved, label, icon) = AiDiscussionCategoryCatalog.DescribeTopic(slug);
+                return $"- {resolved}: {label} ({icon})";
+            }));
+
+        var prompt = $$"""
+            Tu es l'IA de Kinshout (Kinshasa, RDC). Classe ce sujet de discussion dans UNE thématique.
+            Réponds UNIQUEMENT en JSON:
+            {
+              "topicSlug": "slug parmi la liste",
+              "topicLabel": "libellé français",
+              "topicIcon": "emoji",
+              "confidence": 0.0-1.0,
+              "summary": "phrase courte expliquant la thématique"
+            }
+
+            Thématiques disponibles:
+            {{topicList}}
+
+            Texte:
+            "{{text.Replace("\"", "\\\"")}}"
+            """;
+
+        try
+        {
+            var json = await ChatJsonAsync(prompt, ct);
+            return ParseDiscussionAnalysis(json, text);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI discussion analysis failed, using fallback.");
+            return FallbackDiscussionAnalysis(text, existingCategories);
         }
     }
 
@@ -193,6 +361,76 @@ public partial class OpenAiService(
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "{}";
     }
+
+    private static AiDiscussionAnalysis ParseDiscussionAnalysis(string json, string text)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var slug = AiDiscussionCategoryCatalog.ResolveTopicSlug(
+            root.TryGetProperty("topicSlug", out var slugEl) ? slugEl.GetString() : null);
+        var (resolved, defaultLabel, defaultIcon) = AiDiscussionCategoryCatalog.DescribeTopic(slug);
+        var label = root.TryGetProperty("topicLabel", out var labelEl) ? labelEl.GetString() : null;
+        var icon = root.TryGetProperty("topicIcon", out var iconEl) ? iconEl.GetString() : null;
+        var confidence = root.TryGetProperty("confidence", out var confEl) && confEl.TryGetDouble(out var c) ? c : 0.85;
+        var summary = root.TryGetProperty("summary", out var sumEl) ? sumEl.GetString() : null;
+
+        return new AiDiscussionAnalysis(
+            resolved,
+            string.IsNullOrWhiteSpace(label) ? defaultLabel : label.Trim(),
+            string.IsNullOrWhiteSpace(icon) ? defaultIcon : icon.Trim(),
+            confidence,
+            string.IsNullOrWhiteSpace(summary)
+                ? $"Sujet classé en « {defaultLabel} » — échange communautaire Kinshasa."
+                : summary.Trim());
+    }
+
+    internal static AiDiscussionAnalysis FallbackDiscussionAnalysis(string text, IReadOnlyList<Category> existingCategories)
+    {
+        var norm = NormalizeForMatch(text);
+        var scores = AiDiscussionCategoryCatalog.TopicSlugs.ToDictionary(slug => slug, _ => 0.0);
+
+        foreach (var (slug, keywords) in DiscussionTopicKeywordRules)
+        {
+            foreach (var kw in keywords)
+            {
+                if (norm.Contains(kw, StringComparison.Ordinal))
+                    scores[slug] += kw.Length > 6 ? 1.5 : 1.0;
+            }
+        }
+
+        var bestSlug = scores.OrderByDescending(kv => kv.Value).First().Key;
+        if (scores[bestSlug] <= 0)
+            bestSlug = "autres";
+
+        var existing = existingCategories.FirstOrDefault(c =>
+            c.IsDiscussionTopic && c.Slug.Equals(bestSlug, StringComparison.OrdinalIgnoreCase));
+        var (resolved, label, icon) = existing is null
+            ? AiDiscussionCategoryCatalog.DescribeTopic(bestSlug)
+            : (existing.Slug, existing.Label, existing.Icon);
+
+        var confidence = scores[bestSlug] > 0 ? Math.Min(0.95, 0.45 + scores[bestSlug] * 0.12) : 0.4;
+        return new AiDiscussionAnalysis(
+            resolved,
+            label,
+            icon,
+            confidence,
+            $"Sujet classé en « {label} » — échange communautaire Kinshasa.",
+            RuleBasedFallback: true);
+    }
+
+    private static readonly Dictionary<string, string[]> DiscussionTopicKeywordRules = new(StringComparer.Ordinal)
+    {
+        ["sport"] = ["léopard", "leopards", "football", "foot", "match", "coupe du monde", "as vita", "sport", "but"],
+        ["politique"] = ["fayulu", "opposition", "politique", "gouvernement", "tshisekedi", "élection", "parlement", "député"],
+        ["education"] = ["exetat", "examen", "école", "université", "étudiant", "diplôme", "lukunga"],
+        ["tech"] = ["starlink", "internet", "tech", "iphone", "application", "réseau", "wifi"],
+        ["economie"] = ["dollar", "économie", "business", "entreprise", "marché", "dette", "investissement"],
+        ["culture"] = ["musique", "concert", "film", "culture", "art", "festival", "artiste"],
+        ["sante"] = ["santé", "hôpital", "médical", "maladie", "docteur", "covid"],
+        ["securite"] = ["police", "sécurité", "vol", "criminalité", "justice", "altercation", "agression"],
+        ["transport"] = ["traffic", "embouteillage", "route", "transport", "motuka", "bus", "taxi", "boulevard"],
+        ["societe"] = ["quartier", "kinshasa", "communauté", "voisin", "famille", "mariage", "société"],
+    };
 
     private static AiAdvertAnalysis ParseAdvertAnalysis(string json, IReadOnlyList<Category> existing, string text)
     {
@@ -379,22 +617,8 @@ public partial class OpenAiService(
         ],
     };
 
-    private static AiSearchAnalysis FallbackSearch(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions)
-    {
-        var q = query.ToLowerInvariant();
-        var advertIds = adverts
-            .Where(a => a.Title.ToLowerInvariant().Contains(q)
-                || a.Description.ToLowerInvariant().Contains(q)
-                || (a.Location?.ToLowerInvariant().Contains(q) ?? false))
-            .Select(a => a.Id)
-            .ToList();
-        var discussionIds = discussions
-            .Where(d => d.Title.ToLowerInvariant().Contains(q) || d.Body.ToLowerInvariant().Contains(q))
-            .Select(d => d.Id)
-            .ToList();
-
-        return new AiSearchAnalysis(advertIds, discussionIds, $"Résultats pour « {query} ».");
-    }
+    private static AiSearchAnalysis FallbackSearch(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions) =>
+        SearchMatchHelper.Rank(query, adverts, discussions);
 
     private static string? ExtractPrice(string text)
     {
@@ -430,35 +654,27 @@ public static class CategoryResolver
         IMemoryCache? cache,
         CancellationToken ct)
     {
-        var existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == analysis.CategorySlug, ct);
-        if (existing is not null)
-            return existing;
-
         if (!analysis.CreateNewCategory)
         {
+            var parentSlug = AiCategoryCatalog.ResolveParentSlug(analysis.CategorySlug, analysis.CategorySlug);
+            var existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == parentSlug, ct);
+            if (existing is not null)
+                return existing;
+
+            existing = await db.Categories.FirstOrDefaultAsync(c => c.Slug == analysis.CategorySlug, ct);
+            if (existing is not null)
+                return existing;
+
             existing = await db.Categories.FirstOrDefaultAsync(c => c.Label == analysis.CategoryLabel, ct);
             if (existing is not null)
                 return existing;
         }
 
-        var category = new Category
-        {
-            Slug = Slugify(analysis.CategorySlug),
-            Label = analysis.CategoryLabel,
-            Icon = analysis.CategoryIcon,
-            IsAiGenerated = true,
-        };
-        db.Categories.Add(category);
-        await db.SaveChangesAsync(ct);
-        cache?.Remove(ApiCacheKeys.CategoriesAll);
-        return category;
-    }
-
-    private static string Slugify(string input)
-    {
-        var slug = input.ToLowerInvariant().Trim();
-        slug = Regex.Replace(slug, @"[^a-z0-9_]+", "_");
-        slug = Regex.Replace(slug, @"_+", "_").Trim('_');
-        return string.IsNullOrEmpty(slug) ? $"cat_{Guid.NewGuid():N}"[..16] : slug;
+        return await AiCategoryCatalog.GetOrCreateAsync(
+            db,
+            analysis.CategorySlug,
+            analysis.CategorySlug,
+            cache,
+            ct);
     }
 }

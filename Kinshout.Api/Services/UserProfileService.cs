@@ -16,7 +16,7 @@ public interface IUserProfileService
         CancellationToken ct = default);
 }
 
-public class UserProfileService(KinshoutDbContext db) : IUserProfileService
+public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadUrls, IAdvertDtoMapper advertDtos) : IUserProfileService
 {
     public async Task<PublicUserProfileDto?> GetPublicProfileAsync(Guid userId, CancellationToken ct = default)
     {
@@ -32,6 +32,14 @@ public class UserProfileService(KinshoutDbContext db) : IUserProfileService
 
         return row is null ? null : ToPublicProfile(row.User, row.PublishedCount);
     }
+
+    private PublicUserProfileDto ToPublicProfile(User user, int publishedAdvertCount) =>
+        new(
+            user.Id,
+            user.DisplayName,
+            uploadUrls.ToPublicUrl(user.AvatarUrl),
+            $"Membre depuis {user.CreatedAt:MMM yyyy}",
+            publishedAdvertCount);
 
     public async Task<PagedResultDto<AdvertDto>> ListPublicAdvertsAsync(
         Guid userId,
@@ -68,17 +76,9 @@ public class UserProfileService(KinshoutDbContext db) : IUserProfileService
             ct);
 
         return PagingHelper.Create(
-            AdvertService.ToDtos(items, savedIds),
+            advertDtos.ToDtos(items, savedIds),
             normalizedPage,
             normalizedPageSize,
             total);
     }
-
-    internal static PublicUserProfileDto ToPublicProfile(User user, int publishedAdvertCount) =>
-        new(
-            user.Id,
-            user.DisplayName,
-            user.AvatarUrl,
-            $"Membre depuis {user.CreatedAt:MMM yyyy}",
-            publishedAdvertCount);
 }

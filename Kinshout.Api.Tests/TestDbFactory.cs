@@ -1,8 +1,12 @@
+using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
+using Moq;
 
 namespace Kinshout.Api.Tests;
 
@@ -17,7 +21,25 @@ internal static class TestDbFactory
         return new KinshoutDbContext(options);
     }
 
+    public static async Task<KinshoutDbContext> CreateSqliteAsync()
+    {
+        var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<KinshoutDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var db = new KinshoutDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await DbSchemaPatcher.ApplyAsync(db);
+        return db;
+    }
+
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
+
+    public static IAdvertDtoMapper CreateAdvertDtoMapper(string baseUrl = "https://api.test") =>
+        new AdvertDtoMapper(new UploadUrlResolver(
+            Options.Create(new UploadStorageSettings { PublicBaseUrl = baseUrl }),
+            Mock.Of<IHttpContextAccessor>()));
 
     public static async Task<(User User, Category Category)> SeedUserAndCategoryAsync(
         KinshoutDbContext db,
@@ -58,4 +80,24 @@ internal static class TestDbFactory
             ["2 chambres", "Gombe"],
             0.9,
             "Recherche d'appartement à Gombe.");
+
+    public static AiDiscussionAnalysis SampleDiscussionAnalysis(string slug = "societe") =>
+        new(
+            slug,
+            slug switch
+            {
+                "sport" => "Sport & foot",
+                "politique" => "Politique",
+                "education" => "Éducation & examens",
+                _ => "Société & vie quotidienne",
+            },
+            slug switch
+            {
+                "sport" => "⚽",
+                "politique" => "🏛️",
+                "education" => "🎓",
+                _ => "👥",
+            },
+            0.9,
+            "Sujet classé — échange communautaire Kinshasa.");
 }

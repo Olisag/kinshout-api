@@ -4,6 +4,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kinshout.Api", "Kinshout.Ap
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kinshout.Api.Tests", "Kinshout.Api.Tests\Kinshout.Api.Tests.csproj", "{38E2F3D4-20DE-45C1-821A-9235B1F6A370}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kinshout.ExternalImporter", "Kinshout.ExternalImporter\Kinshout.ExternalImporter.csproj", "{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,6 +40,18 @@ Global
 		{38E2F3D4-20DE-45C1-821A-9235B1F6A370}.Release|x64.Build.0 = Release|Any CPU
 		{38E2F3D4-20DE-45C1-821A-9235B1F6A370}.Release|x86.ActiveCfg = Release|Any CPU
 		{38E2F3D4-20DE-45C1-821A-9235B1F6A370}.Release|x86.Build.0 = Release|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Debug|x64.Build.0 = Debug|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Debug|x86.Build.0 = Debug|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x64.ActiveCfg = Release|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x64.Build.0 = Release|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x86.ActiveCfg = Release|Any CPU
+		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

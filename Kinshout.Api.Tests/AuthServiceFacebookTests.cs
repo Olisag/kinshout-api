@@ -3,6 +3,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -35,6 +36,9 @@ public class AuthServiceFacebookTests
                 ClientAudience = "kinshout-client",
             })),
             Mock.Of<IUploadStorage>(),
+            new UploadUrlResolver(
+                Options.Create(new UploadStorageSettings { PublicBaseUrl = "https://api.test" }),
+                Mock.Of<IHttpContextAccessor>()),
             Options.Create(new OAuthSettings()),
             facebook.Object,
             Mock.Of<ILogger<AuthService>>());

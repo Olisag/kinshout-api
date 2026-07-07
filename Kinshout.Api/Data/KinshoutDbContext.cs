@@ -15,6 +15,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
+    public DbSet<ImportWatermark> ImportWatermarks => Set<ImportWatermark>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,14 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.Title).HasMaxLength(200);
             e.Property(x => x.Price).HasMaxLength(64);
             e.Property(x => x.Location).HasMaxLength(120);
+            e.Property(x => x.SourceProvider).HasMaxLength(64);
+            e.Property(x => x.SourceProviderName).HasMaxLength(120);
+            e.Property(x => x.SourceExternalId).HasMaxLength(128);
+            e.Property(x => x.SourceExternalUrl).HasMaxLength(2048);
+            e.Property(x => x.SubcategorySlug).HasMaxLength(80);
+            e.Property(x => x.DuplicateGroupId).HasMaxLength(128);
+            e.HasIndex(x => new { x.SourceProvider, x.SourceExternalId }).IsUnique()
+                .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
             e.HasIndex(x => new { x.IsPublished, x.CreatedAt });
             e.HasIndex(x => new { x.IsPublished, x.ViewCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.IsPublished, x.CreatedAt });
@@ -68,12 +77,26 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.ReplyCount).HasDefaultValue(0);
             e.Property(x => x.LikeCount).HasDefaultValue(0);
             e.Property(x => x.ViewCount).HasDefaultValue(0);
+            e.Property(x => x.SourceProvider).HasMaxLength(64);
+            e.Property(x => x.SourceProviderName).HasMaxLength(120);
+            e.Property(x => x.SourceExternalId).HasMaxLength(128);
+            e.Property(x => x.SourceExternalUrl).HasMaxLength(2048);
+            e.Property(x => x.SourceOriginalAuthor).HasMaxLength(200);
             e.HasIndex(x => x.CreatedAt);
             e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
             e.HasIndex(x => new { x.ViewCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.UpdatedAt });
+            e.HasIndex(x => new { x.SourceProvider, x.SourceExternalId }).IsUnique()
+                .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
             e.HasOne(x => x.User).WithMany(x => x.Discussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Discussions).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ImportWatermark>(e =>
+        {
+            e.Property(x => x.ImportKind).HasMaxLength(32);
+            e.Property(x => x.Provider).HasMaxLength(64);
+            e.HasIndex(x => new { x.ImportKind, x.Provider }).IsUnique();
         });
 
         modelBuilder.Entity<DiscussionReply>(e =>

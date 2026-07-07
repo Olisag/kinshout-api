@@ -29,10 +29,10 @@ public class SearchServiceOrderingTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([recent.Id, popularOld.Id, popularNew.Id], [], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", PageSize: 10, Sort: ListSortHelper.Popular));
 
-        Assert.Equal(["Popular new", "Popular old", "Recent quiet"], result.Adverts.Select(a => a.Title).ToArray());
+        Assert.Equal(["Popular new appartement", "Popular old appartement", "Recent quiet appartement"], result.Adverts.Select(a => a.Title).ToArray());
     }
 
     [Fact]
@@ -56,10 +56,10 @@ public class SearchServiceOrderingTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([recent.Id, popularOld.Id, popularNew.Id], [], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
-        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", PageSize: 10));
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
+        var result = await service.SearchAsync(new SearchRequestDto("appartement", "annonces", PageSize: 10, Sort: ListSortHelper.Recent));
 
-        Assert.Equal(["Recent quiet", "Popular new", "Popular old"], result.Adverts.Select(a => a.Title).ToArray());
+        Assert.Equal(["Recent quiet appartement", "Popular new appartement", "Popular old appartement"], result.Adverts.Select(a => a.Title).ToArray());
     }
 
     [Fact]
@@ -68,9 +68,9 @@ public class SearchServiceOrderingTests
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
-        var activeOld = CreateDiscussion(user, category, "Active old", viewCount: 8, createdAt: DateTime.UtcNow.AddDays(-5));
-        var activeNew = CreateDiscussion(user, category, "Active new", viewCount: 8, createdAt: DateTime.UtcNow.AddDays(-1));
-        var quiet = CreateDiscussion(user, category, "Quiet recent", viewCount: 1, createdAt: DateTime.UtcNow);
+        var activeOld = CreateDiscussion(user, category, "Active old quartier", viewCount: 8, createdAt: DateTime.UtcNow.AddDays(-5));
+        var activeNew = CreateDiscussion(user, category, "Active new quartier", viewCount: 8, createdAt: DateTime.UtcNow.AddDays(-1));
+        var quiet = CreateDiscussion(user, category, "Quiet recent quartier", viewCount: 1, createdAt: DateTime.UtcNow);
         db.Discussions.AddRange(activeOld, activeNew, quiet);
         await db.SaveChangesAsync();
 
@@ -83,10 +83,10 @@ public class SearchServiceOrderingTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiSearchAnalysis([], [quiet.Id, activeOld.Id, activeNew.Id], ""));
 
-        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache());
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("quartier", "discussions", PageSize: 10, Sort: ListSortHelper.Popular));
 
-        Assert.Equal(["Active new", "Active old", "Quiet recent"], result.Discussions.Select(d => d.Title).ToArray());
+        Assert.Equal(["Active new quartier", "Active old quartier", "Quiet recent quartier"], result.Discussions.Select(d => d.Title).ToArray());
     }
 
     private static Advert CreateAdvert(
@@ -100,8 +100,8 @@ public class SearchServiceOrderingTests
         {
             UserId = user.Id,
             CategoryId = category.Id,
-            Title = title,
-            Description = "Description",
+            Title = $"{title} appartement",
+            Description = "Appartement à louer",
             Location = "Gombe",
             ViewCount = viewCount,
             CreatedAt = createdAt,

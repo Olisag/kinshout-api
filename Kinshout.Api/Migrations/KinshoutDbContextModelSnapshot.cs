@@ -37,12 +37,27 @@ namespace Kinshout.Api.Migrations
                     b.Property<Guid>("CategoryId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ContactJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DetailsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DuplicateGroupId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime?>("ExternalPublishedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("ImageUrlsJson")
                         .IsRequired()
@@ -68,6 +83,35 @@ namespace Kinshout.Api.Migrations
                     b.Property<string>("ResumeUrl")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("SourceExternalId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("SourceExternalUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<DateTime?>("SourceFirstSeenAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("SourceImportedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("SourceLastSeenAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SourceProvider")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SourceProviderName")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("SubcategorySlug")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
                     b.Property<string>("TagsJson")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -89,6 +133,10 @@ namespace Kinshout.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("IsPublished", "CreatedAt");
+
+                    b.HasIndex("SourceProvider", "SourceExternalId")
+                        .IsUnique()
+                        .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
 
                     b.HasIndex("CategoryId", "IsPublished", "CreatedAt");
 

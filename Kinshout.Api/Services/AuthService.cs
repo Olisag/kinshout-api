@@ -42,6 +42,7 @@ public class AuthService(
     KinshoutDbContext db,
     IJwtTokenService jwt,
     IUploadStorage uploadStorage,
+    IUploadUrlResolver uploadUrls,
     IOptions<OAuthSettings> oauthOptions,
     IFacebookAuthValidator facebookAuth,
     ILogger<AuthService> logger) : IAuthService
@@ -179,11 +180,13 @@ public class AuthService(
                 "URL d'avatar invalide. Téléversez une image via POST /api/auth/me/avatar.");
         }
 
+        var storagePath = uploadUrls.ToStoragePath(avatarUrl)!;
+
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw new KeyNotFoundException("Utilisateur introuvable.");
 
         await DeleteStoredAvatarIfOwnedAsync(userId, user.AvatarUrl, ct);
-        user.AvatarUrl = avatarUrl;
+        user.AvatarUrl = storagePath;
         await db.SaveChangesAsync(ct);
         return ToProfile(user);
     }
@@ -322,21 +325,25 @@ public class AuthService(
             .AnyAsync(u => u.Id != excludeUserId && u.DisplayName.ToLower() == normalized, ct);
     }
 
-    internal static bool IsUserAvatarUpload(Guid userId, string? avatarUrl) =>
-        !string.IsNullOrWhiteSpace(avatarUrl)
-        && avatarUrl.StartsWith($"/uploads/avatars/{userId:N}/", StringComparison.OrdinalIgnoreCase);
+    private bool IsUserAvatarUpload(Guid userId, string? avatarUrl)
+    {
+        var path = uploadUrls.ToStoragePath(avatarUrl);
+        return !string.IsNullOrWhiteSpace(path)
+            && path.StartsWith($"/uploads/avatars/{userId:N}/", StringComparison.OrdinalIgnoreCase);
+    }
 
     private async Task DeleteStoredAvatarIfOwnedAsync(
         Guid userId,
         string? avatarUrl,
         CancellationToken ct)
     {
-        if (!IsUserAvatarUpload(userId, avatarUrl))
+        var path = uploadUrls.ToStoragePath(avatarUrl);
+        if (!IsUserAvatarUpload(userId, path))
             return;
 
         try
         {
-            await uploadStorage.DeleteIfExistsAsync(avatarUrl!, ct);
+            await uploadStorage.DeleteIfExistsAsync(path!, ct);
         }
         catch (Exception ex)
         {
@@ -375,12 +382,12 @@ public class AuthService(
         }, out _);
     }
 
-    private static UserProfileDto ToProfile(User user) =>
+    private UserProfileDto ToProfile(User user) =>
         new(
             user.Id,
             user.Email,
             user.DisplayName,
-            user.AvatarUrl,
+            uploadUrls.ToPublicUrl(user.AvatarUrl),
             user.WhatsAppNumber,
             !string.IsNullOrWhiteSpace(user.WhatsAppNumber),
             DisplayPreferenceMode.Normalize(user.DisplayPreference),

@@ -1,8 +1,9 @@
+using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
-using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -10,6 +11,12 @@ namespace Kinshout.Api.Tests;
 
 public class UserProfileServiceTests
 {
+    private const string ApiBase = "https://api.test";
+
+    private static UploadUrlResolver CreateUploadUrlResolver() =>
+        new(
+            Options.Create(new UploadStorageSettings { PublicBaseUrl = ApiBase }),
+            Mock.Of<IHttpContextAccessor>());
     [Fact]
     public async Task GetPublicProfileAsync_PrivateUser_ReturnsNull()
     {
@@ -18,7 +25,7 @@ public class UserProfileServiceTests
         user.IsProfilePublic = false;
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db);
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         var profile = await service.GetPublicProfileAsync(user.Id);
 
         Assert.Null(profile);
@@ -42,12 +49,28 @@ public class UserProfileServiceTests
         });
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db);
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         var profile = await service.GetPublicProfileAsync(user.Id);
 
         Assert.NotNull(profile);
         Assert.Equal(user.DisplayName, profile!.DisplayName);
         Assert.Equal(1, profile.PublishedAdvertCount);
+    }
+
+    [Fact]
+    public async Task GetPublicProfileAsync_ReturnsAbsoluteAvatarUrl()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        user.IsProfilePublic = true;
+        user.AvatarUrl = $"/uploads/avatars/{user.Id:N}/face.png";
+        await db.SaveChangesAsync();
+
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
+        var profile = await service.GetPublicProfileAsync(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Equal($"{ApiBase}/uploads/avatars/{user.Id:N}/face.png", profile!.AvatarUrl);
     }
 
     [Fact]
@@ -58,7 +81,7 @@ public class UserProfileServiceTests
         user.IsProfilePublic = false;
         await db.SaveChangesAsync();
 
-        var service = new UserProfileService(db);
+        var service = new UserProfileService(db, CreateUploadUrlResolver(), TestDbFactory.CreateAdvertDtoMapper());
         await Assert.ThrowsAsync<KeyNotFoundException>(() =>
             service.ListPublicAdvertsAsync(user.Id));
     }

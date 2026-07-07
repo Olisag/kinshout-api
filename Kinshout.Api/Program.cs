@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
@@ -22,6 +23,7 @@ builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(Open
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<UploadStorageSettings>(builder.Configuration.GetSection(UploadStorageSettings.SectionName));
+builder.Services.Configure<ImportSettings>(builder.Configuration.GetSection(ImportSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -50,6 +52,12 @@ builder.Services.AddDbContext<KinshoutDbContext>(options =>
 });
 
 builder.Services.AddHttpClient("OpenAI");
+builder.Services.AddHttpClient("ExternalImageMirror", client =>
+{
+    var mirrorTimeout = builder.Configuration.GetSection(ImportSettings.SectionName).Get<ImportSettings>()?.MirrorImageTimeoutSeconds ?? 30;
+    client.Timeout = TimeSpan.FromSeconds(mirrorTimeout);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("KinshoutImporter/1.0");
+});
 
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IClientAuthService, ClientAuthService>();
@@ -63,6 +71,8 @@ builder.Services.AddScoped<ISavedAdvertService, SavedAdvertService>();
 builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IUploadUrlResolver, UploadUrlResolver>();
 builder.Services.AddSingleton<LocalUploadStorage>();
 builder.Services.AddSingleton<AzureBlobUploadStorage>();
 builder.Services.AddSingleton<IUploadStorage>(sp =>
@@ -73,7 +83,18 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
         : sp.GetRequiredService<LocalUploadStorage>();
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
+builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
+builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();
+builder.Services.AddSingleton<IAdvertImageVariantBackfillScheduler, AdvertImageVariantBackfillScheduler>();
+builder.Services.AddScoped<IExternalAdvertImageMirrorService, ExternalAdvertImageMirrorService>();
+builder.Services.AddSingleton<IExternalAdvertImageMirrorBackfillScheduler, ExternalAdvertImageMirrorBackfillScheduler>();
+builder.Services.AddScoped<IExternalAdvertImportEnrichmentService, ExternalAdvertImportEnrichmentService>();
 builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
+builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
+builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();
+builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
+builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
+builder.Services.AddHostedService<KinshoutStartupHostedService>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -126,6 +147,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.JsonSerializerOptions.AllowTrailingCommas = true;
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -234,20 +256,6 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
-        await DbSeed.SeedAsync(db);
-
-        var clientSecret = builder.Configuration["ClientAuth:KinshoutWebSecret"];
-        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<ApiClient>>();
-        await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
-        await ClientSeed.EnsureAllowedOriginsAsync(db);
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Database seed failed.");
-    }
-
-    try
-    {
         await DbSchemaPatcher.ApplyAsync(db);
     }
     catch (Exception ex)
@@ -268,8 +276,6 @@ else
 app.UseResponseCompression();
 app.UseCors("Kinshout");
 app.UseStaticFiles();
-app.UseMiddleware<ResponseTimingMiddleware>();
-app.UseMiddleware<ClientAuthMiddleware>();
 
 app.UseSwagger(options =>
 {
@@ -283,6 +289,9 @@ app.UseSwaggerUI(options =>
     options.EnablePersistAuthorization();
     SwaggerUiConfigurator.ConfigureUploadInterceptor(options);
 });
+
+app.UseMiddleware<ResponseTimingMiddleware>();
+app.UseMiddleware<ClientAuthMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();

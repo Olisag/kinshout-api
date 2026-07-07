@@ -10,6 +10,7 @@ public record UploadFileContent(Stream Stream, string ContentType);
 public interface IUploadStorage
 {
     Task<string> SaveAsync(string folder, Guid userId, Stream stream, string extension, CancellationToken ct = default);
+    Task<string> SaveNamedAsync(string folder, Guid userId, Stream stream, string fileName, CancellationToken ct = default);
     Task<UploadFileContent?> OpenReadAsync(string uploadUrl, CancellationToken ct = default);
     Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default);
     Task<bool> ExistsAsync(string uploadUrl, CancellationToken ct = default);
@@ -24,11 +25,21 @@ public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUpl
         string extension,
         CancellationToken ct = default)
     {
+        var fileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
+        return await SaveNamedAsync(folder, userId, stream, fileName, ct);
+    }
+
+    public async Task<string> SaveNamedAsync(
+        string folder,
+        Guid userId,
+        Stream stream,
+        string fileName,
+        CancellationToken ct = default)
+    {
         var uploadsRoot = GetUploadsRoot();
         var userFolder = Path.Combine(uploadsRoot, folder, userId.ToString("N"));
         Directory.CreateDirectory(userFolder);
 
-        var fileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
         var fullPath = Path.Combine(userFolder, fileName);
 
         await using (var output = File.Create(fullPath))
@@ -114,6 +125,16 @@ public sealed class AzureBlobUploadStorage(
         CancellationToken ct = default)
     {
         var fileName = $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
+        return await SaveNamedAsync(folder, userId, stream, fileName, ct);
+    }
+
+    public async Task<string> SaveNamedAsync(
+        string folder,
+        Guid userId,
+        Stream stream,
+        string fileName,
+        CancellationToken ct = default)
+    {
         var blobName = BuildBlobName(folder, userId, fileName);
         var container = await GetContainerAsync(ct);
         var blob = container.GetBlobClient(blobName);

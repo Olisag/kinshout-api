@@ -37,7 +37,8 @@ public class CategoryResolverTests
             },
             CancellationToken.None);
 
-        Assert.Equal("coiffure_domicile", resolved.Slug);
+        Assert.Equal("autres", resolved.Slug);
+        Assert.Equal("Autres", resolved.Label);
         Assert.True(resolved.IsAiGenerated);
         Assert.Equal(2, await db.Categories.CountAsync());
     }

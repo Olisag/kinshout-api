@@ -116,12 +116,17 @@ public static partial class SearchQueryHelper
     public static string Display(string query) =>
         Whitespace().Replace(query.Trim(), " ");
 
-    private static string NormalizeToken(string token)
+    public static string CanonicalizeToken(string token)
     {
         token = RemoveDiacritics(token.ToLowerInvariant());
+        if (token.Length <= 2)
+            return token;
+
         token = Singularize(token);
         return TokenAliases.TryGetValue(token, out var alias) ? alias : token;
     }
+
+    private static string NormalizeToken(string token) => CanonicalizeToken(token);
 
     private static string Singularize(string token)
     {

@@ -10,6 +10,13 @@ public sealed class ResponseTimingMiddleware(RequestDelegate next, ILogger<Respo
     public async Task InvokeAsync(HttpContext context)
     {
         var stopwatch = Stopwatch.StartNew();
+        context.Response.OnStarting(() =>
+        {
+            var elapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+            context.Response.Headers["X-Response-Time-Ms"] = elapsedMs.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            return Task.CompletedTask;
+        });
+
         try
         {
             await next(context);
@@ -18,7 +25,6 @@ public sealed class ResponseTimingMiddleware(RequestDelegate next, ILogger<Respo
         {
             stopwatch.Stop();
             var elapsedMs = stopwatch.Elapsed.TotalMilliseconds;
-            context.Response.Headers["X-Response-Time-Ms"] = elapsedMs.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
 
             if (context.Request.Path.StartsWithSegments("/api")
                 && elapsedMs > SlowRequestThresholdMs

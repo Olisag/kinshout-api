@@ -10,6 +10,8 @@ public class Category
     public string Icon { get; set; } = "📦";
     public bool IsSystem { get; set; }
     public bool IsAiGenerated { get; set; }
+    /// <summary>Topic bucket for discussions (sport, politique, etc.). Distinct from advert browse categories.</summary>
+    public bool IsDiscussionTopic { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<Advert> Adverts { get; set; } = [];

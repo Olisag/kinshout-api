@@ -11,7 +11,6 @@ public static class DbSeed
     {
         await SeedApiClientsAsync(db);
         await SeedCategoriesAsync(db);
-        await SeedPopularSearchesAsync(db);
     }
 
     private static async Task SeedApiClientsAsync(KinshoutDbContext db)
@@ -56,36 +55,6 @@ public static class DbSeed
             return;
 
         db.Categories.AddRange(missing);
-        await db.SaveChangesAsync();
-    }
-
-    private static async Task SeedPopularSearchesAsync(KinshoutDbContext db)
-    {
-        if (await db.SearchQueryStats.AnyAsync())
-            return;
-
-        var seeds = new (string Query, int Count)[]
-        {
-            ("Appartement à louer à Gombe", 48),
-            ("Je cherche un chauffeur", 36),
-            ("iPhone 13 pas cher", 31),
-            ("Discussion sur Starlink", 27),
-            ("Maison à vendre Bandal", 22),
-            ("MacBook pas cher", 19),
-            ("Cours particuliers maths", 16),
-            ("Moto Yamaha Kinshasa", 14),
-            ("Job chauffeur VTC", 12),
-            ("Générateur solaire", 10),
-        };
-
-        db.SearchQueryStats.AddRange(seeds.Select((seed, index) => new SearchQueryStat
-        {
-            NormalizedQuery = SearchQueryHelper.CanonicalKey(seed.Query) ?? seed.Query.ToLowerInvariant(),
-            DisplayQuery = seed.Query,
-            SearchCount = seed.Count,
-            LastSearchedAt = DateTime.UtcNow.AddDays(-index),
-        }));
-
         await db.SaveChangesAsync();
     }
 }

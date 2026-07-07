@@ -17,6 +17,7 @@ public interface IAdvertService
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         string? intent = null,
+        string? source = null,
         Guid? viewerUserId = null,
         CancellationToken ct = default);
     Task<PagedResultDto<AdvertDto>> ListMineAsync(
@@ -31,7 +32,8 @@ public class AdvertService(
     KinshoutDbContext db,
     IOpenAiService openAi,
     IAdvertModerationService moderation,
-    IUploadStorage storage) : IAdvertService
+    IUploadStorage storage,
+    IAdvertDtoMapper advertDtos) : IAdvertService
 {
     private const int MaxImages = 10;
 
@@ -80,7 +82,7 @@ public class AdvertService(
 
         advert.Category = category;
         advert.User = user;
-        return ToDto(advert);
+        return advertDtos.ToDto(advert);
     }
 
     public async Task<AdvertDto> UpdateAsync(
@@ -134,7 +136,7 @@ public class AdvertService(
 
         advert.Category = category;
         advert.User = user;
-        return ToDto(advert);
+        return advertDtos.ToDto(advert);
     }
 
     public async Task<AdvertDto?> GetByIdAsync(Guid id, Guid? viewerUserId = null, CancellationToken ct = default)
@@ -149,7 +151,7 @@ public class AdvertService(
 
         advert.ViewCount = await IncrementViewCountAsync(id, advert.ViewCount, ct);
         var isSaved = await IsSavedByUserAsync(db, viewerUserId, id, ct);
-        return ToDto(advert, isSaved);
+        return advertDtos.ToDto(advert, isSaved, includeDisplayUrls: true);
     }
 
     private async Task<int> IncrementViewCountAsync(Guid id, int currentCount, CancellationToken ct)
@@ -178,10 +180,12 @@ public class AdvertService(
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         string? intent = null,
+        string? source = null,
         Guid? viewerUserId = null,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var sourceFilter = AdvertSourceMapper.NormalizeListFilter(source);
 
         var query = db.Adverts.AsNoTracking().Include(a => a.Category).Include(a => a.User).Where(a => a.IsPublished);
         if (categoryId.HasValue)
@@ -190,9 +194,11 @@ public class AdvertService(
         if (!string.IsNullOrWhiteSpace(intent))
             query = query.Where(a => a.Intent == ParseListIntent(intent));
 
+        query = AdvertSourceMapper.ApplySourceFilter(query, sourceFilter);
+
         var ordered = ListSortHelper.IsPopular(sort)
-            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.CreatedAt)
-            : query.OrderByDescending(a => a.CreatedAt);
+            ? query.OrderByDescending(a => a.ViewCount).ThenByDescending(a => a.ExternalPublishedAt ?? a.CreatedAt)
+            : query.OrderByDescending(a => a.ExternalPublishedAt ?? a.CreatedAt);
 
         var total = await ordered.CountAsync(ct);
         var items = await ordered
@@ -201,7 +207,7 @@ public class AdvertService(
             .ToListAsync(ct);
 
         var savedIds = await LoadSavedAdvertIdsAsync(db, viewerUserId, items.Select(a => a.Id), ct);
-        return PagingHelper.Create(ToDtos(items, savedIds), normalizedPage, normalizedPageSize, total);
+        return PagingHelper.Create(advertDtos.ToDtos(items, savedIds), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task<PagedResultDto<AdvertDto>> ListMineAsync(
@@ -225,7 +231,7 @@ public class AdvertService(
             .Take(normalizedPageSize)
             .ToListAsync(ct);
 
-        return PagingHelper.Create(items.Select(a => ToDto(a)).ToList(), normalizedPage, normalizedPageSize, total);
+        return PagingHelper.Create(items.Select(a => advertDtos.ToDto(a)).ToList(), normalizedPage, normalizedPageSize, total);
     }
 
     public async Task DeleteAsync(Guid userId, Guid advertId, CancellationToken ct = default)
@@ -239,36 +245,6 @@ public class AdvertService(
         db.Adverts.Remove(advert);
         await db.SaveChangesAsync(ct);
     }
-
-    internal static AdvertDto ToDto(Advert advert, bool isSaved = false)
-    {
-        var tags = JsonSerializer.Deserialize<List<string>>(advert.TagsJson) ?? [];
-        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
-        return new AdvertDto(
-            advert.Id,
-            advert.Title,
-            advert.Description,
-            advert.Price,
-            advert.Location,
-            advert.Intent.ToString().ToLowerInvariant(),
-            advert.Category.Slug,
-            advert.Category.Label,
-            advert.Category.Icon,
-            imageUrls,
-            advert.ResumeUrl,
-            advert.User?.WhatsAppNumber,
-            tags,
-            TimeHelpers.FormatRelative(advert.CreatedAt),
-            advert.AiConfidence,
-            advert.AiSummary,
-            advert.ViewCount,
-            advert.LikeCount,
-            isSaved
-        );
-    }
-
-    internal static List<AdvertDto> ToDtos(IReadOnlyList<Advert> adverts, IReadOnlySet<Guid> savedIds) =>
-        adverts.Select(a => ToDto(a, savedIds.Contains(a.Id))).ToList();
 
     internal static async Task<HashSet<Guid>> LoadSavedAdvertIdsAsync(
         KinshoutDbContext db,
@@ -319,9 +295,16 @@ public class AdvertService(
 
     private async Task DeleteUploadFiles(Advert advert, CancellationToken ct)
     {
-        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson) ?? [];
+        var imageUrls = JsonSerializer.Deserialize<List<string>>(advert.ImageUrlsJson ?? "[]") ?? [];
         foreach (var url in imageUrls)
+        {
             await TryDeleteUploadAsync(url, ct);
+            foreach (var variant in new[] { AdvertImageUrls.GetThumbnailPath(url), AdvertImageUrls.GetDisplayPath(url) })
+            {
+                if (variant is not null)
+                    await TryDeleteUploadAsync(variant, ct);
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(advert.ResumeUrl))
             await TryDeleteUploadAsync(advert.ResumeUrl, ct);
