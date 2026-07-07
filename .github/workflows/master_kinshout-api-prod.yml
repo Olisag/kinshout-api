@@ -57,5 +57,6 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'kinshout-api-prod'
+          resource-group-name: 'Phpnet20211126011001ResourceGroup'
           slot-name: 'Production'
           package: .
