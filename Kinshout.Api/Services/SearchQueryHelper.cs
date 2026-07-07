@@ -126,7 +126,14 @@ public static partial class SearchQueryHelper
         return TokenAliases.TryGetValue(token, out var alias) ? alias : token;
     }
 
-    private static string NormalizeToken(string token) => CanonicalizeToken(token);
+    private static string NormalizeToken(string token)
+    {
+        token = RemoveDiacritics(token.ToLowerInvariant());
+        if (token.Length <= 2)
+            return token;
+
+        return SearchSpellingNormalizer.CanonicalizeToken(token);
+    }
 
     private static string Singularize(string token)
     {

@@ -10,6 +10,7 @@ public class SearchQueryHelperTests
     [InlineData("Appartement à louer à Gombe", "appartement gombe location")]
     [InlineData("location appart gombe", "appartement gombe location")]
     [InlineData("Je cherche un chauffeur", "chauffeur")]
+    [InlineData("Je cherche un apartment à Gombe", "Je cherche un appartement à Gombe")]
     [InlineData("chauffeur", "chauffeur")]
     [InlineData("iPhone 13 pas cher", "13 cher iphone pas")]
     [InlineData("Discussion sur Starlink", "discussion starlink")]
