@@ -14,6 +14,7 @@ public class SearchQueryResolverTests
     [InlineData("iPhone Kinshasa", null, "Kinshasa")]
     [InlineData("Voiture Toyota", "voiture", null)]
     [InlineData("moto", "moto", null)]
+    [InlineData("je cherche une moto", "moto", null)]
     [InlineData("camion", "camion", null)]
     [InlineData("Kinshasa", null, "Kinshasa")]
     [InlineData("Football Kinshasa", null, "Kinshasa")]

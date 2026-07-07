@@ -27,10 +27,18 @@ public static class SearchQueryResolver
     /// </summary>
     public static SearchQueryHints ParseHints(string query)
     {
-        if (string.IsNullOrWhiteSpace(query))
+        var parsed = SearchQueryParser.Parse(query);
+        return ParseHints(parsed);
+    }
+
+    internal static SearchQueryHints ParseHints(ParsedSearchQuery parsed)
+    {
+        if (string.IsNullOrWhiteSpace(parsed.OriginalQuery))
             return new SearchQueryHints();
 
-        var normalized = SearchTextNormalizer.Normalize(query);
+        var normalized = SearchTextNormalizer.Normalize(parsed.SubjectText);
+        if (normalized.Length < 2)
+            normalized = SearchTextNormalizer.Normalize(parsed.OriginalQuery);
         if (normalized.Length < 2)
             return new SearchQueryHints();
 
@@ -42,7 +50,7 @@ public static class SearchQueryResolver
         string? subcategory = null;
         if (parentSlug is not null)
         {
-            var inferred = InferSubcategorySlug(subcategoryText, parentSlug);
+            var inferred = InferSubcategorySlug(subcategoryText, parentSlug, parsed.IntentHint);
             if (inferred is not null
                 && (locationTerms.Count > 0 || NamesExplicitSubcategory(subcategoryText, parentSlug)))
             {
@@ -57,22 +65,16 @@ public static class SearchQueryResolver
         };
     }
 
-    internal static string? InferSubcategorySlug(string normalized, string parentSlug)
+    internal static string? InferSubcategorySlug(string normalized, string parentSlug, string? intentHint = null)
     {
         if (parentSlug == "immobilier")
         {
             if (SearchTermExpander.NormalizedContainsAny(normalized, "studio"))
-                return SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale)
-                    ? "studio_a_vendre"
-                    : "studio_a_louer";
+                return IsSaleContext(normalized, intentHint) ? "studio_a_vendre" : "studio_a_louer";
             if (SearchTermExpander.NormalizedContainsAny(normalized, "maison", "house", "villa", "ndako"))
-                return SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale)
-                    ? "maison_a_vendre"
-                    : "maison_a_louer";
+                return IsSaleContext(normalized, intentHint) ? "maison_a_vendre" : "maison_a_louer";
             if (SearchTermExpander.NormalizedContainsAny(normalized, "appartement", "appartements", "flat", "apartment"))
-                return SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale)
-                    ? "appartement_a_vendre"
-                    : "appartement_a_louer";
+                return IsSaleContext(normalized, intentHint) ? "appartement_a_vendre" : "appartement_a_louer";
             if (SearchTermExpander.NormalizedContainsAny(normalized, "parcelle", "terrain", "land", "plot"))
                 return "parcelle";
             if (SearchTermExpander.NormalizedContainsAny(normalized, "bureau", "commercial", "office"))
@@ -100,6 +102,10 @@ public static class SearchQueryResolver
 
         return null;
     }
+
+    private static bool IsSaleContext(string normalized, string? intentHint) =>
+        intentHint == SearchIntentHelper.Offre
+        || SearchTermExpander.QueryMatchesConcept(normalized, SearchConcept.Sale);
 
     private static string? InferParentSlug(string normalized)
     {

@@ -23,7 +23,7 @@ internal static class SearchTermExpander
 
     private static readonly string[] FrenchStopWords =
     [
-        "avec", "dans", "des", "les", "pour", "une", "sur", "par", "est", "son", "ses",
+        "avec", "dans", "des", "les", "pour", "une", "sur", "par", "est", "son", "ses", "aux", "mon", "ma",
     ];
 
     private static readonly string[] EnglishStopWords =
@@ -33,7 +33,19 @@ internal static class SearchTermExpander
 
     private static readonly string[] LingalaStopWords =
     [
-        "mpe", "pe", "oyo", "yango", "soki", "kasi",
+        "mpe", "pe", "oyo", "yango", "soki", "kasi", "nazali", "na",
+    ];
+
+    /// <summary>
+    /// Demand / intent words — describe what the user wants to do, not what they search for.
+    /// Must not be used as SQL retrieval terms (e.g. "cherche" matches almost everything).
+    /// </summary>
+    private static readonly string[] DemandStopWords =
+    [
+        "cherche", "cherches", "cherchent", "recherche", "recherches", "recherchons", "besoin", "veux", "veut",
+        "voulez", "voulons", "achete", "acheter", "achetes", "recrute", "recrutons",
+        "looking", "search", "searching", "need", "needs", "want", "wants", "buy", "buying", "hire", "hiring",
+        "koluka", "kolingi", "nalingi", "kolinga",
     ];
 
     private static readonly Dictionary<string, SearchConcept> ConceptBySlug = new(StringComparer.Ordinal)
@@ -67,7 +79,6 @@ internal static class SearchTermExpander
         ["ordinateur", "computer", "laptop", "macbook", "pc"],
         ["tablette", "tablet", "ipad"],
         ["emploi", "emplois", "job", "jobs", "work", "travail", "mosala", "kozwa mosala", "recrutement", "stage", "cv"],
-        ["cherche", "recherche", "search", "looking", "need", "want", "koluka", "kolinga", "nalingi"],
         ["meuble", "meubles", "furniture", "canape", "sofa", "decoration", "electromenager"],
         ["service", "services", "plomberie", "nettoyage", "demenagement", "renovation"],
         ["vetement", "vetements", "clothes", "clothing", "habit", "chaussure", "shoes", "mode", "montre", "watch", "bijou", "sac", "bag"],
@@ -83,7 +94,11 @@ internal static class SearchTermExpander
 
     public static IReadOnlyList<string> ExtractExpandedTerms(string query)
     {
-        var raw = ExtractRawTerms(query);
+        var parsed = SearchQueryParser.Parse(query);
+        var subject = parsed.SubjectText;
+        var raw = ExtractRawTerms(subject);
+        if (raw.Count == 0 && !string.Equals(subject, parsed.OriginalQuery, StringComparison.Ordinal))
+            raw = ExtractRawTerms(parsed.OriginalQuery);
         return Expand(raw);
     }
 
@@ -171,7 +186,8 @@ internal static class SearchTermExpander
     private static bool IsStopWord(string term) =>
         FrenchStopWords.Contains(term)
         || EnglishStopWords.Contains(term)
-        || LingalaStopWords.Contains(term);
+        || LingalaStopWords.Contains(term)
+        || DemandStopWords.Contains(term);
 
     private static Dictionary<string, HashSet<string>> BuildTermSynonyms()
     {

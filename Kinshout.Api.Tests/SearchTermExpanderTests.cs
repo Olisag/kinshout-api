@@ -6,6 +6,23 @@ namespace Kinshout.Api.Tests;
 public class SearchTermExpanderTests
 {
     [Fact]
+    public void ExtractRawTerms_StripsDemandWords()
+    {
+        var terms = SearchTermExpander.ExtractRawTerms("je cherche une moto");
+
+        Assert.Equal(["moto"], terms);
+    }
+
+    [Fact]
+    public void Expand_DemandPhraseKeepsContentTermsOnly()
+    {
+        var expanded = SearchTermExpander.ExtractExpandedTerms("je cherche une moto");
+
+        Assert.Contains("moto", expanded);
+        Assert.DoesNotContain(expanded, term => term is "cherche" or "recherche" or "search" or "looking");
+    }
+
+    [Fact]
     public void Expand_ApartmentIncludesFrenchEquivalent()
     {
         var expanded = SearchTermExpander.Expand(["apartment"]);
