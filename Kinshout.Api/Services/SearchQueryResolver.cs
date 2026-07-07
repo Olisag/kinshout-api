@@ -36,9 +36,9 @@ public static class SearchQueryResolver
         if (string.IsNullOrWhiteSpace(parsed.OriginalQuery))
             return new SearchQueryHints();
 
-        var normalized = SearchTextNormalizer.Normalize(parsed.SubjectText);
+        var normalized = SearchSpellingNormalizer.CanonicalizeText(parsed.SubjectText);
         if (normalized.Length < 2)
-            normalized = SearchTextNormalizer.Normalize(parsed.OriginalQuery);
+            normalized = SearchSpellingNormalizer.CanonicalizeText(parsed.OriginalQuery);
         if (normalized.Length < 2)
             return new SearchQueryHints();
 

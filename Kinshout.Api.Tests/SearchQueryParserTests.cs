@@ -8,7 +8,7 @@ public class SearchQueryParserTests
     [InlineData("je cherche une moto", "moto", SearchIntentHelper.Demande)]
     [InlineData("Je cherche un appartement à Gombe", "appartement a gombe", SearchIntentHelper.Demande)]
     [InlineData("recherche maison Limete", "maison limete", SearchIntentHelper.Demande)]
-    [InlineData("looking for apartment in Gombe", "apartment in gombe", SearchIntentHelper.Demande)]
+    [InlineData("looking for apartment in Gombe", "appartement in gombe", SearchIntentHelper.Demande)]
     [InlineData("I need a car", "car", SearchIntentHelper.Demande)]
     [InlineData("nalingi ndako na Gombe", "ndako na gombe", SearchIntentHelper.Demande)]
     [InlineData("nazali koluka motuka", "motuka", SearchIntentHelper.Demande)]

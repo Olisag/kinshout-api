@@ -63,4 +63,52 @@ public class SearchServiceDemandQueryTests
         Assert.Single(demand.Adverts);
         Assert.Equal(moto.Id, demand.Adverts[0].Id);
     }
+
+    [Fact]
+    public async Task SearchAsync_MisspelledApartmentQuery_MatchesCorrectListings()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var apartment = new Advert
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "Bel appartement à louer",
+            Description = "2 chambres meublé Gombe",
+            SubcategorySlug = "appartement_a_louer",
+            IsPublished = true,
+        };
+        var other = new Advert
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "Studio disponible",
+            Description = "Petit studio Bandal",
+            SubcategorySlug = "studio_a_louer",
+            IsPublished = true,
+        };
+        db.Adverts.AddRange(apartment, other);
+        await db.SaveChangesAsync();
+
+        var openAi = new Mock<IOpenAiService>();
+        openAi
+            .Setup(x => x.SearchAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<Advert>>(),
+                It.IsAny<IReadOnlyList<Discussion>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, IReadOnlyList<Advert> loaded, IReadOnlyList<Discussion> _, CancellationToken __) =>
+                new AiSearchAnalysis(loaded.Select(a => a.Id).ToList(), [], ""));
+
+        var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
+
+        var correct = await service.SearchAsync(new SearchRequestDto("je cherche un appartement a louer", "annonces"));
+        var misspelled = await service.SearchAsync(new SearchRequestDto("je cherche un apartement a louer", "annonces"));
+
+        Assert.Single(correct.Adverts);
+        Assert.Equal(apartment.Id, correct.Adverts[0].Id);
+        Assert.Single(misspelled.Adverts);
+        Assert.Equal(apartment.Id, misspelled.Adverts[0].Id);
+    }
 }

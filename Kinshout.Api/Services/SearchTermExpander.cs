@@ -92,6 +92,21 @@ internal static class SearchTermExpander
 
     private static readonly Dictionary<string, HashSet<string>> TermSynonyms = BuildTermSynonyms();
 
+    internal static IEnumerable<string> GetVocabularyTerms()
+    {
+        foreach (var group in SynonymGroups)
+        {
+            foreach (var term in group)
+                yield return term;
+        }
+
+        foreach (var terms in ConceptTerms.Values)
+        {
+            foreach (var term in terms)
+                yield return term;
+        }
+    }
+
     public static IReadOnlyList<string> ExtractExpandedTerms(string query)
     {
         var parsed = SearchQueryParser.Parse(query);
@@ -107,7 +122,7 @@ internal static class SearchTermExpander
         if (!ConceptTerms.TryGetValue(concept, out var seeds))
             return false;
 
-        var normalized = SearchTextNormalizer.Normalize(query);
+        var normalized = SearchSpellingNormalizer.CanonicalizeText(query);
         foreach (var seed in seeds)
         {
             if (normalized.Contains(seed, StringComparison.Ordinal))
@@ -145,6 +160,7 @@ internal static class SearchTermExpander
         var normalized = SearchTextNormalizer.Normalize(query);
         return normalized
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(SearchSpellingNormalizer.CanonicalizeToken)
             .Where(term => term.Length >= 3 && !IsStopWord(term))
             .Distinct(StringComparer.Ordinal)
             .ToList();

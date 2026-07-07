@@ -27,7 +27,7 @@ public static class SearchMatchHelper
     public static IReadOnlyList<Guid> RankAdvertIds(string query, IReadOnlyList<Advert> adverts)
     {
         var terms = ExtractTerms(query);
-        var subject = SearchQueryParser.Parse(query).SubjectText;
+        var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
         var normalizedQuery = SearchTextNormalizer.Normalize(subject);
         return adverts
             .Select(a => new RankedItem(a.Id, ScoreAdvert(terms, normalizedQuery, a), a.ViewCount, AdvertSourceMapper.SortDate(a)))
@@ -43,7 +43,7 @@ public static class SearchMatchHelper
     public static IReadOnlyList<Guid> RankDiscussionIds(string query, IReadOnlyList<Discussion> discussions)
     {
         var terms = ExtractTerms(query);
-        var subject = SearchQueryParser.Parse(query).SubjectText;
+        var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
         var normalizedQuery = SearchTextNormalizer.Normalize(subject);
         return discussions
             .Select(d => new RankedItem(

@@ -73,7 +73,7 @@ public static partial class SearchQueryParser
         return new ParsedSearchQuery
         {
             OriginalQuery = original,
-            SubjectText = normalized,
+            SubjectText = SearchSpellingNormalizer.CanonicalizeText(normalized),
             IntentHint = null,
             MatchedPattern = false,
         };
@@ -84,7 +84,7 @@ public static partial class SearchQueryParser
         var cleaned = subject.Trim();
         cleaned = LeadingArticlePrefix().Replace(cleaned, "");
         cleaned = TrailingPreposition().Replace(cleaned, "");
-        return cleaned.Trim();
+        return SearchSpellingNormalizer.CanonicalizeText(cleaned.Trim());
     }
 
     private static (Regex Pattern, string Intent)[] DemandPatterns =>
