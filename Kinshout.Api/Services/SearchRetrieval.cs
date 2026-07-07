@@ -26,9 +26,16 @@ public static class SearchRetrieval
 
         if (await IsFullTextAvailableAsync(db, cache, ct))
         {
-            var fullTextIds = await LoadAdvertIdsByFullTextAsync(db, filtered, query, terms, ct);
-            if (fullTextIds.Count > 0)
-                return await LoadAdvertsByIdsAsync(db, fullTextIds, ct);
+            try
+            {
+                var fullTextIds = await LoadAdvertIdsByFullTextAsync(db, filtered, query, terms, ct);
+                if (fullTextIds.Count > 0)
+                    return await LoadAdvertsByIdsAsync(db, fullTextIds, ct);
+            }
+            catch
+            {
+                // Full-text can fail on edge-case queries; fall back to local rank.
+            }
         }
 
         return await LoadAdvertsWithLocalRankAsync(filtered, query, ct);
@@ -46,9 +53,16 @@ public static class SearchRetrieval
 
         if (await IsFullTextAvailableAsync(db, cache, ct))
         {
-            var fullTextIds = await LoadDiscussionIdsByFullTextAsync(db, filtered, query, terms, ct);
-            if (fullTextIds.Count > 0)
-                return await LoadDiscussionsByIdsAsync(db, fullTextIds, ct);
+            try
+            {
+                var fullTextIds = await LoadDiscussionIdsByFullTextAsync(db, filtered, query, terms, ct);
+                if (fullTextIds.Count > 0)
+                    return await LoadDiscussionsByIdsAsync(db, fullTextIds, ct);
+            }
+            catch
+            {
+                // Full-text can fail on edge-case queries; fall back to local rank.
+            }
         }
 
         return await LoadDiscussionsWithLocalRankAsync(filtered, query, ct);

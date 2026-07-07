@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -48,7 +49,9 @@ builder.Services.AddDbContext<KinshoutDbContext>(options =>
     if (connectionString.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
         options.UseSqlite(connectionString);
     else
-        options.UseSqlServer(connectionString);
+        options.UseSqlServer(connectionString, sql =>
+            sql.EnableRetryOnFailure())
+            .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 });
 
 builder.Services.AddHttpClient("OpenAI");
