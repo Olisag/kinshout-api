@@ -30,8 +30,13 @@ public static class SearchMatchHelper
         var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
         var normalizedQuery = SearchTextNormalizer.Normalize(subject);
         return adverts
-            .Select(a => new RankedItem(a.Id, ScoreAdvert(terms, normalizedQuery, a), a.ViewCount, AdvertSourceMapper.SortDate(a)))
-            .Where(x => x.Score > 0)
+            .Select(a => new RankedItem(
+                a.Id,
+                ScoreAdvert(terms, normalizedQuery, a),
+                a.ViewCount,
+                AdvertSourceMapper.SortDate(a),
+                Advert: a))
+            .Where(x => x.Score > 0 && SearchRelevance.IsAdvertRelevant(query, x.Advert!))
             .OrderByDescending(x => x.Score)
             .ThenByDescending(x => x.ViewCount / PopularityDivisor)
             .ThenByDescending(x => x.SortDate)
@@ -52,7 +57,7 @@ public static class SearchMatchHelper
                 d.ViewCount,
                 d.CreatedAt,
                 d))
-            .Where(x => x.Score > 0 && SearchRelevance.IsDiscussionRelevant(query, x.Discussion))
+            .Where(x => x.Score > 0 && SearchRelevance.IsDiscussionRelevant(query, x.Discussion!))
             .OrderByDescending(x => x.Score)
             .ThenByDescending(x => x.ViewCount / PopularityDivisor)
             .ThenByDescending(x => x.SortDate)
@@ -196,5 +201,11 @@ public static class SearchMatchHelper
     private static bool ContainsTerm(string field, string term) =>
         SearchRelevance.MatchesWholeTerm(field, term);
 
-    private readonly record struct RankedItem(Guid Id, int Score, int ViewCount, DateTime SortDate, Discussion? Discussion = null);
+    private readonly record struct RankedItem(
+        Guid Id,
+        int Score,
+        int ViewCount,
+        DateTime SortDate,
+        Discussion? Discussion = null,
+        Advert? Advert = null);
 }

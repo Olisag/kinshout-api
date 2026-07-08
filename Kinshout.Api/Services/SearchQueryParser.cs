@@ -103,6 +103,8 @@ public static partial class SearchQueryParser
 
     private static (Regex Pattern, string Intent)[] OfferPatterns =>
     [
+        (FrenchOffreDeService(), SearchIntentHelper.Offre),
+        (FrenchOffreDe(), SearchIntentHelper.Offre),
         (FrenchJeVends(), SearchIntentHelper.Offre),
         (FrenchJePropose(), SearchIntentHelper.Offre),
         (FrenchAVendre(), SearchIntentHelper.Offre),
@@ -143,6 +145,12 @@ public static partial class SearchQueryParser
 
     [GeneratedRegex(@"^nazali kolinga\s+(?:(?:moko|moko ya)\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex LingalaNazaliKolinga();
+
+    [GeneratedRegex(@"^offre\s+(?:de\s+)?service(?:s)?\s+(?:de\s+|d\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex FrenchOffreDeService();
+
+    [GeneratedRegex(@"^offre\s+(?:de\s+|d\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex FrenchOffreDe();
 
     [GeneratedRegex(@"^je vends\s+(?:(?:un|une|des|mon|ma|mes)\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex FrenchJeVends();

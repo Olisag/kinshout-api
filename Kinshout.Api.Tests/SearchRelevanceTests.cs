@@ -24,6 +24,27 @@ public class SearchRelevanceTests
     }
 
     [Fact]
+    public void IsAdvertRelevant_RejectsSpamWhenGenericServiceTermsPresent()
+    {
+        var spam = new Advert
+        {
+            Title = "Amil baba in Pakistan, asli amil baba, black magic expert",
+            Description = "Real amil baba service in Karachi, Lahore, Canada, USA, UK",
+        };
+        var relevant = new Advert
+        {
+            Title = "Accompagnement numérique pour PME",
+            Description = "Coaching et accompagnement numérique",
+        };
+
+        // Query without offer template keeps generic "service" in core terms for strict filtering.
+        const string genericServiceQuery = "service accompagnement numerique";
+
+        Assert.False(SearchRelevance.IsAdvertRelevant(genericServiceQuery, spam));
+        Assert.True(SearchRelevance.IsAdvertRelevant(genericServiceQuery, relevant));
+    }
+
+    [Fact]
     public void IsDiscussionRelevant_AllowsSingleTermLocationQuery()
     {
         var kinshasaThread = new Discussion
