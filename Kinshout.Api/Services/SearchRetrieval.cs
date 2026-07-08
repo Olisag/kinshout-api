@@ -18,10 +18,11 @@ public static class SearchRetrieval
         KinshoutDbContext db,
         IQueryable<Advert> baseQuery,
         string query,
+        SearchQueryHints hints,
         IMemoryCache? cache,
         CancellationToken ct)
     {
-        var terms = SearchMatchHelper.ExtractTerms(query);
+        var terms = SearchMatchHelper.ExtractTerms(query, hints);
         var filtered = ApplyAdvertTextFilter(db, baseQuery, terms);
 
         if (await IsFullTextAvailableAsync(db, cache, ct))
@@ -38,18 +39,20 @@ public static class SearchRetrieval
             }
         }
 
-        return await LoadAdvertsWithLocalRankAsync(filtered, query, ct);
+        return await LoadAdvertsWithLocalRankAsync(filtered, query, hints, ct);
     }
 
     public static async Task<List<Discussion>> LoadSemanticDiscussionsAsync(
         KinshoutDbContext db,
         IQueryable<Discussion> baseQuery,
         string query,
+        SearchQueryHints hints,
         IMemoryCache? cache,
         CancellationToken ct)
     {
-        var terms = SearchMatchHelper.ExtractTerms(query);
-        var filtered = ApplyDiscussionTextFilter(db, baseQuery, terms, query);
+        var terms = SearchMatchHelper.ExtractTerms(query, hints);
+        var subjectQuery = string.IsNullOrWhiteSpace(hints.SubjectText) ? query : hints.SubjectText;
+        var filtered = ApplyDiscussionTextFilter(db, baseQuery, terms, subjectQuery);
 
         if (await IsFullTextAvailableAsync(db, cache, ct))
         {
@@ -65,7 +68,7 @@ public static class SearchRetrieval
             }
         }
 
-        return await LoadDiscussionsWithLocalRankAsync(filtered, query, ct);
+        return await LoadDiscussionsWithLocalRankAsync(filtered, query, hints, ct);
     }
 
     public static IQueryable<Advert> ApplyAdvertTextFilter(
@@ -257,6 +260,7 @@ public static class SearchRetrieval
     private static async Task<List<Advert>> LoadAdvertsWithLocalRankAsync(
         IQueryable<Advert> filtered,
         string query,
+        SearchQueryHints hints,
         CancellationToken ct)
     {
         var candidates = await filtered
@@ -265,7 +269,7 @@ public static class SearchRetrieval
             .Include(a => a.User)
             .ToListAsync(ct);
 
-        var rankedIds = SearchMatchHelper.RankAdvertIds(query, candidates).Take(RetrieveCap).ToList();
+        var rankedIds = SearchMatchHelper.RankAdvertIds(query, candidates, hints).Take(RetrieveCap).ToList();
         if (rankedIds.Count == 0)
             return [];
 
@@ -276,6 +280,7 @@ public static class SearchRetrieval
     private static async Task<List<Discussion>> LoadDiscussionsWithLocalRankAsync(
         IQueryable<Discussion> filtered,
         string query,
+        SearchQueryHints hints,
         CancellationToken ct)
     {
         var candidates = await filtered
@@ -284,7 +289,7 @@ public static class SearchRetrieval
             .Include(d => d.Category)
             .ToListAsync(ct);
 
-        var rankedIds = SearchMatchHelper.RankDiscussionIds(query, candidates).Take(RetrieveCap).ToList();
+        var rankedIds = SearchMatchHelper.RankDiscussionIds(query, candidates, hints).Take(RetrieveCap).ToList();
         if (rankedIds.Count == 0)
             return [];
 

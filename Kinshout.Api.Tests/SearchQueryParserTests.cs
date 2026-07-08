@@ -12,6 +12,7 @@ public class SearchQueryParserTests
     [InlineData("I need a car", "car", SearchIntentHelper.Demande)]
     [InlineData("nalingi ndako na Gombe", "ndako na gombe", SearchIntentHelper.Demande)]
     [InlineData("nazali koluka motuka", "motuka", SearchIntentHelper.Demande)]
+    [InlineData("nazo luka ndako pas tres cher a gombe", "ndako pas tre cher a gombe", SearchIntentHelper.Demande)]
     [InlineData("je vends ma moto", "moto", SearchIntentHelper.Offre)]
     [InlineData("vente de vetement pour enfants", "vetement pour enfant", SearchIntentHelper.Offre)]
     [InlineData("vente vetement pour enfant", "vetement pour enfant", SearchIntentHelper.Offre)]

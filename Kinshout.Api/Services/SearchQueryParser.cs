@@ -99,6 +99,8 @@ public static partial class SearchQueryParser
         (LingalaNalingi(), SearchIntentHelper.Demande),
         (LingalaNazaliKoluka(), SearchIntentHelper.Demande),
         (LingalaNazaliKolinga(), SearchIntentHelper.Demande),
+        (LingalaNazoLuka(), SearchIntentHelper.Demande),
+        (LingalaNazoKoluka(), SearchIntentHelper.Demande),
     ];
 
     private static (Regex Pattern, string Intent)[] OfferPatterns =>
@@ -145,6 +147,12 @@ public static partial class SearchQueryParser
 
     [GeneratedRegex(@"^nazali kolinga\s+(?:(?:moko|moko ya)\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex LingalaNazaliKolinga();
+
+    [GeneratedRegex(@"^nazo luka\s+(?:(?:moko|moko ya)\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex LingalaNazoLuka();
+
+    [GeneratedRegex(@"^nazo koluka\s+(?:(?:moko|moko ya)\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
+    private static partial Regex LingalaNazoKoluka();
 
     [GeneratedRegex(@"^offre\s+(?:de\s+)?service(?:s)?\s+(?:de\s+|d\s+)?(?<subject>.+)$", RegexOptions.CultureInvariant)]
     private static partial Regex FrenchOffreDeService();

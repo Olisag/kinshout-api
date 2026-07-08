@@ -5,6 +5,15 @@ public sealed class SearchQueryHints
     public IReadOnlyList<string> LocationTerms { get; init; } = [];
     public string? SubcategorySlug { get; init; }
     public string? ParentCategorySlug { get; init; }
+    public string? SubjectText { get; init; }
+    public string? IntentHint { get; init; }
+    public IReadOnlyList<string> RetrievalTerms { get; init; } = [];
+    public bool UsedAiUnderstanding { get; init; }
+
+    public bool HasStructuredFilters =>
+        LocationTerms.Count > 0
+        || !string.IsNullOrWhiteSpace(SubcategorySlug)
+        || !string.IsNullOrWhiteSpace(ParentCategorySlug);
 }
 
 public static class SearchQueryResolver
