@@ -382,11 +382,7 @@ public class SearchService(
         if (!string.IsNullOrWhiteSpace(hints.SubcategorySlug))
             advertQuery = advertQuery.Where(a => a.SubcategorySlug == hints.SubcategorySlug);
         foreach (var location in hints.LocationTerms)
-        {
-            var term = location.ToLowerInvariant();
-            advertQuery = advertQuery.Where(a =>
-                a.Location != null && a.Location.ToLower().Contains(term));
-        }
+            advertQuery = SearchDbTextFilter.WhereAdvertLocationContains(advertQuery, context, location);
 
         return await SearchRetrieval.LoadSemanticAdvertsAsync(context, advertQuery, query, memoryCache, ct);
     }
@@ -431,11 +427,7 @@ public class SearchService(
     {
         IQueryable<Discussion> discussionQuery = context.Discussions.AsNoTracking();
         foreach (var location in hints.LocationTerms)
-        {
-            var term = location.ToLowerInvariant();
-            discussionQuery = discussionQuery.Where(d =>
-                d.Title.ToLower().Contains(term) || d.Body.ToLower().Contains(term));
-        }
+            discussionQuery = SearchDbTextFilter.WhereTitleOrBodyContains(discussionQuery, context, location);
 
         return await SearchRetrieval.LoadSemanticDiscussionsAsync(context, discussionQuery, query, memoryCache, ct);
     }
