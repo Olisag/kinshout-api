@@ -43,6 +43,17 @@ public record AiSearchAnalysis(
     string Summary
 );
 
+public record AiSearchQueryAnalysis(
+    string SubjectText,
+    string? IntentHint,
+    string? ParentCategorySlug,
+    string? SubcategorySlug,
+    IReadOnlyList<string> LocationTerms,
+    IReadOnlyList<string> RetrievalTerms,
+    double Confidence,
+    bool RuleBasedFallback = false
+);
+
 public record ImportAdvertEnrichment(
     string Description,
     string Intent,
@@ -53,6 +64,7 @@ public interface IOpenAiService
     Task<AiAdvertAnalysis> AnalyzeAdvertAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiSearchAnalysis> SearchAsync(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions, CancellationToken ct = default);
+    Task<AiSearchQueryAnalysis> AnalyzeSearchQueryAsync(string query, CancellationToken ct = default);
     Task<ImportAdvertEnrichment?> EnrichImportedAdvertAsync(
         ImportExternalAdvertDto item,
         Category category,
@@ -284,6 +296,55 @@ public partial class OpenAiService(
         }
     }
 
+    public async Task<AiSearchQueryAnalysis> AnalyzeSearchQueryAsync(string query, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return FallbackSearchQueryAnalysis(query);
+
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            return FallbackSearchQueryAnalysis(query);
+
+        var prompt = $$"""
+            Tu es l'IA de recherche Kinshout (Kinshasa, RDC).
+            Analyse la requête utilisateur et extrais une intention structurée pour la recherche locale.
+            Réponds UNIQUEMENT en JSON:
+            {
+              "subjectText": "sujet court sans boilerplate de recherche",
+              "intent": "offre|demande|null",
+              "parentCategorySlug": "immobilier|vehicules|telephones|informatique|electronique|emplois|meubles|services|mode|jouets|null",
+              "subcategorySlug": "appartement_a_louer|maison_a_louer|voiture|moto|null",
+              "locationTerms": ["Gombe", ...],
+              "retrievalTerms": ["ndako", "maison", "gombe"],
+              "confidence": 0.0-1.0
+            }
+
+            Règles:
+            - Français, anglais, lingala et mélanges acceptés.
+            - Exclure les mots d'intention (cherche, nazo, luka, koluka, nalingi, looking for) de subjectText et retrievalTerms.
+            - retrievalTerms: 3-8 mots utiles pour retrouver des annonces/discussions (produit, lieu, qualificatif utile).
+            - parentCategorySlug seulement si le sens est clair.
+            - subcategorySlug seulement si le type de bien est clair (ex: ndako/maison → maison_a_louer si demande).
+            - locationTerms: communes Kinshasa (Gombe, Limete, Bandal...) ou Kinshasa.
+
+            Exemple: « Nazo luka ndako pas tres cher a Gombe »
+            → subjectText: "ndako pas cher gombe", intent: "demande", parentCategorySlug: "immobilier",
+              subcategorySlug: "maison_a_louer", locationTerms: ["Gombe"], retrievalTerms: ["ndako", "maison", "gombe", "pas cher"]
+
+            Requête: "{{query.Replace("\"", "\\\"")}}"
+            """;
+
+        try
+        {
+            var json = await ChatJsonAsync(prompt, ct);
+            return ParseSearchQueryAnalysis(json, query);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI search query analysis failed, using fallback.");
+            return FallbackSearchQueryAnalysis(query);
+        }
+    }
+
     public async Task<AiSearchAnalysis> SearchAsync(
         string query,
         IReadOnlyList<Advert> adverts,
@@ -463,6 +524,123 @@ public partial class OpenAiService(
             root.TryGetProperty("confidence", out var c) ? c.GetDouble() : 0.85,
             root.TryGetProperty("summary", out var s) ? s.GetString() ?? "" : ""
         );
+    }
+
+    private static AiSearchQueryAnalysis ParseSearchQueryAnalysis(string json, string query)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var subjectText = root.TryGetProperty("subjectText", out var subject)
+            ? SearchSpellingNormalizer.CanonicalizeText(subject.GetString() ?? "")
+            : SearchSpellingNormalizer.CanonicalizeText(query);
+
+        var intent = root.TryGetProperty("intent", out var intentEl) && intentEl.ValueKind == JsonValueKind.String
+            ? NormalizeIntent(intentEl.GetString())
+            : null;
+
+        var parentCategorySlug = NormalizeCategorySlug(
+            root.TryGetProperty("parentCategorySlug", out var parent) ? parent.GetString() : null);
+
+        var subcategorySlug = NormalizeSubcategorySlug(
+            root.TryGetProperty("subcategorySlug", out var sub) ? sub.GetString() : null,
+            parentCategorySlug);
+
+        var locationTerms = root.TryGetProperty("locationTerms", out var locations)
+            ? locations.EnumerateArray()
+                .Select(x => x.GetString() ?? "")
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : [];
+
+        var retrievalTerms = root.TryGetProperty("retrievalTerms", out var terms)
+            ? terms.EnumerateArray()
+                .Select(x => x.GetString() ?? "")
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : [];
+
+        var confidence = root.TryGetProperty("confidence", out var confidenceEl)
+            ? confidenceEl.GetDouble()
+            : 0.75;
+
+        if (string.IsNullOrWhiteSpace(subjectText) && retrievalTerms.Count == 0 && parentCategorySlug is null)
+            return FallbackSearchQueryAnalysis(query);
+
+        return new AiSearchQueryAnalysis(
+            subjectText,
+            intent,
+            parentCategorySlug,
+            subcategorySlug,
+            locationTerms,
+            retrievalTerms,
+            confidence);
+    }
+
+    private static AiSearchQueryAnalysis FallbackSearchQueryAnalysis(string query)
+    {
+        var parsed = SearchQueryParser.Parse(query);
+        var hints = SearchQueryResolver.ParseHints(parsed);
+        return new AiSearchQueryAnalysis(
+            parsed.SubjectText,
+            parsed.IntentHint,
+            hints.ParentCategorySlug,
+            hints.SubcategorySlug,
+            hints.LocationTerms,
+            [],
+            Confidence: 0,
+            RuleBasedFallback: true);
+    }
+
+    private static string? NormalizeIntent(string? intent)
+    {
+        if (string.IsNullOrWhiteSpace(intent))
+            return null;
+
+        var normalized = intent.Trim().ToLowerInvariant();
+        return normalized is SearchIntentHelper.Offre or SearchIntentHelper.Demande
+            ? normalized
+            : null;
+    }
+
+    private static string? NormalizeCategorySlug(string? slug)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+            return null;
+
+        var normalized = slug.Trim().ToLowerInvariant();
+        return normalized is
+            "immobilier" or "vehicules" or "telephones" or "informatique" or "electronique"
+            or "emplois" or "meubles" or "services" or "mode" or "jouets"
+            ? normalized
+            : null;
+    }
+
+    private static string? NormalizeSubcategorySlug(string? slug, string? parentCategorySlug)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+            return null;
+
+        var normalized = slug.Trim().ToLowerInvariant();
+        if (parentCategorySlug == "immobilier")
+        {
+            return normalized is
+                "appartement_a_louer" or "appartement_a_vendre" or "maison_a_louer" or "maison_a_vendre"
+                or "studio_a_louer" or "studio_a_vendre" or "parcelle" or "bureau"
+                ? normalized
+                : null;
+        }
+
+        if (parentCategorySlug == "vehicules")
+        {
+            return normalized is "voiture" or "moto" or "camion"
+                ? normalized
+                : null;
+        }
+
+        return null;
     }
 
     private static AiSearchAnalysis ParseSearchAnalysis(

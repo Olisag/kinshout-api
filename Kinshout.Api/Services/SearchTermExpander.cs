@@ -45,7 +45,7 @@ internal static class SearchTermExpander
         "cherche", "cherches", "cherchent", "recherche", "recherches", "recherchons", "besoin", "veux", "veut",
         "voulez", "voulons", "achete", "acheter", "achetes", "recrute", "recrutons",
         "looking", "search", "searching", "need", "needs", "want", "wants", "buy", "buying", "hire", "hiring",
-        "koluka", "kolingi", "nalingi", "kolinga",
+        "koluka", "kolingi", "nalingi", "kolinga", "luka", "nazo",
     ];
 
     /// <summary>
@@ -224,6 +224,8 @@ internal static class SearchTermExpander
         || LingalaStopWords.Contains(term)
         || DemandStopWords.Contains(term)
         || OfferStopWords.Contains(term);
+
+    internal static bool IsRetrievalStopWord(string term) => IsStopWord(term);
 
     private static Dictionary<string, HashSet<string>> BuildTermSynonyms()
     {

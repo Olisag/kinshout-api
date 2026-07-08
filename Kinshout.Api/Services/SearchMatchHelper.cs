@@ -17,17 +17,21 @@ public static class SearchMatchHelper
     public static AiSearchAnalysis Rank(
         string query,
         IReadOnlyList<Advert> adverts,
-        IReadOnlyList<Discussion> discussions)
+        IReadOnlyList<Discussion> discussions,
+        SearchQueryHints? hints = null)
     {
-        var advertIds = RankAdvertIds(query, adverts);
-        var discussionIds = RankDiscussionIds(query, discussions);
+        var advertIds = RankAdvertIds(query, adverts, hints);
+        var discussionIds = RankDiscussionIds(query, discussions, hints);
         return new AiSearchAnalysis(advertIds, discussionIds, $"Résultats pour « {query} ».");
     }
 
-    public static IReadOnlyList<Guid> RankAdvertIds(string query, IReadOnlyList<Advert> adverts)
+    public static IReadOnlyList<Guid> RankAdvertIds(
+        string query,
+        IReadOnlyList<Advert> adverts,
+        SearchQueryHints? hints = null)
     {
-        var terms = ExtractTerms(query);
-        var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
+        var terms = ExtractTerms(query, hints);
+        var subject = ResolveSubjectText(query, hints);
         var normalizedQuery = SearchTextNormalizer.Normalize(subject);
         return adverts
             .Select(a => new RankedItem(
@@ -36,7 +40,7 @@ public static class SearchMatchHelper
                 a.ViewCount,
                 AdvertSourceMapper.SortDate(a),
                 Advert: a))
-            .Where(x => x.Score > 0 && SearchRelevance.IsAdvertRelevant(query, x.Advert!))
+            .Where(x => x.Score > 0 && SearchRelevance.IsAdvertRelevant(query, x.Advert!, hints))
             .OrderByDescending(x => x.Score)
             .ThenByDescending(x => x.ViewCount / PopularityDivisor)
             .ThenByDescending(x => x.SortDate)
@@ -45,10 +49,13 @@ public static class SearchMatchHelper
             .ToList();
     }
 
-    public static IReadOnlyList<Guid> RankDiscussionIds(string query, IReadOnlyList<Discussion> discussions)
+    public static IReadOnlyList<Guid> RankDiscussionIds(
+        string query,
+        IReadOnlyList<Discussion> discussions,
+        SearchQueryHints? hints = null)
     {
-        var terms = ExtractTerms(query);
-        var subject = SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
+        var terms = ExtractTerms(query, hints);
+        var subject = ResolveSubjectText(query, hints);
         var normalizedQuery = SearchTextNormalizer.Normalize(subject);
         return discussions
             .Select(d => new RankedItem(
@@ -57,7 +64,7 @@ public static class SearchMatchHelper
                 d.ViewCount,
                 d.CreatedAt,
                 d))
-            .Where(x => x.Score > 0 && SearchRelevance.IsDiscussionRelevant(query, x.Discussion!))
+            .Where(x => x.Score > 0 && SearchRelevance.IsDiscussionRelevant(query, x.Discussion!, hints))
             .OrderByDescending(x => x.Score)
             .ThenByDescending(x => x.ViewCount / PopularityDivisor)
             .ThenByDescending(x => x.SortDate)
@@ -96,8 +103,23 @@ public static class SearchMatchHelper
         return score;
     }
 
-    internal static IReadOnlyList<string> ExtractTerms(string query) =>
-        SearchTermExpander.ExtractExpandedTerms(query);
+    internal static IReadOnlyList<string> ExtractTerms(string query, SearchQueryHints? hints = null)
+    {
+        if (hints?.RetrievalTerms is { Count: > 0 })
+            return SearchTermExpander.Expand(hints.RetrievalTerms);
+
+        var subject = ResolveSubjectText(query, hints);
+        return SearchTermExpander.ExtractExpandedTerms(
+            string.IsNullOrWhiteSpace(subject) ? query : subject);
+    }
+
+    private static string ResolveSubjectText(string query, SearchQueryHints? hints)
+    {
+        if (!string.IsNullOrWhiteSpace(hints?.SubjectText))
+            return SearchSpellingNormalizer.CanonicalizeText(hints.SubjectText);
+
+        return SearchSpellingNormalizer.CanonicalizeText(SearchQueryParser.Parse(query).SubjectText);
+    }
 
     public static bool IsConfidentLocalRank(
         string query,

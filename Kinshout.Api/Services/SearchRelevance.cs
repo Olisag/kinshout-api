@@ -13,22 +13,33 @@ internal static class SearchRelevance
         "service", "services", "offre", "offres",
     ];
 
-    public static IReadOnlyList<string> CoreSubjectTerms(string? query)
+    public static IReadOnlyList<string> CoreSubjectTerms(string? query, SearchQueryHints? hints = null)
     {
+        if (hints?.RetrievalTerms is { Count: > 0 })
+        {
+            return hints.RetrievalTerms
+                .Where(term => term.Length >= 3 && !SearchTermExpander.IsRetrievalStopWord(term))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        var subject = !string.IsNullOrWhiteSpace(hints?.SubjectText)
+            ? hints.SubjectText
+            : SearchQueryParser.Parse(query).SubjectText;
+
         if (string.IsNullOrWhiteSpace(query))
             return [];
 
-        var parsed = SearchQueryParser.Parse(query);
-        var raw = SearchTermExpander.ExtractRawTerms(parsed.SubjectText);
+        var raw = SearchTermExpander.ExtractRawTerms(subject);
         if (raw.Count == 0)
             raw = SearchTermExpander.ExtractRawTerms(query);
 
         return raw;
     }
 
-    public static bool IsDiscussionRelevant(string query, Discussion discussion)
+    public static bool IsDiscussionRelevant(string query, Discussion discussion, SearchQueryHints? hints = null)
     {
-        var coreTerms = CoreSubjectTerms(query);
+        var coreTerms = CoreSubjectTerms(query, hints);
         if (coreTerms.Count == 0)
             return true;
 
@@ -37,9 +48,9 @@ internal static class SearchRelevance
         return HasRequiredCoreTermMatches(coreTerms, title, body);
     }
 
-    public static bool IsAdvertRelevant(string query, Advert advert)
+    public static bool IsAdvertRelevant(string query, Advert advert, SearchQueryHints? hints = null)
     {
-        var coreTerms = CoreSubjectTerms(query);
+        var coreTerms = CoreSubjectTerms(query, hints);
         if (coreTerms.Count == 0 || !RequiresStrictAdvertRelevance(coreTerms))
             return true;
 
