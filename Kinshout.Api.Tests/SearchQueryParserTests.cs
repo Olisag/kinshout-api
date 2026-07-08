@@ -17,6 +17,8 @@ public class SearchQueryParserTests
     [InlineData("vente vetement pour enfant", "vetement pour enfant", SearchIntentHelper.Offre)]
     [InlineData("koteka motuka", "motuka", SearchIntentHelper.Offre)]
     [InlineData("selling my Toyota", "toyota", SearchIntentHelper.Offre)]
+    [InlineData("Offre de service d'accompagnement numérique", "accompagnement numerique", SearchIntentHelper.Offre)]
+    [InlineData("offre de plomberie", "plomberie", SearchIntentHelper.Offre)]
     public void Parse_ExtractsSubjectAndIntent(string query, string expectedSubject, string expectedIntent)
     {
         var parsed = SearchQueryParser.Parse(query);

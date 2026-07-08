@@ -54,6 +54,7 @@ internal static class SearchTermExpander
     /// </summary>
     private static readonly string[] OfferStopWords =
     [
+        "offre", "offres", "propose", "proposition", "propositions",
         "vente", "ventes", "vendre", "vends", "vend", "vendu", "vendue",
         "sale", "sell", "selling", "sold",
         "koteka", "kotia", "kotisa",

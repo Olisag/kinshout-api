@@ -4,6 +4,15 @@ namespace Kinshout.Api.Services;
 
 internal static class SearchRelevance
 {
+    /// <summary>
+    /// Broad marketplace words that match many unrelated listings when used alone in retrieval.
+    /// Strict multi-term relevance applies only when these appear in the parsed subject.
+    /// </summary>
+    private static readonly string[] GenericMarketplaceTerms =
+    [
+        "service", "services", "offre", "offres",
+    ];
+
     public static IReadOnlyList<string> CoreSubjectTerms(string? query)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -25,15 +34,39 @@ internal static class SearchRelevance
 
         var title = SearchTextNormalizer.Normalize(discussion.Title);
         var body = SearchTextNormalizer.Normalize(discussion.Body);
-        var matched = coreTerms.Count(term =>
-            MatchesWholeTerm(title, term) || MatchesWholeTerm(body, term));
+        return HasRequiredCoreTermMatches(coreTerms, title, body);
+    }
 
-        return coreTerms.Count switch
-        {
-            1 => matched >= 1,
-            2 => matched >= 2,
-            _ => matched >= Math.Min(coreTerms.Count, Math.Max(2, (int)Math.Ceiling(coreTerms.Count * 0.6))),
-        };
+    public static bool IsAdvertRelevant(string query, Advert advert)
+    {
+        var coreTerms = CoreSubjectTerms(query);
+        if (coreTerms.Count == 0 || !RequiresStrictAdvertRelevance(coreTerms))
+            return true;
+
+        var title = SearchTextNormalizer.Normalize(advert.Title);
+        var description = SearchTextNormalizer.Normalize(advert.Description);
+        var location = SearchTextNormalizer.Normalize(advert.Location);
+        var tags = SearchTextNormalizer.Normalize(advert.TagsJson);
+        var subcategory = SearchTextNormalizer.Normalize(advert.SubcategorySlug);
+        var category = SearchTextNormalizer.Normalize(advert.Category?.Label);
+        var combined = $"{title} {description} {location} {tags} {subcategory} {category}";
+
+        return HasRequiredCoreTermMatches(coreTerms, combined);
+    }
+
+    private static bool RequiresStrictAdvertRelevance(IReadOnlyList<string> coreTerms) =>
+        coreTerms.Any(term => GenericMarketplaceTerms.Contains(term));
+
+    private static bool HasRequiredCoreTermMatches(
+        IReadOnlyList<string> coreTerms,
+        string primaryField,
+        string? secondaryField = null)
+    {
+        var matched = coreTerms.Count(term =>
+            MatchesWholeTerm(primaryField, term)
+            || (secondaryField is not null && MatchesWholeTerm(secondaryField, term)));
+
+        return matched >= RequiredCoreTermMatches(coreTerms);
     }
 
     public static int RequiredCoreTermMatches(IReadOnlyList<string> coreTerms) =>
