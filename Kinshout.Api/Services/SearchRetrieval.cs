@@ -49,7 +49,7 @@ public static class SearchRetrieval
         CancellationToken ct)
     {
         var terms = SearchMatchHelper.ExtractTerms(query);
-        var filtered = ApplyDiscussionTextFilter(baseQuery, terms);
+        var filtered = ApplyDiscussionTextFilter(baseQuery, terms, query);
 
         if (await IsFullTextAvailableAsync(db, cache, ct))
         {
@@ -121,8 +121,17 @@ public static class SearchRetrieval
 
     public static IQueryable<Discussion> ApplyDiscussionTextFilter(
         IQueryable<Discussion> query,
-        IReadOnlyList<string> terms)
+        IReadOnlyList<string> terms,
+        string? originalQuery = null)
     {
+        var subject = SearchQueryParser.Parse(originalQuery).SubjectText;
+        if (string.IsNullOrWhiteSpace(subject))
+            subject = originalQuery ?? string.Empty;
+
+        var requiredTerms = SearchTermExpander.ExtractRawTerms(subject);
+        if (requiredTerms.Count >= 2)
+            return ApplyDiscussionAndFilter(query, requiredTerms);
+
         if (terms.Count == 0)
             return query;
 
@@ -156,6 +165,19 @@ public static class SearchRetrieval
             || d.Title.ToLower().Contains(t1) || d.Body.ToLower().Contains(t1)
             || d.Title.ToLower().Contains(t2) || d.Body.ToLower().Contains(t2)
             || d.Title.ToLower().Contains(t3) || d.Body.ToLower().Contains(t3));
+    }
+
+    private static IQueryable<Discussion> ApplyDiscussionAndFilter(
+        IQueryable<Discussion> query,
+        IReadOnlyList<string> requiredTerms)
+    {
+        foreach (var term in requiredTerms.Take(4))
+        {
+            var t = term.ToLowerInvariant();
+            query = query.Where(d => d.Title.ToLower().Contains(t) || d.Body.ToLower().Contains(t));
+        }
+
+        return query;
     }
 
     private static async Task<List<Advert>> LoadAdvertsWithLocalRankAsync(

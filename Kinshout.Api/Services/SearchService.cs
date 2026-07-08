@@ -225,8 +225,7 @@ public class SearchService(
 
         if (request.Tab.Equals("annonces", StringComparison.OrdinalIgnoreCase))
             return [];
-        if (!string.IsNullOrWhiteSpace(request.Intent)
-            && request.Intent is SearchIntentHelper.Offre or SearchIntentHelper.Demande)
+        if (!SearchDiscussionScope.ShouldSearchDiscussions(request, hints, query))
             return [];
         if (isTopicBrowse)
             return await LoadDiscussionsByTopicIdAsync(context, request.TopicId!.Value, ct);
