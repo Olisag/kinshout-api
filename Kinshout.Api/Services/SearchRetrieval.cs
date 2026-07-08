@@ -129,6 +129,8 @@ public static class SearchRetrieval
             subject = originalQuery ?? string.Empty;
 
         var requiredTerms = SearchTermExpander.ExtractRawTerms(subject);
+        if (requiredTerms.Count == 0 && !string.IsNullOrWhiteSpace(originalQuery))
+            requiredTerms = SearchTermExpander.ExtractRawTerms(originalQuery);
         if (requiredTerms.Count >= 2)
             return ApplyDiscussionAndFilter(query, requiredTerms);
 

@@ -50,8 +50,9 @@ public static class SearchMatchHelper
                 d.Id,
                 ScoreDiscussion(terms, normalizedQuery, d),
                 d.ViewCount,
-                d.CreatedAt))
-            .Where(x => x.Score > 0)
+                d.CreatedAt,
+                d))
+            .Where(x => x.Score > 0 && SearchRelevance.IsDiscussionRelevant(query, x.Discussion))
             .OrderByDescending(x => x.Score)
             .ThenByDescending(x => x.ViewCount / PopularityDivisor)
             .ThenByDescending(x => x.SortDate)
@@ -193,7 +194,7 @@ public static class SearchMatchHelper
     }
 
     private static bool ContainsTerm(string field, string term) =>
-        !string.IsNullOrEmpty(field) && field.Contains(term, StringComparison.Ordinal);
+        SearchRelevance.MatchesWholeTerm(field, term);
 
-    private readonly record struct RankedItem(Guid Id, int Score, int ViewCount, DateTime SortDate);
+    private readonly record struct RankedItem(Guid Id, int Score, int ViewCount, DateTime SortDate, Discussion? Discussion = null);
 }
