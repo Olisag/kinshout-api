@@ -1,3 +1,4 @@
+using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
@@ -5,6 +6,7 @@ using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Kinshout.Api.Tests;
@@ -147,11 +149,42 @@ public class ExternalAdvertImportTests
         Assert.Equal("mc-99", keys[0].ExternalId);
     }
 
+    [Fact]
+    public async Task ImportAsync_SkipsBlockedProviders()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateImportService(
+            db,
+            blockedProviders: [AdvertSourceProvider.MediaCongo]);
+        var dto = SampleImport("mc-99", "Bloqué") with
+        {
+            Source = SampleImport("mc-99", "Bloqué").Source with
+            {
+                Provider = AdvertSourceProvider.MediaCongo,
+                ProviderName = "MediaCongo",
+            },
+        };
+
+        var result = await service.ImportAsync([dto]);
+
+        Assert.Equal(1, result.Skipped);
+        Assert.Empty(await db.Adverts.ToListAsync());
+    }
+
     private static ExternalAdvertImportService CreateImportService(
         KinshoutDbContext db,
         IExternalAdvertImageMirrorService? mirror = null,
-        IExternalAdvertImportEnrichmentService? enrichment = null) =>
-        new(db, mirror ?? CreatePassthroughMirror(), enrichment ?? CreatePassthroughEnrichment());
+        IExternalAdvertImportEnrichmentService? enrichment = null,
+        IReadOnlyList<string>? blockedProviders = null) =>
+        new(
+            db,
+            mirror ?? CreatePassthroughMirror(),
+            enrichment ?? CreatePassthroughEnrichment(),
+            Options.Create(new ImportSettings
+            {
+                BlockedAdvertProviders = blockedProviders?.ToList() ?? [],
+            }));
 
     private static IExternalAdvertImportEnrichmentService CreatePassthroughEnrichment()
     {

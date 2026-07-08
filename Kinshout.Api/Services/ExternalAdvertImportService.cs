@@ -18,9 +18,18 @@ public interface IExternalAdvertImportService
 public class ExternalAdvertImportService(
     KinshoutDbContext db,
     IExternalAdvertImageMirrorService imageMirror,
-    IExternalAdvertImportEnrichmentService enrichment) : IExternalAdvertImportService
+    IExternalAdvertImportEnrichmentService enrichment,
+    Microsoft.Extensions.Options.IOptions<Kinshout.Api.Configuration.ImportSettings> importOptions) : IExternalAdvertImportService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private readonly HashSet<string> _blockedProviders = BuildBlockedProviders(importOptions.Value.BlockedAdvertProviders);
+
+    private static HashSet<string> BuildBlockedProviders(IEnumerable<string>? providers) =>
+        providers?
+            .Select(p => AdvertSourceProvider.Normalize(p))
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToHashSet(StringComparer.Ordinal)
+        ?? new HashSet<string>(StringComparer.Ordinal);
 
     public async Task<ImportExternalAdvertsResponseDto> ImportAsync(
         IReadOnlyList<ImportExternalAdvertDto> adverts,
@@ -40,6 +49,13 @@ public class ExternalAdvertImportService(
         {
             try
             {
+                var provider = AdvertSourceProvider.Normalize(item.Source.Provider);
+                if (_blockedProviders.Contains(provider))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 var outcome = await UpsertAsync(item, importUser, ct);
                 await db.SaveChangesAsync(ct);
                 switch (outcome)
