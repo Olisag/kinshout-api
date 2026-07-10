@@ -1,0 +1,63 @@
+# Deploy Kinshout API to production when Master branch is updated.
+name: Build and deploy ASP.Net Core app to Azure Web App - kinshout-api-prod
+
+on:
+  push:
+    branches:
+      - Master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Build with dotnet
+        run: dotnet build --configuration Release
+
+      - name: dotnet publish
+        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: .net-app
+          path: ${{env.DOTNET_ROOT}}/myapp
+
+  deploy:
+    runs-on: windows-latest
+    needs: build
+    if: github.ref == 'refs/heads/Master'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: .net-app
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_19F6DFAABDC747A8B8A57AA4357F3312 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BA0E7AC063D7423B93689D49C6E14B50 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A4BFFEE8378E424FB38B9FDAFFB1C988 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'kinshout-api-prod'
+          resource-group-name: 'Phpnet20211126011001ResourceGroup'
+          slot-name: 'Production'
+          package: .

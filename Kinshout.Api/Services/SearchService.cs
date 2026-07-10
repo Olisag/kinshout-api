@@ -606,19 +606,19 @@ public class SearchService(
         CancellationToken ct)
     {
 
-        var normalized = SearchQueryHelper.Normalize(query);
-        if (normalized is null)
+        var phraseKey = SearchQueryHelper.PhraseKey(query);
+        if (phraseKey is null)
             return;
         var display = SearchQueryHelper.Display(query);
         var existing = await db.SearchQueryStats
-            .FirstOrDefaultAsync(s => s.NormalizedQuery == normalized, ct);
+            .FirstOrDefaultAsync(s => s.NormalizedQuery == phraseKey, ct);
         if (existing is null)
         {
 
             db.SearchQueryStats.Add(new SearchQueryStat
             {
 
-                NormalizedQuery = normalized,
+                NormalizedQuery = phraseKey,
                 DisplayQuery = display,
 
             });
@@ -649,30 +649,13 @@ public class SearchService(
 
             entry.AbsoluteExpirationRelativeToNow = PopularSearchesCacheDuration;
             var rows = await db.SearchQueryStats.AsNoTracking().ToListAsync(ct);
-            var grouped = rows
-                .GroupBy(SearchQueryHelper.ResolveStatKey, StringComparer.Ordinal)
-                .Select(g =>
-                {
-                    var keeper = g
-                        .OrderByDescending(s => s.LastSearchedAt)
-                        .ThenByDescending(s => s.SearchCount)
-                        .First();
-                    return new
-                    {
-                        keeper.DisplayQuery,
-                        Count = g.Sum(s => s.SearchCount),
-                        LastSearchedAt = g.Max(s => s.LastSearchedAt),
-                    };
-                })
-                .OrderByDescending(x => x.Count)
-                .ThenByDescending(x => x.LastSearchedAt)
-                .ToList();
+            var grouped = PopularSearchGrouper.Aggregate(rows);
 
             var total = grouped.Count;
             var items = grouped
                 .Skip((normalizedPage - 1) * normalizedPageSize)
                 .Take(normalizedPageSize)
-                .Select(x => new PopularSearchDto(x.DisplayQuery, x.Count))
+                .Select(x => new PopularSearchDto(x.DisplayLabel, x.Count))
                 .ToList();
             return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
 
