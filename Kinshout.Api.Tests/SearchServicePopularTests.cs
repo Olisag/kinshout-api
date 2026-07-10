@@ -9,13 +9,13 @@ namespace Kinshout.Api.Tests;
 public class SearchServicePopularTests
 {
     [Fact]
-    public async Task GetPopularSearchesAsync_GroupsSpellingVariantsInResponse()
+    public async Task GetPopularSearchesAsync_ReturnsPhraseStyleLabels()
     {
         await using var db = TestDbFactory.Create();
         db.SearchQueryStats.AddRange(
             new SearchQueryStat
             {
-                NormalizedQuery = "apartment gombe",
+                NormalizedQuery = "appartement gombe",
                 DisplayQuery = "Je cherche un apartment à Gombe",
                 SearchCount = 3,
                 LastSearchedAt = DateTime.UtcNow.AddHours(-2),
@@ -34,6 +34,7 @@ public class SearchServicePopularTests
 
         Assert.Single(popular.Items);
         Assert.Equal(8, popular.Items[0].Count);
+        Assert.Equal("Appartement Gombe", popular.Items[0].Query);
     }
 
     [Fact]
@@ -48,6 +49,7 @@ public class SearchServicePopularTests
         var popular = await service.GetPopularSearchesAsync();
         Assert.Single(popular.Items);
         Assert.Equal(2, popular.Items[0].Count);
+        Assert.Equal("Appartement Gombe", popular.Items[0].Query);
     }
 
     [Fact]
@@ -62,6 +64,7 @@ public class SearchServicePopularTests
         var popular = await service.GetPopularSearchesAsync();
         Assert.Single(popular.Items);
         Assert.Equal(2, popular.Items[0].Count);
+        Assert.Equal("Appartement Gombe", popular.Items[0].Query);
     }
 
     [Fact]
@@ -75,9 +78,10 @@ public class SearchServicePopularTests
         await service.SearchAsync(new SearchRequestDto("chauffeur"));
 
         var popular = await service.GetPopularSearchesAsync();
-        Assert.Equal(2, popular.Items.Count);
-        Assert.Equal(2, popular.Items.Single(p => p.Query.Contains("chauffeur", StringComparison.OrdinalIgnoreCase) && !p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase)).Count);
-        Assert.Single(popular.Items, p => p.Query.Contains("VTC", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(popular.Items);
+        Assert.Equal(3, popular.Items[0].Count);
+        Assert.Contains("chauffeur", popular.Items[0].Query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("VTC", popular.Items[0].Query, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

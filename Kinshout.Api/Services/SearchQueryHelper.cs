@@ -85,10 +85,56 @@ public static partial class SearchQueryHelper
         ["binza"] = "binza",
     };
 
+    private static readonly HashSet<string> PhraseNoiseTokens = new(StringComparer.Ordinal)
+    {
+        "tre", "tres", "très",
+        "na", "ya",
+        "pas", "cher", "chere",
+    };
+
     public static string? Normalize(string? query) => CanonicalKey(query);
 
+    public static string? PhraseKey(string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return null;
+
+        var parsed = SearchQueryParser.Parse(query);
+        var subject = EnrichSubjectForPhraseKey(query, parsed);
+        if (string.IsNullOrWhiteSpace(subject))
+            return null;
+
+        var cleaned = RemoveDiacritics(subject.Trim().ToLowerInvariant());
+        cleaned = NonWord().Replace(cleaned, " ");
+        cleaned = Whitespace().Replace(cleaned, " ").Trim();
+        if (cleaned.Length < 2)
+            return null;
+
+        var tokens = cleaned
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizePhraseToken)
+            .Where(IsMeaningfulToken)
+            .Where(t => !StopWords.Contains(t))
+            .Where(t => !PhraseNoiseTokens.Contains(t))
+            .ToList();
+
+        return tokens.Count == 0 ? null : string.Join(' ', tokens);
+    }
+
+    internal static string NormalizePhraseToken(string token)
+    {
+        token = RemoveDiacritics(token.ToLowerInvariant());
+        if (token.Length <= 2)
+            return token;
+
+        return SearchSpellingNormalizer.CanonicalizeToken(token);
+    }
+
+    internal static string ResolvePhraseKey(Models.SearchQueryStat row) =>
+        PhraseKey(row.DisplayQuery) ?? PhraseKey(row.NormalizedQuery) ?? row.NormalizedQuery;
+
     internal static string ResolveStatKey(Models.SearchQueryStat row) =>
-        CanonicalKey(row.DisplayQuery) ?? CanonicalKey(row.NormalizedQuery) ?? row.NormalizedQuery;
+        ResolvePhraseKey(row);
 
     public static string? CanonicalKey(string? query)
     {
@@ -166,8 +212,28 @@ public static partial class SearchQueryHelper
         return builder.ToString().Normalize(NormalizationForm.FormC);
     }
 
+    private static string EnrichSubjectForPhraseKey(string query, ParsedSearchQuery parsed)
+    {
+        var subject = parsed.SubjectText;
+        if (string.IsNullOrWhiteSpace(subject))
+            return subject;
+
+        var normalized = SearchTextNormalizer.Normalize(query);
+        if (SaleSuffix().IsMatch(normalized)
+            && !subject.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Any(t => string.Equals(NormalizePhraseToken(t), "vente", StringComparison.Ordinal)))
+        {
+            subject = $"{subject} vente";
+        }
+
+        return subject;
+    }
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
+
+    [GeneratedRegex(@"\s+a vendre$|\s+for sale$", RegexOptions.CultureInvariant)]
+    private static partial Regex SaleSuffix();
 
     [GeneratedRegex(@"[^\p{L}\p{N}]+")]
     private static partial Regex NonWord();
