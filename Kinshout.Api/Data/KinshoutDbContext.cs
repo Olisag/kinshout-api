@@ -55,6 +55,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.Title).HasMaxLength(200);
             e.Property(x => x.Price).HasMaxLength(64);
             e.Property(x => x.Location).HasMaxLength(120);
+            e.Property(x => x.DetailsJson).HasDefaultValue("{}");
+            e.Property(x => x.ContactJson).HasDefaultValue("{}");
             e.Property(x => x.SourceProvider).HasMaxLength(64);
             e.Property(x => x.SourceProviderName).HasMaxLength(120);
             e.Property(x => x.SourceExternalId).HasMaxLength(128);

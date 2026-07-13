@@ -152,6 +152,10 @@ public class AdvertServiceTests
         Assert.Equal("+243900000001", created.WhatsAppNumber);
         Assert.Equal("demande", created.Intent);
 
+        var persisted = await db.Adverts.SingleAsync(a => a.Id == created.Id);
+        Assert.Equal("{}", persisted.ContactJson);
+        Assert.Equal("{}", persisted.DetailsJson);
+
         Directory.Delete(root, recursive: true);
     }
 

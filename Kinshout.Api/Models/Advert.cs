@@ -30,8 +30,8 @@ public class Advert
     public DateTime? SourceLastSeenAt { get; set; }
     public DateTime? SourceFirstSeenAt { get; set; }
     public string? SubcategorySlug { get; set; }
-    public string? DetailsJson { get; set; }
-    public string? ContactJson { get; set; }
+    public string DetailsJson { get; set; } = "{}";
+    public string ContactJson { get; set; } = "{}";
     public string? DuplicateGroupId { get; set; }
     public DateTime? ExternalPublishedAt { get; set; }
 
