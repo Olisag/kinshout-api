@@ -75,6 +75,8 @@ public class AdvertService(
             TagsJson = JsonSerializer.Serialize(analysis.Tags),
             AiConfidence = analysis.Confidence,
             AiSummary = analysis.Summary,
+            DetailsJson = "{}",
+            ContactJson = "{}",
         };
 
         db.Adverts.Add(advert);

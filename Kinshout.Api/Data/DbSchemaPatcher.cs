@@ -450,6 +450,35 @@ public static class DbSchemaPatcher
             UPDATE Adverts SET ImageUrlsJson = '[]' WHERE ImageUrlsJson IS NULL OR ImageUrlsJson = ''
             """,
             ct);
+
+        // SQL Server columns created as NOT NULL without DEFAULT cause native advert inserts to 500
+        // when EF sends NULL for unset nullable string properties. Ensure defaults exist.
+        if (db.Database.IsSqlServer())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM sys.default_constraints dc
+                    INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+                    WHERE dc.parent_object_id = OBJECT_ID(N'dbo.Adverts')
+                      AND c.name = N'DetailsJson')
+                ALTER TABLE dbo.Adverts ADD CONSTRAINT DF_Adverts_DetailsJson DEFAULT ('{}') FOR [DetailsJson]
+                """,
+                ct);
+
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM sys.default_constraints dc
+                    INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
+                    WHERE dc.parent_object_id = OBJECT_ID(N'dbo.Adverts')
+                      AND c.name = N'ContactJson')
+                ALTER TABLE dbo.Adverts ADD CONSTRAINT DF_Adverts_ContactJson DEFAULT ('{}') FOR [ContactJson]
+                """,
+                ct);
+        }
     }
 
     private static async Task EnsureSearchQueryStatsSchemaAsync(
