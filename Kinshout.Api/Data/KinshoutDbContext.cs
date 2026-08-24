@@ -12,6 +12,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<Advert> Adverts => Set<Advert>();
     public DbSet<Discussion> Discussions => Set<Discussion>();
     public DbSet<DiscussionReply> DiscussionReplies => Set<DiscussionReply>();
+    public DbSet<Community> Communities => Set<Community>();
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
@@ -30,6 +31,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         {
             e.HasIndex(x => x.Email).IsUnique();
             e.Property(x => x.Email).HasMaxLength(320);
+            e.Property(x => x.PasswordHash).HasMaxLength(500);
             e.Property(x => x.DisplayName).HasMaxLength(120);
             e.Property(x => x.WhatsAppNumber).HasMaxLength(32);
             e.Property(x => x.DisplayPreference).HasMaxLength(16).HasDefaultValue(DisplayPreferenceMode.Clair);
@@ -79,6 +81,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.ReplyCount).HasDefaultValue(0);
             e.Property(x => x.LikeCount).HasDefaultValue(0);
             e.Property(x => x.ViewCount).HasDefaultValue(0);
+            e.Property(x => x.ImageUrlsJson).HasDefaultValue("[]");
+            e.Property(x => x.VideoUrlsJson).HasDefaultValue("[]");
             e.Property(x => x.SourceProvider).HasMaxLength(64);
             e.Property(x => x.SourceProviderName).HasMaxLength(120);
             e.Property(x => x.SourceExternalId).HasMaxLength(128);
@@ -88,10 +92,22 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
             e.HasIndex(x => new { x.ViewCount, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.UpdatedAt });
+            e.HasIndex(x => new { x.CommunityId, x.CreatedAt });
             e.HasIndex(x => new { x.SourceProvider, x.SourceExternalId }).IsUnique()
                 .HasFilter("[SourceProvider] IS NOT NULL AND [SourceExternalId] IS NOT NULL");
             e.HasOne(x => x.User).WithMany(x => x.Discussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Category).WithMany(x => x.Discussions).HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Community).WithMany(x => x.Discussions).HasForeignKey(x => x.CommunityId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Community>(e =>
+        {
+            e.HasIndex(x => x.Slug).IsUnique();
+            e.Property(x => x.Slug).HasMaxLength(64);
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.Property(x => x.Description).HasMaxLength(500);
+            e.HasOne(x => x.CreatedByUser).WithMany(x => x.CreatedCommunities)
+                .HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ImportWatermark>(e =>

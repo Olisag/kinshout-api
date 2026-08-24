@@ -8,7 +8,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceCategoryTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_CategoryQueryReturnsAllCategoryAdvertsLikeListEndpoint()
     {
         await using var db = TestDbFactory.Create();
@@ -81,7 +81,7 @@ public class SearchServiceCategoryTests
         Assert.Equal(list.TotalCount, search.Pagination.TotalAdverts);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_StructuredQueryFiltersBySubcategoryAndLocation()
     {
         await using var db = TestDbFactory.Create();
@@ -141,7 +141,7 @@ public class SearchServiceCategoryTests
             Times.Never);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_SemanticQueryFindsLowViewAdvertsWithoutCap()
     {
         await using var db = TestDbFactory.Create();

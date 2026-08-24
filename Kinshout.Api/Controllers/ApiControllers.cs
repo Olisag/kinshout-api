@@ -333,7 +333,7 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     }
 }
 
-/// <summary>Semantic search — OpenAI matches adverts and discussions to the user's query.</summary>
+/// <summary>Kinoiserie search — discussions only (popular / recent). No adverts.</summary>
 [ApiController]
 [Route("api/search")]
 [Produces("application/json")]
@@ -353,16 +353,26 @@ public class SearchController(ISearchService search) : ControllerBase
         Ok(await search.GetPopularSearchesAsync(page, pageSize, ct));
 
     /// <summary>
-    /// Search adverts and discussions using OpenAI semantic matching (POST body).
-    /// Records the query for popularity stats.
+    /// Recent search queries (most recently searched first).
+    /// Requires frontend client token only.
+    /// </summary>
+    [HttpGet("recent")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PagedResultDto<PopularSearchDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResultDto<PopularSearchDto>>> Recent(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await search.GetRecentSearchesAsync(page, pageSize, ct));
+
+    /// <summary>
+    /// Search discussions only (Kinoiserie). Records the query for popularity stats.
     /// Requires frontend client token only.
     /// </summary>
     /// <remarks>
-    /// Set <c>tab</c> to <c>all</c>, <c>annonces</c>, or <c>discussions</c> to filter result types.
-    /// Use <c>sort</c> (<c>recent</c> or <c>popular</c>) and optional <c>intent</c> (<c>demande</c>, <c>offre</c>, <c>discussion</c>).
+    /// Results are always discussions — adverts are never returned.
+    /// Use <c>sort</c> (<c>recent</c> or <c>popular</c>).
     /// Use <c>page</c> (1-based) and <c>pageSize</c> (max 50, default 20) for pagination.
-    /// Optional <c>source</c> filters adverts by origin — same values as <c>GET /api/adverts?source=</c>
-    /// (<c>kinshout</c>, <c>external</c>, <c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, <c>other</c>).
     /// Falls back to keyword matching if OpenAI is unavailable.
     /// </remarks>
     [HttpPost]
@@ -381,20 +391,17 @@ public class SearchController(ISearchService search) : ControllerBase
     }
 
     /// <summary>
-    /// Search adverts and discussions (query string). Same behaviour as POST /api/search.
+    /// Search discussions only (query string). Same behaviour as POST /api/search.
     /// Records the query for popularity stats.
     /// Requires frontend client token only.
     /// </summary>
     /// <param name="q">Search text, e.g. "appartement à Gombe".</param>
-    /// <param name="tab">Result filter: all, annonces, or discussions.</param>
+    /// <param name="tab">Ignored — search is always discussions-only.</param>
     /// <param name="sort">Sort order: recent (default) or popular.</param>
-    /// <param name="intent">Optional intent filter: demande, offre, or discussion.</param>
+    /// <param name="intent">Ignored for Kinoiserie search.</param>
     /// <param name="page">Page number (1-based).</param>
-    /// <param name="pageSize">Results per type per page (max 50).</param>
-    /// <param name="source">
-    /// Optional listing source filter — same values as <c>GET /api/adverts?source=</c>
-    /// (<c>kinshout</c>, <c>external</c>, provider slugs, or <c>all</c>/<c>toutes</c> for no filter).
-    /// </param>
+    /// <param name="pageSize">Results per page (max 50).</param>
+    /// <param name="source">Ignored — adverts are not searched.</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
@@ -548,6 +555,7 @@ public class DiscussionsController(
     /// </summary>
     /// <param name="q">Optional text filter on title or body.</param>
     /// <param name="categoryId">Optional discussion topic category ID.</param>
+    /// <param name="community">Optional community slug (<c>k/community1</c> or <c>community1</c>).</param>
     /// <param name="page">Page number (1-based).</param>
     /// <param name="pageSize">Items per page (max 50).</param>
     /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (view count).</param>
@@ -558,11 +566,12 @@ public class DiscussionsController(
     public async Task<ActionResult<PagedResultDto<DiscussionDto>>> List(
         [FromQuery] string? q,
         [FromQuery] Guid? categoryId,
+        [FromQuery] string? community,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "recent",
         CancellationToken ct = default) =>
-        Ok(await discussions.ListAsync(q, categoryId, page, pageSize, sort, TryGetUserId(), ct));
+        Ok(await discussions.ListAsync(q, categoryId, null, community, page, pageSize, sort, TryGetUserId(), ct));
 
     /// <summary>
     /// List discussion IDs liked by the signed-in user.
@@ -673,7 +682,65 @@ public class DiscussionsController(
             var item = await discussions.CreateAsync(userId, request, ct);
             return CreatedAtAction(nameof(Get), new { id = item.Id }, item);
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
         catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Attach photos/videos to a discussion (upload URLs from <c>/api/uploads/images</c> or <c>/api/uploads/videos</c>).
+    /// </summary>
+    [HttpPost("{id:guid}/media")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDto>> AddMedia(
+        Guid id,
+        [FromBody] DiscussionMediaUpdateRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await discussions.AddMediaAsync(GetUserId(), id, request, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Remove photos/videos from a discussion by URL.
+    /// </summary>
+    [HttpDelete("{id:guid}/media")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDto>> RemoveMedia(
+        Guid id,
+        [FromBody] DiscussionMediaUpdateRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await discussions.RemoveMediaAsync(GetUserId(), id, request, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
         }

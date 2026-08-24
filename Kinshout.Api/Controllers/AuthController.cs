@@ -109,6 +109,57 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
     }
 
     /// <summary>
+    /// Register with email and password (Kinoiserie local auth).
+    /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
+    /// </summary>
+    [HttpPost("register")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthResponseDto>> Register([FromBody] EmailRegisterRequestDto request, CancellationToken ct)
+    {
+        try
+        {
+            var clientId = GetClientId();
+            return Ok(await auth.RegisterWithEmailAsync(request, clientId, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Sign in with email and password.
+    /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
+    /// </summary>
+    [HttpPost("login")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthResponseDto>> Login([FromBody] EmailLoginRequestDto request, CancellationToken ct)
+    {
+        try
+        {
+            var clientId = GetClientId();
+            return Ok(await auth.LoginWithEmailAsync(request, clientId, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get the signed-in user's profile.
     /// Requires both client token and user JWT.
     /// </summary>

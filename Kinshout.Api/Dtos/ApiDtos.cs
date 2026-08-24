@@ -44,6 +44,10 @@ public record UpdateDisplayPreferenceRequestDto(string Mode);
 /// <param name="IdToken">Provider-issued ID token.</param>
 public record ExternalLoginRequestDto(string IdToken);
 
+public record EmailRegisterRequestDto(string Email, string Password, string? DisplayName);
+
+public record EmailLoginRequestDto(string Email, string Password);
+
 public record FacebookLoginRequestDto(string AccessToken);
 
 public record ClientAuthRequestDto(string ClientId, string? ClientSecret);
@@ -273,6 +277,8 @@ public record CategoryDto(
     bool IsAiGenerated
 );
 
+public record DiscussionMediaDto(string Type, string Url);
+
 public record DiscussionDto(
     Guid Id,
     string Title,
@@ -286,7 +292,9 @@ public record DiscussionDto(
     int ViewCount,
     [property: JsonPropertyName("isLiked")] bool IsLiked = false,
     bool IsExternal = false,
-    DiscussionSourceDto? Source = null);
+    DiscussionSourceDto? Source = null,
+    string? CommunitySlug = null,
+    IReadOnlyList<DiscussionMediaDto>? Media = null);
 
 /// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
 public record DiscussionSourceDto(
@@ -315,7 +323,9 @@ public record DiscussionDetailDto(
     [property: JsonPropertyName("isLiked")] bool IsLiked,
     PagedResultDto<DiscussionReplyDto> Thread,
     bool IsExternal = false,
-    DiscussionSourceDto? Source = null);
+    DiscussionSourceDto? Source = null,
+    string? CommunitySlug = null,
+    IReadOnlyList<DiscussionMediaDto>? Media = null);
 
 public record DiscussionReplyDto(
     Guid Id,
@@ -326,9 +336,36 @@ public record DiscussionReplyDto(
     string Text
 );
 
-public record CreateDiscussionRequestDto(string Title, string Body);
+public record CreateDiscussionRequestDto(
+    string Title,
+    string Body,
+    string? CommunitySlug = null,
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null);
 
-public record UpdateDiscussionRequestDto(string Title, string Body);
+public record UpdateDiscussionRequestDto(
+    string Title,
+    string Body,
+    string? CommunitySlug = null,
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null);
+
+public record DiscussionMediaUpdateRequestDto(
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null,
+    IReadOnlyList<string>? Urls = null);
+
+public record CommunityDto(
+    Guid Id,
+    string RouteSlug,
+    string Slug,
+    string Name,
+    string? Description,
+    int DiscussionCount,
+    Guid CreatedByUserId,
+    DateTime CreatedAt);
+
+public record CreateCommunityRequestDto(string Slug, string? Name = null, string? Description = null);
 
 public record CreateReplyRequestDto(string Body);
 

@@ -5,10 +5,16 @@ public class Discussion
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserId { get; set; }
     public Guid? CategoryId { get; set; }
+    /// <summary>Optional Reddit-style community (k/slug).</summary>
+    public Guid? CommunityId { get; set; }
     /// <summary>AI-assigned discussion topic slug (sport, politique, etc.).</summary>
     public string? TopicSlug { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
+    /// <summary>JSON array of uploaded image URLs.</summary>
+    public string ImageUrlsJson { get; set; } = "[]";
+    /// <summary>JSON array of uploaded video URLs.</summary>
+    public string VideoUrlsJson { get; set; } = "[]";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public int ReplyCount { get; set; }
@@ -34,5 +40,6 @@ public class Discussion
 
     public User User { get; set; } = null!;
     public Category? Category { get; set; }
+    public Community? Community { get; set; }
     public ICollection<DiscussionReply> Replies { get; set; } = [];
 }

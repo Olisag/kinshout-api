@@ -50,6 +50,38 @@ public class UploadsController(IUploadService uploads) : ControllerBase
     }
 
     /// <summary>
+    /// Upload one or more discussion videos (max 5, mp4/webm/mov, 50MB each).
+    /// Returns public URLs for use in discussion create/update/media endpoints.
+    /// </summary>
+    [HttpPost("videos")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(262_144_000)]
+    [ProducesResponseType(typeof(UploadResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<UploadResponseDto>> UploadVideos(
+        IFormFile[] files,
+        CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetUserId();
+            if (files.Length == 0)
+                return BadRequest(new { error = "Aucune vidéo reçue." });
+
+            var collection = new FormFileCollection();
+            foreach (var file in files)
+                collection.Add(file);
+
+            var urls = await uploads.SaveVideosAsync(userId, collection, ct);
+            return Ok(new UploadResponseDto(urls));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Upload a resume/CV (optional, for job-seeking adverts). Returns a public URL for use in <c>POST /api/adverts</c>.
     /// </summary>
     [HttpPost("resume")]

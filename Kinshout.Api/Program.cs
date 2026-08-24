@@ -68,12 +68,14 @@ builder.Services.AddScoped<IFacebookAuthValidator, FacebookGraphAuthValidator>()
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClient>>();
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 builder.Services.AddScoped<IAdvertService, AdvertService>();
 builder.Services.AddScoped<ISavedAdvertService, SavedAdvertService>();
 builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
+builder.Services.AddScoped<ICommunityService, CommunityService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<IUploadUrlResolver, UploadUrlResolver>();
 builder.Services.AddSingleton<LocalUploadStorage>();

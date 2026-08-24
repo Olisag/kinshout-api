@@ -7,7 +7,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceRelaxationTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_RelaxesStructuredHintsWhenStrictFiltersReturnNothing()
     {
         await using var db = TestDbFactory.Create();

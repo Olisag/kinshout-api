@@ -58,13 +58,13 @@ public class SearchServiceMarketplaceQueryTests
 
         var result = await service.SearchAsync(new SearchRequestDto("Vente vetement pour enfant", "all"));
 
-        Assert.NotNull(result.Items);
+        Assert.Empty(result.Adverts);
         Assert.Contains(
-            result.Items,
-            item => item.Discussion?.Title.Contains("vetements pour enfants", StringComparison.OrdinalIgnoreCase) == true);
+            result.Discussions,
+            d => d.Title.Contains("vetements pour enfants", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(
-            result.Items,
-            item => item.Discussion?.Title.Contains("Assassinat", StringComparison.OrdinalIgnoreCase) == true);
+            result.Discussions,
+            d => d.Title.Contains("Assassinat", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -100,13 +100,13 @@ public class SearchServiceMarketplaceQueryTests
 
         var result = await service.SearchAsync(new SearchRequestDto("Kinshasa", "all"));
 
-        Assert.NotNull(result.Items);
+        Assert.Empty(result.Adverts);
         Assert.Contains(
-            result.Items,
-            item => item.Discussion?.Title.Contains("Traffic", StringComparison.OrdinalIgnoreCase) == true);
+            result.Discussions,
+            d => d.Title.Contains("Traffic", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(
-            result.Items,
-            item => item.Discussion?.Title.Contains("Lubumbashi", StringComparison.OrdinalIgnoreCase) == true);
+            result.Discussions,
+            d => d.Title.Contains("Lubumbashi", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

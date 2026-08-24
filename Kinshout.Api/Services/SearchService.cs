@@ -14,6 +14,10 @@ public interface ISearchService
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         CancellationToken ct = default);
+    Task<PagedResultDto<PopularSearchDto>> GetRecentSearchesAsync(
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
 
 }
 public class SearchService(
@@ -29,11 +33,20 @@ public class SearchService(
     private static readonly TimeSpan PopularSearchesCacheDuration = TimeSpan.FromSeconds(30);
     public async Task<SearchResultDto> SearchAsync(SearchRequestDto request, Guid? viewerUserId = null, CancellationToken ct = default)
     {
+        // Kinoiserie: discussions-only search (popular / recent sorts).
+        request = request with
+        {
+            Tab = "discussions",
+            CategoryId = null,
+            Intent = null,
+            Source = null,
+            Sort = ListSortHelper.IsPopular(request.Sort) ? ListSortHelper.Popular : ListSortHelper.Recent,
+        };
 
         var query = request.Query.Trim();
         var (page, pageSize) = NormalizePaging(request.Page, request.PageSize);
         var isSemanticSearch = !string.IsNullOrWhiteSpace(query);
-        var isAdvertBrowse = IsExplicitAdvertBrowse(request);
+        var isAdvertBrowse = false;
         var isTopicBrowse = IsExplicitTopicBrowse(request);
         if (page == 1 && isSemanticSearch)
         {
@@ -44,26 +57,19 @@ public class SearchService(
         }
 
         var hints = await ResolveSearchHintsAsync(isSemanticSearch, query, ct);
-        var browseCategory = isAdvertBrowse
-            ? await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == request.CategoryId, ct)
-            : null;
+        var browseCategory = (Category?)null;
         var browseTopic = isTopicBrowse
             ? await db.Categories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == request.TopicId, ct)
             : null;
 
-        List<Advert> adverts;
+        List<Advert> adverts = [];
         List<Discussion> discussions;
         if (scopeFactory is not null)
         {
-            var advertsTask = LoadAdvertsInScopeAsync(request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
-            var discussionsTask = LoadDiscussionsInScopeAsync(request, hints, query, isTopicBrowse, isSemanticSearch, ct);
-            await Task.WhenAll(advertsTask, discussionsTask);
-            adverts = await advertsTask;
-            discussions = await discussionsTask;
+            discussions = await LoadDiscussionsInScopeAsync(request, hints, query, isTopicBrowse, isSemanticSearch, ct);
         }
         else
         {
-            adverts = await LoadAdvertsAsync(request, hints, query, isAdvertBrowse, isSemanticSearch, ct);
             discussions = await LoadDiscussionsAsync(request, hints, query, isTopicBrowse, isSemanticSearch, ct);
         }
         var analysis = await AnalyzeAsync(
@@ -662,6 +668,38 @@ public class SearchService(
         }) ?? PagingHelper.Create(Array.Empty<PopularSearchDto>(), normalizedPage, normalizedPageSize, 0);
 
     }
+
+    public async Task<PagedResultDto<PopularSearchDto>> GetRecentSearchesAsync(
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default)
+    {
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var cacheKey = $"{ApiCacheKeys.PopularSearches}:recent:{normalizedPage}:{normalizedPageSize}";
+        return await cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = PopularSearchesCacheDuration;
+            var rows = await db.SearchQueryStats
+                .AsNoTracking()
+                .OrderByDescending(s => s.LastSearchedAt)
+                .ThenByDescending(s => s.SearchCount)
+                .ToListAsync(ct);
+
+            var grouped = PopularSearchGrouper.Aggregate(rows)
+                .OrderByDescending(x => x.LastSearchedAt)
+                .ThenByDescending(x => x.Count)
+                .ToList();
+
+            var total = grouped.Count;
+            var items = grouped
+                .Skip((normalizedPage - 1) * normalizedPageSize)
+                .Take(normalizedPageSize)
+                .Select(x => new PopularSearchDto(x.DisplayLabel, x.Count))
+                .ToList();
+            return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
+        }) ?? PagingHelper.Create(Array.Empty<PopularSearchDto>(), normalizedPage, normalizedPageSize, 0);
+    }
+
     public async Task<CategorizeResponseDto> CategorizeAsync(string text, CancellationToken ct = default)
     {
 

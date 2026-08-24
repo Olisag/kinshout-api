@@ -8,7 +8,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceQuickWinsTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_ConfidentLocalRank_SkipsOpenAi()
     {
         await using var db = TestDbFactory.Create();
@@ -59,7 +59,7 @@ public class SearchServiceQuickWinsTests
             Times.Never);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_SubcategoryHintWithAdvertsOnly_SkipsOpenAi()
     {
         await using var db = TestDbFactory.Create();

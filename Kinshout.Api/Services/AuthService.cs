@@ -7,6 +7,7 @@ using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -18,6 +19,8 @@ public interface IAuthService
     Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default);
     Task<AuthResponseDto> SignInWithAppleAsync(string idToken, string clientId, CancellationToken ct = default);
     Task<AuthResponseDto> SignInWithFacebookAsync(string accessToken, string clientId, CancellationToken ct = default);
+    Task<AuthResponseDto> RegisterWithEmailAsync(EmailRegisterRequestDto request, string clientId, CancellationToken ct = default);
+    Task<AuthResponseDto> LoginWithEmailAsync(EmailLoginRequestDto request, string clientId, CancellationToken ct = default);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct = default);
     Task<UserProfileDto> UpdateDisplayNameAsync(
@@ -45,9 +48,11 @@ public class AuthService(
     IUploadUrlResolver uploadUrls,
     IOptions<OAuthSettings> oauthOptions,
     IFacebookAuthValidator facebookAuth,
+    IPasswordHasher<User> passwordHasher,
     ILogger<AuthService> logger) : IAuthService
 {
     private const int DisplayNameMaxLength = 120;
+    private const int MinPasswordLength = 8;
     private readonly OAuthSettings _oauth = oauthOptions.Value;
 
     public async Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default)
@@ -130,6 +135,74 @@ public class AuthService(
             profile.PictureUrl,
             clientId,
             ct);
+    }
+
+    public async Task<AuthResponseDto> RegisterWithEmailAsync(
+        EmailRegisterRequestDto request,
+        string clientId,
+        CancellationToken ct = default)
+    {
+        var email = NormalizeEmail(request.Email);
+        var password = request.Password ?? string.Empty;
+        if (password.Length < MinPasswordLength)
+            throw new ArgumentException($"Le mot de passe doit contenir au moins {MinPasswordLength} caractères.");
+
+        if (await db.Users.AnyAsync(u => u.Email == email, ct))
+            throw new ArgumentException("Un compte existe déjà avec cet e-mail.");
+
+        var displayName = string.IsNullOrWhiteSpace(request.DisplayName)
+            ? email.Split('@')[0]
+            : ValidateDisplayName(request.DisplayName);
+
+        if (await IsDisplayNameTakenAsync(displayName, Guid.Empty, ct))
+            displayName = await EnsureUniqueDisplayNameAsync(displayName, ct);
+
+        var user = new User
+        {
+            Email = email,
+            DisplayName = displayName,
+            LastLoginAt = DateTime.UtcNow,
+        };
+        user.PasswordHash = passwordHasher.HashPassword(user, password);
+
+        db.Users.Add(user);
+        db.UserLogins.Add(new UserLogin
+        {
+            User = user,
+            Provider = AuthProvider.Local,
+            ProviderKey = email,
+        });
+        await db.SaveChangesAsync(ct);
+
+        var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
+        return new AuthResponseDto(token, expiresAt, ToProfile(user));
+    }
+
+    public async Task<AuthResponseDto> LoginWithEmailAsync(
+        EmailLoginRequestDto request,
+        string clientId,
+        CancellationToken ct = default)
+    {
+        var email = NormalizeEmail(request.Email);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct)
+            ?? throw new UnauthorizedAccessException("E-mail ou mot de passe incorrect.");
+
+        if (string.IsNullOrWhiteSpace(user.PasswordHash))
+            throw new UnauthorizedAccessException(
+                "Ce compte utilise une connexion sociale. Connectez-vous avec Google, Apple ou Facebook.");
+
+        var result = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password ?? string.Empty);
+        if (result == PasswordVerificationResult.Failed)
+            throw new UnauthorizedAccessException("E-mail ou mot de passe incorrect.");
+
+        if (result == PasswordVerificationResult.SuccessRehashNeeded)
+            user.PasswordHash = passwordHasher.HashPassword(user, request.Password!);
+
+        user.LastLoginAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
+        return new AuthResponseDto(token, expiresAt, ToProfile(user));
     }
 
     public async Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default)
@@ -313,6 +386,30 @@ public class AuthService(
         }
 
         return trimmed;
+    }
+
+    private static string NormalizeEmail(string? email)
+    {
+        var value = email?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(value) || !value.Contains('@'))
+            throw new ArgumentException("Adresse e-mail invalide.");
+        if (value.Length > 320)
+            throw new ArgumentException("Adresse e-mail trop longue.");
+        return value;
+    }
+
+    private async Task<string> EnsureUniqueDisplayNameAsync(string baseName, CancellationToken ct)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            var candidate = i == 0 ? baseName : $"{baseName}{i + 1}";
+            if (candidate.Length > DisplayNameMaxLength)
+                candidate = candidate[..DisplayNameMaxLength];
+            if (!await IsDisplayNameTakenAsync(candidate, Guid.Empty, ct))
+                return candidate;
+        }
+
+        return $"{baseName[..Math.Min(baseName.Length, 100)]}{Guid.NewGuid():N}"[..DisplayNameMaxLength];
     }
 
     private async Task<bool> IsDisplayNameTakenAsync(

@@ -169,7 +169,12 @@ public class DiscussionServiceListTests
         moderation.Setup(m => m.EnsureTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        return new DiscussionService(db, Mock.Of<IOpenAiService>(), moderation.Object, TestDbFactory.CreateMemoryCache());
+        return new DiscussionService(
+            db,
+            Mock.Of<IOpenAiService>(),
+            moderation.Object,
+            Mock.Of<IUploadStorage>(),
+            TestDbFactory.CreateMemoryCache());
     }
 
     private static Discussion CreateDiscussion(

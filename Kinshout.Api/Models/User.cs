@@ -4,6 +4,8 @@ public class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Email { get; set; } = string.Empty;
+    /// <summary>Password hash for email/password (Local) auth. Null for OAuth-only users.</summary>
+    public string? PasswordHash { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public string? WhatsAppNumber { get; set; }
@@ -18,4 +20,5 @@ public class User
     public ICollection<DiscussionReply> Replies { get; set; } = [];
     public ICollection<SavedAdvert> SavedAdverts { get; set; } = [];
     public ICollection<LikedDiscussion> LikedDiscussions { get; set; } = [];
+    public ICollection<Community> CreatedCommunities { get; set; } = [];
 }

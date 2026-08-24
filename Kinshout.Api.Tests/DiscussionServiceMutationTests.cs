@@ -260,6 +260,11 @@ public class DiscussionServiceMutationTests
             .Returns(Task.CompletedTask);
 
         openAi ??= Mock.Of<IOpenAiService>();
-        return new DiscussionService(db, openAi, moderation.Object, TestDbFactory.CreateMemoryCache());
+        return new DiscussionService(
+            db,
+            openAi,
+            moderation.Object,
+            Mock.Of<IUploadStorage>(),
+            TestDbFactory.CreateMemoryCache());
     }
 }

@@ -41,6 +41,7 @@ public class AuthServiceFacebookTests
                 Mock.Of<IHttpContextAccessor>()),
             Options.Create(new OAuthSettings()),
             facebook.Object,
+            new Microsoft.AspNetCore.Identity.PasswordHasher<User>(),
             Mock.Of<ILogger<AuthService>>());
 
         var auth = await service.SignInWithFacebookAsync("fb-token", "kinshout-web");
