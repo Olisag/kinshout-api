@@ -55,6 +55,30 @@ public class DiscussionMediaHelperTests
                 DiscussionMediaHelper.MaxVideos,
                 "vidéos"));
     }
+
+    [Fact]
+    public void NormalizeOwnedUploadUrl_AcceptsOwnedPath()
+    {
+        var userId = Guid.NewGuid();
+        var url = $"/uploads/images/{userId:N}/one.jpg";
+
+        Assert.Equal(url, DiscussionMediaHelper.NormalizeOwnedUploadUrl(url, userId, "images"));
+    }
+
+    [Fact]
+    public void NormalizeOwnedUploadUrl_RejectsForeignPath()
+    {
+        var userId = Guid.NewGuid();
+        var other = Guid.NewGuid();
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            DiscussionMediaHelper.NormalizeOwnedUploadUrl(
+                $"/uploads/videos/{other:N}/x.mp4",
+                userId,
+                "videos"));
+
+        Assert.Contains("téléversés", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 public class DiscussionMediaServiceTests

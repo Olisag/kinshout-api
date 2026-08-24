@@ -121,6 +121,10 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         {
             e.HasIndex(x => new { x.DiscussionId, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.DiscussionId });
+            e.Property(x => x.ImageUrl).HasMaxLength(500);
+            e.Property(x => x.VideoUrl).HasMaxLength(500);
+            e.Property(x => x.PlaceName).HasMaxLength(200);
+            e.Property(x => x.Address).HasMaxLength(300);
             e.HasOne(x => x.Discussion).WithMany(x => x.Replies).HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.User).WithMany(x => x.Replies).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });

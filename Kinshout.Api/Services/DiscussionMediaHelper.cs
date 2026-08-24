@@ -71,4 +71,18 @@ public static class DiscussionMediaHelper
         items.AddRange(videoUrls.Select(url => new Dtos.DiscussionMediaDto("video", url)));
         return items;
     }
+
+    /// <summary>Validates a single owned upload URL under /uploads/{folder}/{userId:N}/.</summary>
+    public static string NormalizeOwnedUploadUrl(string url, Guid userId, string folder)
+    {
+        var trimmed = url.Trim();
+        var prefix = $"/uploads/{folder}/{userId:N}/";
+        if (!trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Seuls vos fichiers téléversés sur Kinoiserie ({folder}) sont autorisés.");
+        }
+
+        return trimmed;
+    }
 }

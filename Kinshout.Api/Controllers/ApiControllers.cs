@@ -753,6 +753,7 @@ public class DiscussionsController(
     [HttpPost("{id:guid}/replies")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
     [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionReplyDto>> Reply(Guid id, [FromBody] CreateReplyRequestDto request, CancellationToken ct)
@@ -766,6 +767,10 @@ public class DiscussionsController(
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
         }
         catch (AdvertModerationException ex)
         {

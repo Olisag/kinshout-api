@@ -403,11 +403,19 @@ public class DiscussionService(
 
         await moderation.EnsureTextAllowedAsync(request.Body, ct);
 
+        var attachment = ResolveReplyAttachment(userId, request.ImageUrl, request.VideoUrl, request.Location);
+
         var reply = new DiscussionReply
         {
             DiscussionId = discussionId,
             UserId = userId,
             Body = request.Body.Trim(),
+            ImageUrl = attachment.ImageUrl,
+            VideoUrl = attachment.VideoUrl,
+            Latitude = attachment.Latitude,
+            Longitude = attachment.Longitude,
+            PlaceName = attachment.PlaceName,
+            Address = attachment.Address,
         };
 
         db.DiscussionReplies.Add(reply);
@@ -435,7 +443,15 @@ public class DiscussionService(
 
         await moderation.EnsureTextAllowedAsync(body, ct);
 
+        var attachment = ResolveReplyAttachment(userId, request.ImageUrl, request.VideoUrl, request.Location);
+
         reply.Body = body;
+        reply.ImageUrl = attachment.ImageUrl;
+        reply.VideoUrl = attachment.VideoUrl;
+        reply.Latitude = attachment.Latitude;
+        reply.Longitude = attachment.Longitude;
+        reply.PlaceName = attachment.PlaceName;
+        reply.Address = attachment.Address;
         await db.SaveChangesAsync(ct);
 
         var user = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
@@ -520,7 +536,10 @@ public class DiscussionService(
             reply.User.DisplayName,
             TimeHelpers.Initials(reply.User.DisplayName),
             TimeHelpers.FormatRelative(reply.CreatedAt),
-            reply.Body);
+            reply.Body,
+            reply.ImageUrl,
+            reply.VideoUrl,
+            ToReplyLocationDto(reply));
 
     private static DiscussionReplyDto ToReplyDto(DiscussionReply reply, User user) =>
         new(
@@ -529,7 +548,92 @@ public class DiscussionService(
             user.DisplayName,
             TimeHelpers.Initials(user.DisplayName),
             TimeHelpers.FormatRelative(reply.CreatedAt),
-            reply.Body);
+            reply.Body,
+            reply.ImageUrl,
+            reply.VideoUrl,
+            ToReplyLocationDto(reply));
+
+    private static DiscussionReplyLocationDto? ToReplyLocationDto(DiscussionReply reply)
+    {
+        if (reply.Latitude is null || reply.Longitude is null)
+            return null;
+
+        return new DiscussionReplyLocationDto(
+            reply.Latitude.Value,
+            reply.Longitude.Value,
+            reply.PlaceName,
+            reply.Address);
+    }
+
+    private sealed record ReplyAttachment(
+        string? ImageUrl,
+        string? VideoUrl,
+        double? Latitude,
+        double? Longitude,
+        string? PlaceName,
+        string? Address);
+
+    private static ReplyAttachment ResolveReplyAttachment(
+        Guid userId,
+        string? imageUrl,
+        string? videoUrl,
+        DiscussionReplyLocationDto? location)
+    {
+        var hasImage = !string.IsNullOrWhiteSpace(imageUrl);
+        var hasVideo = !string.IsNullOrWhiteSpace(videoUrl);
+        var hasLocation = location is not null;
+        var count = (hasImage ? 1 : 0) + (hasVideo ? 1 : 0) + (hasLocation ? 1 : 0);
+
+        if (count > 1)
+        {
+            throw new ArgumentException(
+                "Une réponse ne peut avoir qu'une seule pièce jointe (photo, vidéo ou lieu).");
+        }
+
+        if (hasImage)
+        {
+            return new ReplyAttachment(
+                DiscussionMediaHelper.NormalizeOwnedUploadUrl(imageUrl!, userId, "images"),
+                null,
+                null,
+                null,
+                null,
+                null);
+        }
+
+        if (hasVideo)
+        {
+            return new ReplyAttachment(
+                null,
+                DiscussionMediaHelper.NormalizeOwnedUploadUrl(videoUrl!, userId, "videos"),
+                null,
+                null,
+                null,
+                null);
+        }
+
+        if (hasLocation)
+        {
+            var lat = location!.Latitude;
+            var lng = location.Longitude;
+            if (lat is < -90 or > 90 || lng is < -180 or > 180)
+                throw new ArgumentException("Coordonnées de lieu invalides.");
+
+            var placeName = string.IsNullOrWhiteSpace(location.PlaceName)
+                ? null
+                : Truncate(location.PlaceName.Trim(), 200);
+            var address = string.IsNullOrWhiteSpace(location.Address)
+                ? null
+                : Truncate(location.Address.Trim(), 300);
+
+            return new ReplyAttachment(null, null, lat, lng, placeName, address);
+        }
+
+        return new ReplyAttachment(null, null, null, null, null, null);
+    }
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
 
     internal static DiscussionDto ToListDto(Discussion d, bool isLiked = false)
     {

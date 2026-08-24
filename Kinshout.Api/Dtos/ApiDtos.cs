@@ -327,14 +327,22 @@ public record DiscussionDetailDto(
     string? CommunitySlug = null,
     IReadOnlyList<DiscussionMediaDto>? Media = null);
 
+public record DiscussionReplyLocationDto(
+    double Latitude,
+    double Longitude,
+    string? PlaceName = null,
+    string? Address = null);
+
 public record DiscussionReplyDto(
     Guid Id,
     Guid AuthorId,
     string Author,
     string Avatar,
     string Time,
-    string Text
-);
+    string Text,
+    string? ImageUrl = null,
+    string? VideoUrl = null,
+    DiscussionReplyLocationDto? Location = null);
 
 public record CreateDiscussionRequestDto(
     string Title,
@@ -367,9 +375,17 @@ public record CommunityDto(
 
 public record CreateCommunityRequestDto(string Slug, string? Name = null, string? Description = null);
 
-public record CreateReplyRequestDto(string Body);
+public record CreateReplyRequestDto(
+    string Body,
+    string? ImageUrl = null,
+    string? VideoUrl = null,
+    DiscussionReplyLocationDto? Location = null);
 
-public record UpdateReplyRequestDto(string Body);
+public record UpdateReplyRequestDto(
+    string Body,
+    string? ImageUrl = null,
+    string? VideoUrl = null,
+    DiscussionReplyLocationDto? Location = null);
 
 /// <summary>Search request body for POST /api/search.</summary>
 /// <param name="Query">Free-text search. Optional for browse-style queries with filters only.</param>

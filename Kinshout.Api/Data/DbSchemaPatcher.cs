@@ -466,6 +466,63 @@ public static class DbSchemaPatcher
                 : "ALTER TABLE Discussions ADD COLUMN VideoUrlsJson TEXT NOT NULL DEFAULT '[]'";
             await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
         }
+
+        await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsureDiscussionReplyAttachmentSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "ImageUrl", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD ImageUrl nvarchar(500) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN ImageUrl TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "VideoUrl", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD VideoUrl nvarchar(500) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN VideoUrl TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "Latitude", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD Latitude float NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN Latitude REAL";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "Longitude", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD Longitude float NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN Longitude REAL";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "PlaceName", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD PlaceName nvarchar(200) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN PlaceName TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "Address", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD Address nvarchar(300) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN Address TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
     }
 
     private static async Task EnsureImportWatermarkSchemaAsync(
