@@ -13,14 +13,23 @@ namespace Kinshout.Api.Controllers;
 [Produces("application/json")]
 public class CommunitiesController(ICommunityService communities) : ControllerBase
 {
+    /// <summary>List Kinoiserie communities.</summary>
+    /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (discussion count).</param>
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResultDto<CommunityDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<PagedResultDto<CommunityDto>>> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        CancellationToken ct = default) =>
-        Ok(await communities.ListAsync(page, pageSize, ct));
+        [FromQuery] string sort = ListSortHelper.Recent,
+        CancellationToken ct = default)
+    {
+        if (!ListSortHelper.TryNormalize(sort, out var normalizedSort))
+            return BadRequest(new { error = "Le paramètre sort doit être recent ou popular." });
+
+        return Ok(await communities.ListAsync(page, pageSize, normalizedSort, ct));
+    }
 
     [HttpGet("{slug}")]
     [AllowAnonymous]

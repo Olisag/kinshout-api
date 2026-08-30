@@ -10,6 +10,7 @@ public interface ICommunityService
     Task<PagedResultDto<CommunityDto>> ListAsync(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        string sort = ListSortHelper.Recent,
         CancellationToken ct = default);
     Task<CommunityDto?> GetBySlugAsync(string slugOrRoute, CancellationToken ct = default);
     Task<CommunityDto> CreateAsync(Guid userId, CreateCommunityRequestDto request, CancellationToken ct = default);
@@ -21,12 +22,14 @@ public class CommunityService(KinshoutDbContext db) : ICommunityService
     public async Task<PagedResultDto<CommunityDto>> ListAsync(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        string sort = ListSortHelper.Recent,
         CancellationToken ct = default)
     {
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
-        var query = db.Communities
-            .AsNoTracking()
-            .OrderByDescending(c => c.CreatedAt);
+        var query = db.Communities.AsNoTracking();
+        query = ListSortHelper.IsPopular(sort)
+            ? query.OrderByDescending(c => c.Discussions.Count).ThenByDescending(c => c.CreatedAt)
+            : query.OrderByDescending(c => c.CreatedAt);
 
         var total = await query.CountAsync(ct);
         var items = await query
