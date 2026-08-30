@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Kinshout.Api.Models;
 
 namespace Kinshout.Api.Dtos;
 
@@ -325,7 +326,17 @@ public record DiscussionDetailDto(
     bool IsExternal = false,
     DiscussionSourceDto? Source = null,
     string? CommunitySlug = null,
-    IReadOnlyList<DiscussionMediaDto>? Media = null);
+    IReadOnlyList<DiscussionMediaDto>? Media = null,
+    string Visibility = CommunityVisibilities.Public,
+    string? ViewerStatus = null,
+    bool CanAccess = false,
+    bool CanParticipate = false);
+
+public record DiscussionParticipantDto(
+    Guid UserId,
+    string DisplayName,
+    string Status,
+    DateTime CreatedAt);
 
 public record DiscussionReplyLocationDto(
     double Latitude,
@@ -349,7 +360,8 @@ public record CreateDiscussionRequestDto(
     string Body,
     string? CommunitySlug = null,
     IReadOnlyList<string>? ImageUrls = null,
-    IReadOnlyList<string>? VideoUrls = null);
+    IReadOnlyList<string>? VideoUrls = null,
+    string Visibility = CommunityVisibilities.Public);
 
 public record UpdateDiscussionRequestDto(
     string Title,
@@ -369,11 +381,31 @@ public record CommunityDto(
     string Slug,
     string Name,
     string? Description,
+    string Visibility,
+    bool IsActive,
     int DiscussionCount,
+    int ModeratorCount,
     Guid CreatedByUserId,
+    DateTime CreatedAt,
+    string? ViewerStatus = null,
+    bool CanAccess = false,
+    bool CanPost = false,
+    bool CanModerate = false);
+
+public record CreateCommunityRequestDto(
+    string Slug,
+    string? Name = null,
+    string? Description = null,
+    string Visibility = CommunityVisibilities.Public);
+
+public record CommunityMemberDto(
+    Guid UserId,
+    string DisplayName,
+    string Role,
+    string Status,
     DateTime CreatedAt);
 
-public record CreateCommunityRequestDto(string Slug, string? Name = null, string? Description = null);
+public record InviteCommunityMemberRequestDto(Guid UserId);
 
 public record SuggestCommunityRequestDto(string Title, string Body);
 

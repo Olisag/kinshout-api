@@ -171,6 +171,8 @@ public class DiscussionEngagementTests
             Mock.Of<IOpenAiService>(),
             moderation.Object,
             Mock.Of<IUploadStorage>(),
+            TestDbFactory.CreatePermissiveCommunityService(),
+            TestDbFactory.CreatePermissiveDiscussionParticipationService(),
             TestDbFactory.CreateMemoryCache());
     }
 }

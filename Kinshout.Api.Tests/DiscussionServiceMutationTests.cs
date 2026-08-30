@@ -265,6 +265,8 @@ public class DiscussionServiceMutationTests
             openAi,
             moderation.Object,
             Mock.Of<IUploadStorage>(),
+            TestDbFactory.CreatePermissiveCommunityService(),
+            TestDbFactory.CreatePermissiveDiscussionParticipationService(),
             TestDbFactory.CreateMemoryCache());
     }
 }

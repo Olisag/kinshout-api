@@ -563,6 +563,7 @@ public class DiscussionsController(
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<PagedResultDto<DiscussionDto>>> List(
         [FromQuery] string? q,
         [FromQuery] Guid? categoryId,
@@ -570,8 +571,17 @@ public class DiscussionsController(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "recent",
-        CancellationToken ct = default) =>
-        Ok(await discussions.ListAsync(q, categoryId, null, community, page, pageSize, sort, TryGetUserId(), ct));
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await discussions.ListAsync(q, categoryId, null, community, page, pageSize, sort, TryGetUserId(), ct));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
 
     /// <summary>
     /// List discussion IDs liked by the signed-in user.
@@ -615,6 +625,7 @@ public class DiscussionsController(
     [HttpGet("{id:guid}")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(DiscussionDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionDetailDto>> Get(
         Guid id,
@@ -622,8 +633,15 @@ public class DiscussionsController(
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
-        return item is null ? NotFound() : Ok(item);
+        try
+        {
+            var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
+            return item is null ? NotFound() : Ok(item);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
     }
 
     /// <summary>
@@ -685,6 +703,10 @@ public class DiscussionsController(
         catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
         catch (AdvertModerationException ex)
         {
@@ -890,6 +912,106 @@ public class DiscussionsController(
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Join a discussion. Public discussions grant access immediately; private discussions
+    /// create a pending request and email the community creator and moderators.
+    /// Any one creator or moderator approval is sufficient.
+    /// </summary>
+    [HttpPost("{id:guid}/join")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Join(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.RequestJoinAsync(GetUserId(), id, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Discussion introuvable." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("{id:guid}/members/pending")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionParticipantDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResultDto<DiscussionParticipantDto>>> ListPendingParticipants(
+        Guid id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await discussions.ListPendingParticipantsAsync(GetUserId(), id, page, pageSize, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Discussion introuvable." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/members/{userId:guid}/approve")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ApproveParticipant(Guid id, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.ApproveParticipantAsync(GetUserId(), id, userId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/members/{userId:guid}/reject")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RejectParticipant(Guid id, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.RejectParticipantAsync(GetUserId(), id, userId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
     }
 

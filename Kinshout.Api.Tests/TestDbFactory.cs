@@ -36,6 +36,30 @@ internal static class TestDbFactory
 
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
 
+    public static ICommunityService CreatePermissiveCommunityService()
+    {
+        var mock = new Mock<ICommunityService>();
+        mock.Setup(x => x.EnsureCanAccessAsync(It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureCanPostAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureJoinedAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return mock.Object;
+    }
+
+    public static IDiscussionParticipationService CreatePermissiveDiscussionParticipationService()
+    {
+        var mock = new Mock<IDiscussionParticipationService>();
+        mock.Setup(x => x.EnsureCanViewAsync(It.IsAny<Discussion>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureCanParticipateAsync(It.IsAny<Discussion>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.SeedAuthorParticipantAsync(It.IsAny<Discussion>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return mock.Object;
+    }
+
     public static IAdvertDtoMapper CreateAdvertDtoMapper(string baseUrl = "https://api.test") =>
         new AdvertDtoMapper(new UploadUrlResolver(
             Options.Create(new UploadStorageSettings { PublicBaseUrl = baseUrl }),

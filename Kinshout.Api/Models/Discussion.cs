@@ -11,6 +11,7 @@ public class Discussion
     public string? TopicSlug { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
+    public string Visibility { get; set; } = CommunityVisibilities.Public;
     /// <summary>JSON array of uploaded image URLs.</summary>
     public string ImageUrlsJson { get; set; } = "[]";
     /// <summary>JSON array of uploaded video URLs.</summary>
@@ -42,4 +43,5 @@ public class Discussion
     public Category? Category { get; set; }
     public Community? Community { get; set; }
     public ICollection<DiscussionReply> Replies { get; set; } = [];
+    public ICollection<DiscussionParticipant> Participants { get; set; } = [];
 }

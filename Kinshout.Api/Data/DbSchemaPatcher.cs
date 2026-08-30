@@ -422,6 +422,77 @@ public static class DbSchemaPatcher
                 cancellationToken: ct);
         }
 
+        if (!await ColumnExistsAsync(connection, sqlServer, "Communities", "Visibility", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Communities ADD Visibility nvarchar(16) NOT NULL CONSTRAINT DF_Communities_Visibility DEFAULT 'public'"
+                : "ALTER TABLE Communities ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'public'";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Communities", "IsActive", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Communities ADD IsActive bit NOT NULL CONSTRAINT DF_Communities_IsActive DEFAULT 1"
+                : "ALTER TABLE Communities ADD COLUMN IsActive INTEGER NOT NULL DEFAULT 1";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "CommunityMembers", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE CommunityMembers (
+                        Id uniqueidentifier NOT NULL,
+                        CommunityId uniqueidentifier NOT NULL,
+                        UserId uniqueidentifier NOT NULL,
+                        Role nvarchar(16) NOT NULL,
+                        Status nvarchar(16) NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        ReviewedAt datetime2 NULL,
+                        ReviewedByUserId uniqueidentifier NULL,
+                        CONSTRAINT PK_CommunityMembers PRIMARY KEY (Id),
+                        CONSTRAINT FK_CommunityMembers_Communities_CommunityId
+                            FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_CommunityMembers_Users_UserId
+                            FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_CommunityMembers_Users_ReviewedByUserId
+                            FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE CommunityMembers (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        CommunityId TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Role TEXT NOT NULL,
+                        Status TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        ReviewedAt TEXT,
+                        ReviewedByUserId TEXT,
+                        FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE SET NULL
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IX_CommunityMembers_CommunityId_UserId ON CommunityMembers (CommunityId, UserId)",
+                cancellationToken: ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_CommunityMembers_CommunityId_Status_CreatedAt ON CommunityMembers (CommunityId, Status, CreatedAt)",
+                cancellationToken: ct);
+        }
+
         if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "CommunityId", ct))
         {
             if (sqlServer)
@@ -465,6 +536,67 @@ public static class DbSchemaPatcher
                 ? "ALTER TABLE Discussions ADD VideoUrlsJson nvarchar(max) NOT NULL CONSTRAINT DF_Discussions_VideoUrlsJson DEFAULT '[]'"
                 : "ALTER TABLE Discussions ADD COLUMN VideoUrlsJson TEXT NOT NULL DEFAULT '[]'";
             await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "Visibility", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD Visibility nvarchar(16) NOT NULL CONSTRAINT DF_Discussions_Visibility DEFAULT 'public'"
+                : "ALTER TABLE Discussions ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'public'";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "DiscussionParticipants", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE DiscussionParticipants (
+                        Id uniqueidentifier NOT NULL,
+                        DiscussionId uniqueidentifier NOT NULL,
+                        UserId uniqueidentifier NOT NULL,
+                        Status nvarchar(16) NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        ReviewedAt datetime2 NULL,
+                        ReviewedByUserId uniqueidentifier NULL,
+                        CONSTRAINT PK_DiscussionParticipants PRIMARY KEY (Id),
+                        CONSTRAINT FK_DiscussionParticipants_Discussions_DiscussionId
+                            FOREIGN KEY (DiscussionId) REFERENCES Discussions(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_DiscussionParticipants_Users_UserId
+                            FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_DiscussionParticipants_Users_ReviewedByUserId
+                            FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE DiscussionParticipants (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        DiscussionId TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Status TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        ReviewedAt TEXT,
+                        ReviewedByUserId TEXT,
+                        FOREIGN KEY (DiscussionId) REFERENCES Discussions(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE SET NULL
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IX_DiscussionParticipants_DiscussionId_UserId ON DiscussionParticipants (DiscussionId, UserId)",
+                cancellationToken: ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_DiscussionParticipants_DiscussionId_Status_CreatedAt ON DiscussionParticipants (DiscussionId, Status, CreatedAt)",
+                cancellationToken: ct);
         }
 
         await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);

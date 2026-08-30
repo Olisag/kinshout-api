@@ -13,6 +13,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<Discussion> Discussions => Set<Discussion>();
     public DbSet<DiscussionReply> DiscussionReplies => Set<DiscussionReply>();
     public DbSet<Community> Communities => Set<Community>();
+    public DbSet<CommunityMember> CommunityMembers => Set<CommunityMember>();
+    public DbSet<DiscussionParticipant> DiscussionParticipants => Set<DiscussionParticipant>();
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
@@ -83,6 +85,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.ViewCount).HasDefaultValue(0);
             e.Property(x => x.ImageUrlsJson).HasDefaultValue("[]");
             e.Property(x => x.VideoUrlsJson).HasDefaultValue("[]");
+            e.Property(x => x.Visibility).HasMaxLength(16).HasDefaultValue(CommunityVisibilities.Public);
             e.Property(x => x.SourceProvider).HasMaxLength(64);
             e.Property(x => x.SourceProviderName).HasMaxLength(120);
             e.Property(x => x.SourceExternalId).HasMaxLength(128);
@@ -106,8 +109,37 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.Slug).HasMaxLength(64);
             e.Property(x => x.Name).HasMaxLength(120);
             e.Property(x => x.Description).HasMaxLength(500);
+            e.Property(x => x.Visibility).HasMaxLength(16).HasDefaultValue(CommunityVisibilities.Public);
+            e.Property(x => x.IsActive).HasDefaultValue(true);
             e.HasOne(x => x.CreatedByUser).WithMany(x => x.CreatedCommunities)
                 .HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CommunityMember>(e =>
+        {
+            e.HasIndex(x => new { x.CommunityId, x.UserId }).IsUnique();
+            e.HasIndex(x => new { x.CommunityId, x.Status, x.CreatedAt });
+            e.Property(x => x.Role).HasMaxLength(16);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.HasOne(x => x.Community).WithMany(x => x.Members).HasForeignKey(x => x.CommunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.User).WithMany(x => x.CommunityMemberships).HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<DiscussionParticipant>(e =>
+        {
+            e.HasIndex(x => new { x.DiscussionId, x.UserId }).IsUnique();
+            e.HasIndex(x => new { x.DiscussionId, x.Status, x.CreatedAt });
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.HasOne(x => x.Discussion).WithMany(x => x.Participants).HasForeignKey(x => x.DiscussionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<ImportWatermark>(e =>

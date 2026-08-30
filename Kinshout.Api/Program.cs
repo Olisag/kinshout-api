@@ -25,6 +25,7 @@ builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuth
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<UploadStorageSettings>(builder.Configuration.GetSection(UploadStorageSettings.SectionName));
 builder.Services.Configure<ImportSettings>(builder.Configuration.GetSection(ImportSettings.SectionName));
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -76,6 +77,10 @@ builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
 builder.Services.AddScoped<ICommunityService, CommunityService>();
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<ICommunityJoinNotifier, CommunityJoinNotifier>();
+builder.Services.AddScoped<IDiscussionParticipationService, DiscussionParticipationService>();
+builder.Services.AddScoped<IDiscussionJoinNotifier, DiscussionJoinNotifier>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<IUploadUrlResolver, UploadUrlResolver>();
 builder.Services.AddSingleton<LocalUploadStorage>();
