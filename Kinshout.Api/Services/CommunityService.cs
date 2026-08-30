@@ -12,13 +12,15 @@ public interface ICommunityService
         int pageSize = PagingHelper.DefaultPageSize,
         string sort = ListSortHelper.Recent,
         CancellationToken ct = default);
+    Task<SuggestCommunityResponseDto> SuggestAsync(string title, string body, CancellationToken ct = default);
     Task<CommunityDto?> GetBySlugAsync(string slugOrRoute, CancellationToken ct = default);
     Task<CommunityDto> CreateAsync(Guid userId, CreateCommunityRequestDto request, CancellationToken ct = default);
     Task DeleteAsync(Guid userId, string slugOrRoute, CancellationToken ct = default);
 }
 
-public class CommunityService(KinshoutDbContext db) : ICommunityService
+public class CommunityService(KinshoutDbContext db, IOpenAiService openAi) : ICommunityService
 {
+    private const double MinSuggestionConfidence = 0.35;
     public async Task<PagedResultDto<CommunityDto>> ListAsync(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
@@ -47,6 +49,60 @@ public class CommunityService(KinshoutDbContext db) : ICommunityService
             normalizedPage,
             normalizedPageSize,
             total);
+    }
+
+    public async Task<SuggestCommunityResponseDto> SuggestAsync(
+        string title,
+        string body,
+        CancellationToken ct = default)
+    {
+        var trimmedTitle = title?.Trim() ?? "";
+        var trimmedBody = body?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(trimmedTitle) && string.IsNullOrWhiteSpace(trimmedBody))
+            throw new ArgumentException("Le titre ou le texte est requis.");
+
+        var text = string.IsNullOrWhiteSpace(trimmedTitle)
+            ? trimmedBody
+            : string.IsNullOrWhiteSpace(trimmedBody)
+                ? trimmedTitle
+                : $"{trimmedTitle}. {trimmedBody}";
+
+        var communities = await db.Communities.AsNoTracking().OrderBy(c => c.Name).ToListAsync(ct);
+        if (communities.Count == 0)
+        {
+            return new SuggestCommunityResponseDto(
+                null,
+                0,
+                "Aucune communauté disponible pour le moment.",
+                "none");
+        }
+
+        var analysis = await openAi.AnalyzeCommunityAsync(text, communities, ct);
+        CommunityDto? match = null;
+        if (!string.IsNullOrWhiteSpace(analysis.CommunitySlug) && analysis.Confidence >= MinSuggestionConfidence)
+        {
+            var community = communities.FirstOrDefault(c =>
+                c.Slug.Equals(analysis.CommunitySlug, StringComparison.OrdinalIgnoreCase));
+            if (community is not null)
+            {
+                var count = await db.Discussions.CountAsync(d => d.CommunityId == community.Id, ct);
+                match = ToDto(community, count);
+            }
+        }
+
+        var source = match is null
+            ? "none"
+            : analysis.RuleBasedFallback
+                ? "rules"
+                : "openai";
+
+        var summary = string.IsNullOrWhiteSpace(analysis.Summary)
+            ? match is null
+                ? "Aucune communauté ne correspond clairement à ce sujet."
+                : $"Communauté suggérée : {match.RouteSlug}."
+            : analysis.Summary;
+
+        return new SuggestCommunityResponseDto(match, analysis.Confidence, summary, source);
     }
 
     public async Task<CommunityDto?> GetBySlugAsync(string slugOrRoute, CancellationToken ct = default)

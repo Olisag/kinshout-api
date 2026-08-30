@@ -2,6 +2,7 @@ using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
+using Moq;
 
 namespace Kinshout.Api.Tests;
 
@@ -12,7 +13,7 @@ public class CommunityServiceTests
     {
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new CommunityService(db);
+        var service = CreateService(db);
 
         var created = await service.CreateAsync(
             user.Id,
@@ -31,7 +32,7 @@ public class CommunityServiceTests
     {
         await using var db = TestDbFactory.Create();
         var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new CommunityService(db);
+        var service = CreateService(db);
         await service.CreateAsync(user.Id, new CreateCommunityRequestDto("empty-community"));
 
         await service.DeleteAsync(user.Id, "k/empty-community");
@@ -44,7 +45,7 @@ public class CommunityServiceTests
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new CommunityService(db);
+        var service = CreateService(db);
         var community = await service.CreateAsync(user.Id, new CreateCommunityRequestDto("busy"));
 
         db.Discussions.Add(new Discussion
@@ -69,7 +70,7 @@ public class CommunityServiceTests
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new CommunityService(db);
+        var service = CreateService(db);
 
         var older = await service.CreateAsync(user.Id, new CreateCommunityRequestDto("older"));
         await Task.Delay(5);
@@ -95,7 +96,7 @@ public class CommunityServiceTests
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var service = new CommunityService(db);
+        var service = CreateService(db);
 
         var quiet = await service.CreateAsync(user.Id, new CreateCommunityRequestDto("quiet"));
         var busy = await service.CreateAsync(user.Id, new CreateCommunityRequestDto("busy"));
@@ -127,6 +128,58 @@ public class CommunityServiceTests
     }
 
     [Fact]
+    public async Task SuggestAsync_ReturnsNullWhenNoCommunities()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        var result = await service.SuggestAsync("Titre", "Corps");
+
+        Assert.Null(result.Community);
+        Assert.Equal("none", result.Source);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_MatchesCommunityByKeywords()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        await service.CreateAsync(user.Id, new CreateCommunityRequestDto("gombe-news", "Gombe News", "Actualités Gombe"));
+
+        var result = await service.SuggestAsync(
+            "Incident à Gombe",
+            "Que se passe-t-il dans le quartier Gombe ce soir ?");
+
+        Assert.NotNull(result.Community);
+        Assert.Equal("gombe-news", result.Community!.Slug);
+        Assert.Equal("rules", result.Source);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_ReturnsNullWhenNoClearMatch()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        await service.CreateAsync(user.Id, new CreateCommunityRequestDto("tech", "Tech Kinshasa"));
+
+        var result = await service.SuggestAsync("Bonjour", "Comment allez-vous ?");
+
+        Assert.Null(result.Community);
+        Assert.Equal("none", result.Source);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_RequiresTitleOrBody()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.SuggestAsync("  ", ""));
+    }
+
+    [Fact]
     public async Task DeleteAsync_FailsForNonCreator()
     {
         await using var db = TestDbFactory.Create();
@@ -135,10 +188,24 @@ public class CommunityServiceTests
         db.Users.Add(other);
         await db.SaveChangesAsync();
 
-        var service = new CommunityService(db);
+        var service = CreateService(db);
         await service.CreateAsync(user.Id, new CreateCommunityRequestDto("mine"));
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.DeleteAsync(other.Id, "mine"));
+    }
+
+    private static CommunityService CreateService(KinshoutDbContext db)
+    {
+        var openAi = new Mock<IOpenAiService>();
+        openAi
+            .Setup(x => x.AnalyzeCommunityAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<Community>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((string text, IReadOnlyList<Community> communities, CancellationToken _) =>
+                Task.FromResult(OpenAiService.FallbackCommunityAnalysis(text, communities)));
+
+        return new CommunityService(db, openAi.Object);
     }
 }

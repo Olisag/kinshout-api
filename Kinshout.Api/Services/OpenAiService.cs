@@ -37,6 +37,12 @@ public record AiDiscussionAnalysis(
     string Summary,
     bool RuleBasedFallback = false);
 
+public record AiCommunityAnalysis(
+    string? CommunitySlug,
+    double Confidence,
+    string Summary,
+    bool RuleBasedFallback = false);
+
 public record AiSearchAnalysis(
     IReadOnlyList<Guid> AdvertIds,
     IReadOnlyList<Guid> DiscussionIds,
@@ -63,6 +69,7 @@ public interface IOpenAiService
 {
     Task<AiAdvertAnalysis> AnalyzeAdvertAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
     Task<AiDiscussionAnalysis> AnalyzeDiscussionAsync(string text, IReadOnlyList<Category> existingCategories, CancellationToken ct = default);
+    Task<AiCommunityAnalysis> AnalyzeCommunityAsync(string text, IReadOnlyList<Community> communities, CancellationToken ct = default);
     Task<AiSearchAnalysis> SearchAsync(string query, IReadOnlyList<Advert> adverts, IReadOnlyList<Discussion> discussions, CancellationToken ct = default);
     Task<AiSearchQueryAnalysis> AnalyzeSearchQueryAsync(string query, CancellationToken ct = default);
     Task<ImportAdvertEnrichment?> EnrichImportedAdvertAsync(
@@ -296,6 +303,52 @@ public partial class OpenAiService(
         }
     }
 
+    public async Task<AiCommunityAnalysis> AnalyzeCommunityAsync(
+        string text,
+        IReadOnlyList<Community> communities,
+        CancellationToken ct = default)
+    {
+        if (communities.Count == 0)
+            return new AiCommunityAnalysis(null, 0, "Aucune communauté disponible pour le moment.", RuleBasedFallback: true);
+
+        if (string.IsNullOrWhiteSpace(text))
+            return FallbackCommunityAnalysis(string.Empty, communities);
+
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            return FallbackCommunityAnalysis(text, communities);
+
+        var communityList = string.Join("\n", communities.Select(c =>
+            $"- {c.Slug}: {c.Name}" + (string.IsNullOrWhiteSpace(c.Description) ? "" : $" — {c.Description}")));
+
+        var prompt = $$"""
+            Tu es l'IA de Kinoiserie (discussions locales à Kinshasa, RDC).
+            Suggère la communauté la plus pertinente pour ce brouillon de discussion, ou null si aucune ne convient.
+            Réponds UNIQUEMENT en JSON:
+            {
+              "communitySlug": "slug existant ou null",
+              "confidence": 0.0-1.0,
+              "summary": "phrase courte expliquant le choix ou pourquoi aucune communauté ne convient"
+            }
+
+            Communautés disponibles (slug: nom — description):
+            {{communityList}}
+
+            Brouillon:
+            "{{text.Replace("\"", "\\\"")}}"
+            """;
+
+        try
+        {
+            var json = await ChatJsonAsync(prompt, ct);
+            return ParseCommunityAnalysis(json, communities);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OpenAI community analysis failed, using fallback.");
+            return FallbackCommunityAnalysis(text, communities);
+        }
+    }
+
     public async Task<AiSearchQueryAnalysis> AnalyzeSearchQueryAsync(string query, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -492,6 +545,94 @@ public partial class OpenAiService(
         ["transport"] = ["traffic", "embouteillage", "route", "transport", "motuka", "bus", "taxi", "boulevard"],
         ["societe"] = ["quartier", "kinshasa", "communauté", "voisin", "famille", "mariage", "société"],
     };
+
+    internal static AiCommunityAnalysis FallbackCommunityAnalysis(string text, IReadOnlyList<Community> communities)
+    {
+        if (communities.Count == 0)
+            return new AiCommunityAnalysis(null, 0, "Aucune communauté disponible pour le moment.", RuleBasedFallback: true);
+
+        var norm = NormalizeForMatch(text);
+        Community? best = null;
+        var bestScore = 0.0;
+
+        foreach (var community in communities)
+        {
+            var score = ScoreCommunityMatch(norm, community);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = community;
+            }
+        }
+
+        if (best is null || bestScore < 1.0)
+        {
+            return new AiCommunityAnalysis(
+                null,
+                0.35,
+                "Aucune communauté ne correspond clairement à ce sujet.",
+                RuleBasedFallback: true);
+        }
+
+        var confidence = Math.Min(0.95, 0.4 + bestScore * 0.15);
+        return new AiCommunityAnalysis(
+            best.Slug,
+            confidence,
+            $"Ce sujet semble correspondre à la communauté « {best.Name} » (k/{best.Slug}).",
+            RuleBasedFallback: true);
+    }
+
+    private static double ScoreCommunityMatch(string norm, Community community)
+    {
+        var score = 0.0;
+        var terms = community.Slug
+            .Split('-', StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => t.Trim().ToLowerInvariant())
+            .Where(t => t.Length >= 3)
+            .ToList();
+
+        foreach (var word in $"{community.Name} {community.Description}".Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var term = word.Trim().ToLowerInvariant();
+            if (term.Length >= 3 && !terms.Contains(term))
+                terms.Add(term);
+        }
+
+        foreach (var term in terms)
+        {
+            if (norm.Contains(term, StringComparison.Ordinal))
+                score += term.Length >= 6 ? 2.0 : 1.0;
+        }
+
+        if (norm.Contains(community.Slug.Replace('-', ' '), StringComparison.Ordinal))
+            score += 3.0;
+
+        return score;
+    }
+
+    private static AiCommunityAnalysis ParseCommunityAnalysis(string json, IReadOnlyList<Community> communities)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var slug = root.TryGetProperty("communitySlug", out var slugEl) && slugEl.ValueKind == JsonValueKind.String
+            ? slugEl.GetString()
+            : null;
+        if (string.IsNullOrWhiteSpace(slug) || slug.Equals("null", StringComparison.OrdinalIgnoreCase))
+            slug = null;
+        else if (communities.All(c => !c.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase)))
+            slug = null;
+
+        var confidence = root.TryGetProperty("confidence", out var confEl) && confEl.TryGetDouble(out var c)
+            ? c
+            : slug is null ? 0.35 : 0.6;
+        var summary = root.TryGetProperty("summary", out var sumEl) && sumEl.ValueKind == JsonValueKind.String
+            ? sumEl.GetString() ?? ""
+            : slug is null
+                ? "Aucune communauté ne correspond clairement à ce sujet."
+                : $"Communauté suggérée : k/{slug}.";
+
+        return new AiCommunityAnalysis(slug, confidence, summary.Trim(), RuleBasedFallback: false);
+    }
 
     private static AiAdvertAnalysis ParseAdvertAnalysis(string json, IReadOnlyList<Category> existing, string text)
     {

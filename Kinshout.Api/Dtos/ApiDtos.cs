@@ -375,6 +375,14 @@ public record CommunityDto(
 
 public record CreateCommunityRequestDto(string Slug, string? Name = null, string? Description = null);
 
+public record SuggestCommunityRequestDto(string Title, string Body);
+
+public record SuggestCommunityResponseDto(
+    CommunityDto? Community,
+    double Confidence,
+    string Summary,
+    string Source);
+
 public record CreateReplyRequestDto(
     string Body,
     string? ImageUrl = null,

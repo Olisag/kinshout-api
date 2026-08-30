@@ -31,6 +31,28 @@ public class CommunitiesController(ICommunityService communities) : ControllerBa
         return Ok(await communities.ListAsync(page, pageSize, normalizedSort, ct));
     }
 
+    /// <summary>
+    /// Preview which community fits a discussion draft (title + body) when none is selected yet.
+    /// Uses OpenAI when configured; falls back to keyword matching.
+    /// </summary>
+    [HttpPost("preview")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(SuggestCommunityResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<SuggestCommunityResponseDto>> Preview(
+        [FromBody] SuggestCommunityRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await communities.SuggestAsync(request.Title, request.Body, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     [HttpGet("{slug}")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(CommunityDto), StatusCodes.Status200OK)]
