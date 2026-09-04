@@ -394,6 +394,88 @@ public class CommunityServiceTests
             service.DeleteAsync(other.Id, "mine"));
     }
 
+    [Fact]
+    public async Task ListMembersAsync_ReturnsApprovedMembersOnlyOrderedByRole()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var moderator = new User { Email = "mod@test", DisplayName = "Mod" };
+        var member = new User { Email = "member@test", DisplayName = "Member" };
+        var pending = new User { Email = "pending@test", DisplayName = "Pending" };
+        db.Users.AddRange(moderator, member, pending);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.CreateAsync(creator.Id, new CreateCommunityRequestDto("club"));
+        await service.InviteMemberAsync(creator.Id, "club", moderator.Id);
+        await service.AddModeratorAsync(creator.Id, "club", moderator.Id);
+        await service.RequestJoinAsync(member.Id, "club");
+
+        var communityId = (await db.Communities.SingleAsync(c => c.Slug == "club")).Id;
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = communityId,
+            UserId = pending.Id,
+            Role = CommunityMemberRoles.Member,
+            Status = CommunityMemberStatuses.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        var result = await service.ListMembersAsync("club");
+
+        Assert.Equal(3, result.TotalCount);
+        Assert.Equal(
+            [CommunityMemberRoles.Creator, CommunityMemberRoles.Moderator, CommunityMemberRoles.Member],
+            result.Items.Select(m => m.Role).ToArray());
+        Assert.DoesNotContain(result.Items, m => m.UserId == pending.Id);
+        Assert.All(result.Items, m => Assert.Equal(CommunityMemberStatuses.Approved, m.Status));
+    }
+
+    [Fact]
+    public async Task ListModeratorsAsync_ReturnsCreatorAndModeratorsOnly()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var moderator = new User { Email = "mod@test", DisplayName = "Mod" };
+        var member = new User { Email = "member@test", DisplayName = "Member" };
+        db.Users.AddRange(moderator, member);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.CreateAsync(creator.Id, new CreateCommunityRequestDto("club"));
+        await service.InviteMemberAsync(creator.Id, "club", moderator.Id);
+        await service.AddModeratorAsync(creator.Id, "club", moderator.Id);
+        await service.RequestJoinAsync(member.Id, "club");
+
+        var result = await service.ListModeratorsAsync("k/club");
+
+        Assert.Equal(2, result.TotalCount);
+        Assert.Equal(
+            [CommunityMemberRoles.Creator, CommunityMemberRoles.Moderator],
+            result.Items.Select(m => m.Role).ToArray());
+        Assert.DoesNotContain(result.Items, m => m.UserId == member.Id);
+    }
+
+    [Fact]
+    public async Task ListMembersAsync_PrivateCommunity_RequiresMembership()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var outsider = new User { Email = "outsider@test", DisplayName = "Outsider" };
+        db.Users.Add(outsider);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.CreateAsync(creator.Id, new CreateCommunityRequestDto("secret", Visibility: CommunityVisibilities.Private));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.ListMembersAsync("secret", outsider.Id));
+
+        var asCreator = await service.ListMembersAsync("secret", creator.Id);
+        Assert.Single(asCreator.Items);
+        Assert.Equal(creator.Id, asCreator.Items[0].UserId);
+    }
+
     private static CommunityService CreateService(KinshoutDbContext db, Mock<ICommunityJoinNotifier>? notifier = null)
     {
         var openAi = new Mock<IOpenAiService>();

@@ -27,6 +27,18 @@ public interface ICommunityService
     Task AddModeratorAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task RemoveModeratorAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task LeaveAsync(Guid userId, string slugOrRoute, CancellationToken ct = default);
+    Task<PagedResultDto<CommunityMemberDto>> ListMembersAsync(
+        string slugOrRoute,
+        Guid? viewerUserId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
+    Task<PagedResultDto<CommunityMemberDto>> ListModeratorsAsync(
+        string slugOrRoute,
+        Guid? viewerUserId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
     Task<PagedResultDto<CommunityMemberDto>> ListPendingMembersAsync(
         Guid actorUserId,
         string slugOrRoute,
@@ -479,6 +491,38 @@ public class CommunityService(
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task<PagedResultDto<CommunityMemberDto>> ListMembersAsync(
+        string slugOrRoute,
+        Guid? viewerUserId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default)
+    {
+        var community = await RequireVisibleCommunityAsync(slugOrRoute, viewerUserId, ct);
+        return await ListApprovedMembersAsync(
+            community.Id,
+            page,
+            pageSize,
+            roles: null,
+            ct);
+    }
+
+    public async Task<PagedResultDto<CommunityMemberDto>> ListModeratorsAsync(
+        string slugOrRoute,
+        Guid? viewerUserId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default)
+    {
+        var community = await RequireVisibleCommunityAsync(slugOrRoute, viewerUserId, ct);
+        return await ListApprovedMembersAsync(
+            community.Id,
+            page,
+            pageSize,
+            roles: [CommunityMemberRoles.Creator, CommunityMemberRoles.Moderator],
+            ct);
+    }
+
     public async Task<PagedResultDto<CommunityMemberDto>> ListPendingMembersAsync(
         Guid actorUserId,
         string slugOrRoute,
@@ -497,6 +541,58 @@ public class CommunityService(
             .Include(m => m.User)
             .Where(m => m.CommunityId == community.Id && m.Status == CommunityMemberStatuses.Pending)
             .OrderBy(m => m.CreatedAt);
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(ct);
+
+        var items = rows
+            .Select(m => new CommunityMemberDto(
+                m.UserId,
+                m.User.DisplayName,
+                m.Role,
+                m.Status,
+                m.CreatedAt))
+            .ToList();
+
+        return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
+    }
+
+    private async Task<Community> RequireVisibleCommunityAsync(
+        string slugOrRoute,
+        Guid? viewerUserId,
+        CancellationToken ct)
+    {
+        var community = await RequireCommunityAsync(slugOrRoute, ct);
+        var membership = await FindMembershipAsync(community.Id, viewerUserId, ct);
+        if (!CommunityAccessHelper.CanViewMetadata(community, membership, viewerUserId))
+            throw new UnauthorizedAccessException("Accès refusé. Rejoignez la communauté ou attendez l'approbation.");
+
+        return community;
+    }
+
+    private async Task<PagedResultDto<CommunityMemberDto>> ListApprovedMembersAsync(
+        Guid communityId,
+        int page,
+        int pageSize,
+        IReadOnlyList<string>? roles,
+        CancellationToken ct)
+    {
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var query = db.CommunityMembers
+            .AsNoTracking()
+            .Include(m => m.User)
+            .Where(m => m.CommunityId == communityId && m.Status == CommunityMemberStatuses.Approved);
+
+        if (roles is { Count: > 0 })
+            query = query.Where(m => roles.Contains(m.Role));
+
+        query = query
+            .OrderByDescending(m => m.Role == CommunityMemberRoles.Creator)
+            .ThenByDescending(m => m.Role == CommunityMemberRoles.Moderator)
+            .ThenBy(m => m.CreatedAt);
 
         var total = await query.CountAsync(ct);
         var rows = await query

@@ -146,6 +146,64 @@ public class CommunitiesController(ICommunityService communities) : ControllerBa
         }
     }
 
+    /// <summary>
+    /// List approved (active) members of a community. Public communities are readable anonymously;
+    /// private communities require approved membership.
+    /// </summary>
+    [HttpGet("{slug}/members")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PagedResultDto<CommunityMemberDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResultDto<CommunityMemberDto>>> ListMembers(
+        string slug,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await communities.ListMembersAsync(slug, TryGetUserId(), page, pageSize, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Communauté introuvable." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// List approved (active) moderators of a community. Public communities are readable anonymously;
+    /// private communities require approved membership.
+    /// </summary>
+    [HttpGet("{slug}/moderators")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PagedResultDto<CommunityMemberDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResultDto<CommunityMemberDto>>> ListModerators(
+        string slug,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await communities.ListModeratorsAsync(slug, TryGetUserId(), page, pageSize, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Communauté introuvable." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
     [HttpGet("{slug}/members/pending")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
     [ProducesResponseType(typeof(PagedResultDto<CommunityMemberDto>), StatusCodes.Status200OK)]
