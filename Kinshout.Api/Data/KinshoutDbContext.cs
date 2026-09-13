@@ -15,6 +15,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<Community> Communities => Set<Community>();
     public DbSet<CommunityMember> CommunityMembers => Set<CommunityMember>();
     public DbSet<DiscussionParticipant> DiscussionParticipants => Set<DiscussionParticipant>();
+    public DbSet<VideoAsset> VideoAssets => Set<VideoAsset>();
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
@@ -140,6 +141,17 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<VideoAsset>(e =>
+        {
+            e.HasIndex(x => new { x.UserId, x.CreatedAt });
+            e.HasIndex(x => x.VideoUrl);
+            e.Property(x => x.VideoUrl).HasMaxLength(500);
+            e.Property(x => x.PosterUrl).HasMaxLength(500);
+            e.Property(x => x.ContentType).HasMaxLength(100);
+            e.Property(x => x.OriginalFileName).HasMaxLength(260);
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ImportWatermark>(e =>

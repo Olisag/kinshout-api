@@ -489,6 +489,21 @@ public record CategorizeResponseDto(
 
 public record UploadResponseDto(IReadOnlyList<string> Urls);
 
+/// <summary>
+/// Reddit-style video asset: cheap poster for feeds, original file streamed with range requests.
+/// Use <c>storageUrl</c> when attaching to discussions; use <c>previewUrl</c> in feeds and <c>playUrl</c> for playback.
+/// </summary>
+public record VideoDto(
+    Guid Id,
+    string PlayUrl,
+    string? PreviewUrl,
+    string StorageUrl,
+    string ContentType,
+    long ByteSize,
+    string? OriginalFileName,
+    DateTime CreatedAt,
+    Guid OwnerId);
+
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,
     int Page,

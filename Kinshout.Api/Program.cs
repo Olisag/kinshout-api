@@ -93,6 +93,7 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
         : sp.GetRequiredService<LocalUploadStorage>();
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
+builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
 builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();
 builder.Services.AddSingleton<IAdvertImageVariantBackfillScheduler, AdvertImageVariantBackfillScheduler>();

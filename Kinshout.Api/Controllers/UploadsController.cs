@@ -51,7 +51,7 @@ public class UploadsController(IUploadService uploads) : ControllerBase
 
     /// <summary>
     /// Upload one or more discussion videos (max 5, mp4/webm/mov, 50MB each).
-    /// Returns public URLs for use in discussion create/update/media endpoints.
+    /// Prefer <c>POST /api/videos</c> for Reddit-style upload with optional poster preview and delete-by-id.
     /// </summary>
     [HttpPost("videos")]
     [Consumes("multipart/form-data")]

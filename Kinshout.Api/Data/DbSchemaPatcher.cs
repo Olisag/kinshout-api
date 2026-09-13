@@ -599,7 +599,66 @@ public static class DbSchemaPatcher
                 cancellationToken: ct);
         }
 
+        await EnsureVideoAssetsSchemaAsync(db, connection, sqlServer, ct);
         await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsureVideoAssetsSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (await TableExistsAsync(connection, sqlServer, "VideoAssets", ct))
+            return;
+
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE VideoAssets (
+                    Id uniqueidentifier NOT NULL,
+                    UserId uniqueidentifier NOT NULL,
+                    VideoUrl nvarchar(500) NOT NULL,
+                    PosterUrl nvarchar(500) NULL,
+                    ContentType nvarchar(100) NOT NULL,
+                    ByteSize bigint NOT NULL,
+                    OriginalFileName nvarchar(260) NULL,
+                    CreatedAt datetime2 NOT NULL,
+                    DeletedAt datetime2 NULL,
+                    CONSTRAINT PK_VideoAssets PRIMARY KEY (Id),
+                    CONSTRAINT FK_VideoAssets_Users_UserId
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+                )
+                """,
+                cancellationToken: ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE VideoAssets (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    UserId TEXT NOT NULL,
+                    VideoUrl TEXT NOT NULL,
+                    PosterUrl TEXT,
+                    ContentType TEXT NOT NULL,
+                    ByteSize INTEGER NOT NULL,
+                    OriginalFileName TEXT,
+                    CreatedAt TEXT NOT NULL,
+                    DeletedAt TEXT,
+                    FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+                )
+                """,
+                cancellationToken: ct);
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IX_VideoAssets_UserId_CreatedAt ON VideoAssets (UserId, CreatedAt)",
+            cancellationToken: ct);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IX_VideoAssets_VideoUrl ON VideoAssets (VideoUrl)",
+            cancellationToken: ct);
     }
 
     private static async Task EnsureDiscussionReplyAttachmentSchemaAsync(
