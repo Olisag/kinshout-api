@@ -45,6 +45,9 @@ internal static class TestDbFactory
             .Returns(Task.CompletedTask);
         mock.Setup(x => x.EnsureJoinedAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureApprovedMemberAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
         return mock.Object;
     }
 

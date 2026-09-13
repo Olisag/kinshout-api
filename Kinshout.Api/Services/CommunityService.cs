@@ -51,6 +51,14 @@ public interface ICommunityService
     /// Ensures the user has requested or holds membership. Idempotent when already approved or pending.
     /// </summary>
     Task EnsureJoinedAsync(Guid userId, Guid communityId, CancellationToken ct = default);
+    /// <summary>
+    /// Grants approved community membership (full access). Idempotent when already approved.
+    /// </summary>
+    Task EnsureApprovedMemberAsync(
+        Guid userId,
+        Guid communityId,
+        Guid? reviewedByUserId = null,
+        CancellationToken ct = default);
 }
 
 public class CommunityService(
@@ -304,6 +312,51 @@ public class CommunityService(
             var requester = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
             await joinNotifier.NotifyJoinRequestAsync(community, requester, ct);
         }
+    }
+
+    public async Task EnsureApprovedMemberAsync(
+        Guid userId,
+        Guid communityId,
+        Guid? reviewedByUserId = null,
+        CancellationToken ct = default)
+    {
+        var community = await db.Communities.FirstOrDefaultAsync(c => c.Id == communityId, ct)
+            ?? throw new KeyNotFoundException("Communauté introuvable.");
+        EnsureCommunityAcceptsMembershipChanges(community);
+
+        if (community.CreatedByUserId == userId)
+            return;
+
+        var existing = await db.CommunityMembers
+            .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == userId, ct);
+
+        if (existing?.Status == CommunityMemberStatuses.Approved)
+            return;
+
+        var reviewerId = reviewedByUserId ?? userId;
+
+        if (existing is not null)
+        {
+            existing.Status = CommunityMemberStatuses.Approved;
+            existing.ReviewedAt = DateTime.UtcNow;
+            existing.ReviewedByUserId = reviewerId;
+            if (existing.Role != CommunityMemberRoles.Creator && existing.Role != CommunityMemberRoles.Moderator)
+                existing.Role = CommunityMemberRoles.Member;
+        }
+        else
+        {
+            db.CommunityMembers.Add(new CommunityMember
+            {
+                CommunityId = communityId,
+                UserId = userId,
+                Role = CommunityMemberRoles.Member,
+                Status = CommunityMemberStatuses.Approved,
+                ReviewedAt = DateTime.UtcNow,
+                ReviewedByUserId = reviewerId,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task InviteMemberAsync(

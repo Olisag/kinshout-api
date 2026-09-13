@@ -192,6 +192,113 @@ public class DiscussionParticipationServiceTests
         Assert.Equal(CommunityMemberStatuses.Approved, participant.Status);
         Assert.Equal(moderator.Id, participant.ReviewedByUserId);
         await service.EnsureCanParticipateAsync(discussion, joiner.Id);
+
+        var communityMembership = await db.CommunityMembers.SingleAsync(m => m.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Approved, communityMembership.Status);
+    }
+
+    [Fact]
+    public async Task ApproveParticipantAsync_PrivateCommunity_GrantsFullCommunityAccess()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var joiner = new User { Email = "joiner@test", DisplayName = "Joiner" };
+        db.Users.Add(joiner);
+
+        var community = new Community
+        {
+            Slug = "secret-club",
+            Name = "Secret Club",
+            CreatedByUserId = creator.Id,
+            Visibility = CommunityVisibilities.Private,
+        };
+        db.Communities.Add(community);
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = community.Id,
+            UserId = creator.Id,
+            Role = CommunityMemberRoles.Creator,
+            Status = CommunityMemberStatuses.Approved,
+        });
+
+        var discussion = new Discussion
+        {
+            UserId = creator.Id,
+            CategoryId = category.Id,
+            CommunityId = community.Id,
+            Title = "Private thread",
+            Body = "Body",
+            Visibility = CommunityVisibilities.Private,
+        };
+        db.Discussions.Add(discussion);
+        await db.SaveChangesAsync();
+
+        var communityService = CreateCommunityService(db);
+        var service = CreateService(db, communityService: communityService);
+        await service.RequestJoinAsync(joiner.Id, discussion.Id);
+
+        var pendingCommunity = await db.CommunityMembers.SingleAsync(m => m.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Pending, pendingCommunity.Status);
+
+        await service.ApproveParticipantAsync(creator.Id, discussion.Id, joiner.Id);
+
+        var communityMembership = await db.CommunityMembers.SingleAsync(m => m.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Approved, communityMembership.Status);
+        Assert.Equal(creator.Id, communityMembership.ReviewedByUserId);
+
+        var dto = await communityService.GetBySlugAsync("secret-club", joiner.Id);
+        Assert.NotNull(dto);
+        Assert.True(dto!.CanAccess);
+        Assert.True(dto.CanPost);
+    }
+
+    [Fact]
+    public async Task RequestJoinAsync_PublicDiscussion_GrantsFullCommunityAccess()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var joiner = new User { Email = "joiner@test", DisplayName = "Joiner" };
+        db.Users.Add(joiner);
+
+        var community = new Community
+        {
+            Slug = "secret-club",
+            Name = "Secret Club",
+            CreatedByUserId = creator.Id,
+            Visibility = CommunityVisibilities.Private,
+        };
+        db.Communities.Add(community);
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = community.Id,
+            UserId = creator.Id,
+            Role = CommunityMemberRoles.Creator,
+            Status = CommunityMemberStatuses.Approved,
+        });
+
+        var discussion = new Discussion
+        {
+            UserId = creator.Id,
+            CategoryId = category.Id,
+            CommunityId = community.Id,
+            Title = "Open thread",
+            Body = "Body",
+            Visibility = CommunityVisibilities.Public,
+        };
+        db.Discussions.Add(discussion);
+        await db.SaveChangesAsync();
+
+        var communityService = CreateCommunityService(db);
+        var service = CreateService(db, communityService: communityService);
+        await service.RequestJoinAsync(joiner.Id, discussion.Id);
+
+        var communityMembership = await db.CommunityMembers.SingleAsync(m => m.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Approved, communityMembership.Status);
+
+        var dto = await communityService.GetBySlugAsync("secret-club", joiner.Id);
+        Assert.NotNull(dto);
+        Assert.True(dto!.CanAccess);
+        Assert.True(dto.CanPost);
     }
 
     [Fact]

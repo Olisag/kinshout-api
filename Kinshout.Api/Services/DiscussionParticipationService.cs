@@ -29,8 +29,17 @@ public class DiscussionParticipationService(
     public async Task RequestJoinAsync(Guid userId, Guid discussionId, CancellationToken ct = default)
     {
         var discussion = await RequireDiscussionAsync(discussionId, ct);
+        var isPrivate = CommunityVisibilityHelper.IsPrivate(discussion.Visibility);
+
         if (discussion.CommunityId is Guid communityId)
-            await communities.EnsureJoinedAsync(userId, communityId, ct);
+        {
+            // Public discussion join grants full community access immediately.
+            // Private discussion join only requests community membership until approved.
+            if (isPrivate)
+                await communities.EnsureJoinedAsync(userId, communityId, ct);
+            else
+                await communities.EnsureApprovedMemberAsync(userId, communityId, userId, ct);
+        }
 
         if (discussion.UserId == userId)
             return;
@@ -47,7 +56,6 @@ public class DiscussionParticipationService(
         if (existing?.Status == CommunityMemberStatuses.Rejected)
             db.DiscussionParticipants.Remove(existing);
 
-        var isPrivate = CommunityVisibilityHelper.IsPrivate(discussion.Visibility);
         var status = isPrivate ? CommunityMemberStatuses.Pending : CommunityMemberStatuses.Approved;
 
         db.DiscussionParticipants.Add(new DiscussionParticipant
@@ -80,16 +88,24 @@ public class DiscussionParticipationService(
             .FirstOrDefaultAsync(p => p.DiscussionId == discussionId && p.UserId == targetUserId, ct)
             ?? throw new KeyNotFoundException("Demande d'accès introuvable.");
 
-        if (participant.Status == CommunityMemberStatuses.Approved)
-            return;
+        var wasPending = participant.Status != CommunityMemberStatuses.Approved;
+        if (wasPending)
+        {
+            participant.Status = CommunityMemberStatuses.Approved;
+            participant.ReviewedAt = DateTime.UtcNow;
+            participant.ReviewedByUserId = actorUserId;
+            await db.SaveChangesAsync(ct);
+        }
 
-        participant.Status = CommunityMemberStatuses.Approved;
-        participant.ReviewedAt = DateTime.UtcNow;
-        participant.ReviewedByUserId = actorUserId;
-        await db.SaveChangesAsync(ct);
+        // Discussion approval grants full community membership.
+        if (discussion.CommunityId is Guid communityId)
+            await communities.EnsureApprovedMemberAsync(targetUserId, communityId, actorUserId, ct);
 
-        var member = await db.Users.AsNoTracking().FirstAsync(u => u.Id == targetUserId, ct);
-        await joinNotifier.NotifyJoinApprovedAsync(discussion, member, ct);
+        if (wasPending)
+        {
+            var member = await db.Users.AsNoTracking().FirstAsync(u => u.Id == targetUserId, ct);
+            await joinNotifier.NotifyJoinApprovedAsync(discussion, member, ct);
+        }
     }
 
     public async Task RejectParticipantAsync(
