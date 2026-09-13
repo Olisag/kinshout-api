@@ -79,6 +79,45 @@ public class DiscussionMediaHelperTests
 
         Assert.Contains("téléversés", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void ToMediaDtos_VideoWithPoster_UsesPreviewAsPrimaryUrl()
+    {
+        var asset = new VideoAsset
+        {
+            Id = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
+            VideoUrl = "/uploads/videos/abc/clip.mp4",
+            PosterUrl = "/uploads/videos/abc/clip_poster.webp",
+            ContentType = "video/mp4",
+            ByteSize = 1000,
+        };
+        var map = new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase)
+        {
+            [asset.VideoUrl] = asset,
+        };
+
+        var media = DiscussionMediaHelper.ToMediaDtos([], [asset.VideoUrl], map);
+        var item = Assert.Single(media);
+
+        Assert.Equal("video", item.Type);
+        Assert.Equal($"/api/videos/{asset.Id}/preview", item.Url);
+        Assert.Equal($"/api/videos/{asset.Id}/preview", item.PreviewUrl);
+        Assert.Equal($"/api/videos/{asset.Id}/stream", item.PlayUrl);
+    }
+
+    [Fact]
+    public void ToMediaDtos_VideoWithoutAsset_FallsBackToStorageUrl()
+    {
+        var storage = "/uploads/videos/abc/legacy.mp4";
+        var media = DiscussionMediaHelper.ToMediaDtos([], [storage]);
+        var item = Assert.Single(media);
+
+        Assert.Equal("video", item.Type);
+        Assert.Equal(storage, item.Url);
+        Assert.Null(item.PreviewUrl);
+        Assert.Equal(storage, item.PlayUrl);
+    }
 }
 
 public class DiscussionMediaServiceTests

@@ -278,7 +278,15 @@ public record CategoryDto(
     bool IsAiGenerated
 );
 
-public record DiscussionMediaDto(string Type, string Url);
+/// <summary>
+/// Discussion media item. For videos in feeds, <see cref="Url"/> prefers the cheap poster
+/// (<c>previewUrl</c>) when available; use <see cref="PlayUrl"/> for playback.
+/// </summary>
+public record DiscussionMediaDto(
+    string Type,
+    string Url,
+    string? PreviewUrl = null,
+    string? PlayUrl = null);
 
 public record DiscussionDto(
     Guid Id,

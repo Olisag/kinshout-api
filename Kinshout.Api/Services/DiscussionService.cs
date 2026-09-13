@@ -146,8 +146,9 @@ public class DiscussionService(
             .ToListAsync(ct);
 
         var likedIds = await LoadLikedDiscussionIdsAsync(db, viewerUserId, items.Select(d => d.Id), ct);
+        var videoAssets = await LoadVideoAssetsByStorageUrlAsync(items, ct);
         return PagingHelper.Create(
-            items.Select(d => ToListDto(d, likedIds.Contains(d.Id))).ToList(),
+            items.Select(d => ToListDto(d, likedIds.Contains(d.Id), videoAssets)).ToList(),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -195,8 +196,9 @@ public class DiscussionService(
             .ToListAsync(ct);
 
         var likedIds = await LoadLikedDiscussionIdsAsync(db, userId, items.Select(d => d.Id), ct);
+        var videoAssets = await LoadVideoAssetsByStorageUrlAsync(items, ct);
         return PagingHelper.Create(
-            items.Select(d => ToListDto(d, likedIds.Contains(d.Id))).ToList(),
+            items.Select(d => ToListDto(d, likedIds.Contains(d.Id), videoAssets)).ToList(),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -249,6 +251,7 @@ public class DiscussionService(
         var images = DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson);
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
         var (viewerStatus, canAccess, canParticipate) = await GetViewerAccessAsync(d, viewerUserId, ct);
+        var videoAssets = await LoadVideoAssetsByStorageUrlAsync(videos, ct);
 
         return new DiscussionDetailDto(
             d.Id,
@@ -266,7 +269,7 @@ public class DiscussionService(
             d.IsExternal,
             DiscussionSourceMapper.ToSourceDto(d),
             d.Community is null ? null : CommunitySlugHelper.ToRouteSlug(d.Community.Slug),
-            DiscussionMediaHelper.ToMediaDtos(images, videos),
+            DiscussionMediaHelper.ToMediaDtos(images, videos, videoAssets),
             d.Visibility,
             viewerStatus,
             canAccess,
@@ -401,7 +404,7 @@ public class DiscussionService(
         if (communityId is not null)
             discussion.Community = await db.Communities.AsNoTracking().FirstAsync(c => c.Id == communityId, ct);
         discussion.Replies = [];
-        return ToListDto(discussion, isLiked: false);
+        return await ToListDtoAsync(discussion, isLiked: false, ct);
     }
 
     public async Task<DiscussionDto> AddMediaAsync(
@@ -439,7 +442,7 @@ public class DiscussionService(
         discussion.VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(videos);
         discussion.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-        return ToListDto(discussion, isLiked: false);
+        return await ToListDtoAsync(discussion, isLiked: false, ct);
     }
 
     public async Task<DiscussionDto> RemoveMediaAsync(
@@ -480,7 +483,7 @@ public class DiscussionService(
         discussion.VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(videos);
         discussion.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
-        return ToListDto(discussion, isLiked: false);
+        return await ToListDtoAsync(discussion, isLiked: false, ct);
     }
 
     public async Task<DiscussionReplyDto> AddReplyAsync(
@@ -728,7 +731,20 @@ public class DiscussionService(
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
 
-    internal static DiscussionDto ToListDto(Discussion d, bool isLiked = false)
+    private async Task<DiscussionDto> ToListDtoAsync(
+        Discussion d,
+        bool isLiked,
+        CancellationToken ct)
+    {
+        var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
+        var videoAssets = await LoadVideoAssetsByStorageUrlAsync(videos, ct);
+        return ToListDto(d, isLiked, videoAssets);
+    }
+
+    internal static DiscussionDto ToListDto(
+        Discussion d,
+        bool isLiked = false,
+        IReadOnlyDictionary<string, VideoAsset>? videoAssetsByStorageUrl = null)
     {
         var images = DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson);
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
@@ -747,7 +763,34 @@ public class DiscussionService(
             d.IsExternal,
             DiscussionSourceMapper.ToSourceDto(d),
             d.Community is null ? null : CommunitySlugHelper.ToRouteSlug(d.Community.Slug),
-            DiscussionMediaHelper.ToMediaDtos(images, videos));
+            DiscussionMediaHelper.ToMediaDtos(images, videos, videoAssetsByStorageUrl));
+    }
+
+    private async Task<IReadOnlyDictionary<string, VideoAsset>> LoadVideoAssetsByStorageUrlAsync(
+        IEnumerable<Discussion> discussions,
+        CancellationToken ct)
+    {
+        var storageUrls = discussions
+            .SelectMany(d => DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return await LoadVideoAssetsByStorageUrlAsync(storageUrls, ct);
+    }
+
+    private async Task<IReadOnlyDictionary<string, VideoAsset>> LoadVideoAssetsByStorageUrlAsync(
+        IReadOnlyList<string> storageUrls,
+        CancellationToken ct)
+    {
+        if (storageUrls.Count == 0)
+            return new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase);
+
+        var assets = await db.VideoAssets.AsNoTracking()
+            .Where(v => v.DeletedAt == null && storageUrls.Contains(v.VideoUrl))
+            .ToListAsync(ct);
+
+        return assets
+            .GroupBy(v => v.VideoUrl, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task<Guid?> ResolveCommunityIdAsync(string? communitySlug, CancellationToken ct)

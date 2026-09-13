@@ -64,11 +64,29 @@ public static class DiscussionMediaHelper
 
     public static List<Dtos.DiscussionMediaDto> ToMediaDtos(
         IReadOnlyList<string> imageUrls,
-        IReadOnlyList<string> videoUrls)
+        IReadOnlyList<string> videoUrls,
+        IReadOnlyDictionary<string, Models.VideoAsset>? videoAssetsByStorageUrl = null)
     {
         var items = new List<Dtos.DiscussionMediaDto>(imageUrls.Count + videoUrls.Count);
         items.AddRange(imageUrls.Select(url => new Dtos.DiscussionMediaDto("image", url)));
-        items.AddRange(videoUrls.Select(url => new Dtos.DiscussionMediaDto("video", url)));
+
+        foreach (var storageUrl in videoUrls)
+        {
+            Models.VideoAsset? asset = null;
+            videoAssetsByStorageUrl?.TryGetValue(storageUrl, out asset);
+
+            // Prefer poster for feeds (tiny image). Fall back to range-streamed play URL.
+            string? previewUrl = asset?.PosterUrl is not null && asset.DeletedAt is null
+                ? $"/api/videos/{asset.Id}/preview"
+                : null;
+            var playUrl = asset is not null && asset.DeletedAt is null
+                ? $"/api/videos/{asset.Id}/stream"
+                : storageUrl;
+            var feedUrl = previewUrl ?? playUrl;
+
+            items.Add(new Dtos.DiscussionMediaDto("video", feedUrl, previewUrl, playUrl));
+        }
+
         return items;
     }
 
