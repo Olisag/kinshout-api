@@ -61,6 +61,7 @@ public class DiscussionService(
     IUploadStorage storage,
     ICommunityService communities,
     IDiscussionParticipationService participation,
+    IVideoService videos,
     IMemoryCache cache) : IDiscussionService
 {
     public async Task<PagedResultDto<DiscussionDto>> ListAsync(
@@ -784,13 +785,8 @@ public class DiscussionService(
         if (storageUrls.Count == 0)
             return new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase);
 
-        var assets = await db.VideoAssets.AsNoTracking()
-            .Where(v => v.DeletedAt == null && storageUrls.Contains(v.VideoUrl))
-            .ToListAsync(ct);
-
-        return assets
-            .GroupBy(v => v.VideoUrl, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        // Register legacy /uploads/videos/... paths so feeds always get preview URLs.
+        return await videos.EnsureAssetsForStorageUrlsAsync(storageUrls, ct);
     }
 
     private async Task<Guid?> ResolveCommunityIdAsync(string? communitySlug, CancellationToken ct)

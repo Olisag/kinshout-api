@@ -12,12 +12,17 @@ public interface IVideoService
     Task<UploadFileContent?> OpenPreviewAsync(Guid id, CancellationToken ct = default);
     Task<UploadFileContent?> OpenStreamAsync(Guid id, CancellationToken ct = default);
     Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default);
+    /// <summary>Register legacy storage URLs as VideoAssets so feeds can always expose preview URLs.</summary>
+    Task<IReadOnlyDictionary<string, VideoAsset>> EnsureAssetsForStorageUrlsAsync(
+        IEnumerable<string> storageUrls,
+        CancellationToken ct = default);
 }
 
 /// <summary>
 /// Cost-efficient Reddit-like video pipeline:
 /// upload original once (no cloud transcoder), optional compressed poster for feeds,
 /// immutable long-cache + HTTP range streaming for viewers.
+/// Legacy videos without posters get a cheap generated placeholder on first preview.
 /// </summary>
 public class VideoService(
     KinshoutDbContext db,
@@ -62,7 +67,7 @@ public class VideoService(
 
         string? posterUrl = null;
         if (poster is not null && poster.Length > 0)
-            posterUrl = await SavePosterAsync(userId, fileId, poster, ct);
+            posterUrl = await SavePosterFromUploadAsync(userId, fileId, poster, ct);
 
         var asset = new VideoAsset
         {
@@ -76,6 +81,9 @@ public class VideoService(
         db.VideoAssets.Add(asset);
         await db.SaveChangesAsync(ct);
 
+        if (asset.PosterUrl is null)
+            await EnsurePosterAsync(asset, ct);
+
         logger.LogInformation(
             "Stored video asset {VideoId} ({Bytes} bytes) for user {UserId}",
             asset.Id,
@@ -87,16 +95,28 @@ public class VideoService(
 
     public async Task<VideoDto?> GetAsync(Guid id, CancellationToken ct = default)
     {
-        var asset = await db.VideoAssets.AsNoTracking()
+        var asset = await db.VideoAssets
             .FirstOrDefaultAsync(v => v.Id == id && v.DeletedAt == null, ct);
-        return asset is null ? null : ToDto(asset);
+        if (asset is null)
+            return null;
+
+        if (asset.PosterUrl is null)
+            await EnsurePosterAsync(asset, ct);
+
+        return ToDto(asset);
     }
 
     public async Task<UploadFileContent?> OpenPreviewAsync(Guid id, CancellationToken ct = default)
     {
-        var asset = await db.VideoAssets.AsNoTracking()
+        var asset = await db.VideoAssets
             .FirstOrDefaultAsync(v => v.Id == id && v.DeletedAt == null, ct);
-        if (asset?.PosterUrl is null)
+        if (asset is null)
+            return null;
+
+        if (asset.PosterUrl is null)
+            await EnsurePosterAsync(asset, ct);
+
+        if (asset.PosterUrl is null)
             return null;
 
         return await storage.OpenReadAsync(asset.PosterUrl, ct);
@@ -113,7 +133,6 @@ public class VideoService(
         if (file is null)
             return null;
 
-        // Prefer DB content type over path sniffing so players get correct MIME.
         return new UploadFileContent(file.Stream, asset.ContentType);
     }
 
@@ -134,7 +153,80 @@ public class VideoService(
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<string> SavePosterAsync(Guid userId, string fileId, IFormFile poster, CancellationToken ct)
+    public async Task<IReadOnlyDictionary<string, VideoAsset>> EnsureAssetsForStorageUrlsAsync(
+        IEnumerable<string> storageUrls,
+        CancellationToken ct = default)
+    {
+        var urls = storageUrls
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (urls.Count == 0)
+            return new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase);
+
+        var existing = await db.VideoAssets
+            .Where(v => v.DeletedAt == null && urls.Contains(v.VideoUrl))
+            .ToListAsync(ct);
+
+        var byUrl = existing
+            .GroupBy(v => v.VideoUrl, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var created = false;
+        foreach (var url in urls)
+        {
+            if (byUrl.ContainsKey(url))
+                continue;
+
+            if (!TryParseVideoStorageUrl(url, out var ownerId, out var fileName))
+                continue;
+
+            if (!await storage.ExistsAsync(url, ct))
+                continue;
+
+            var asset = new VideoAsset
+            {
+                UserId = ownerId,
+                VideoUrl = url,
+                ContentType = ContentTypeForExtension(Path.GetExtension(fileName)),
+                ByteSize = 0,
+                OriginalFileName = fileName,
+            };
+            db.VideoAssets.Add(asset);
+            byUrl[url] = asset;
+            created = true;
+        }
+
+        if (created)
+            await db.SaveChangesAsync(ct);
+
+        return byUrl;
+    }
+
+    private async Task EnsurePosterAsync(VideoAsset asset, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(asset.PosterUrl))
+            return;
+
+        var fileId = Path.GetFileNameWithoutExtension(asset.VideoUrl);
+        if (string.IsNullOrWhiteSpace(fileId))
+            fileId = asset.Id.ToString("N");
+
+        await using var poster = await VideoPosterGenerator.CreatePlaceholderAsync(ct);
+        var posterName = $"{fileId}_poster{AdvertImageUrls.VariantExtension}";
+        asset.PosterUrl = await storage.SaveNamedAsync("videos", asset.UserId, poster, posterName, ct);
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation("Generated placeholder poster for video asset {VideoId}", asset.Id);
+    }
+
+    private async Task<string> SavePosterFromUploadAsync(
+        Guid userId,
+        string fileId,
+        IFormFile poster,
+        CancellationToken ct)
     {
         if (poster.Length > MaxPosterBytes)
             throw new ArgumentException($"Aperçu trop volumineux (max {MaxPosterBytes / 1024} Ko).");
@@ -145,7 +237,6 @@ public class VideoService(
         await poster.CopyToAsync(buffer, ct);
         buffer.Position = 0;
 
-        // Compress to a small WebP thumb — cheap for feeds, one-time CPU at upload.
         await using var thumb = await imageProcessor.CreateListingThumbnailAsync(buffer, ct);
         if (thumb is not null)
         {
@@ -161,11 +252,30 @@ public class VideoService(
         return await storage.SaveNamedAsync("videos", userId, buffer, fileName, ct);
     }
 
+    internal static bool TryParseVideoStorageUrl(string url, out Guid userId, out string fileName)
+    {
+        userId = default;
+        fileName = "";
+        // /uploads/videos/{userId:N}/{file}
+        var parts = url.Trim().Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 4)
+            return false;
+        if (!parts[0].Equals("uploads", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!parts[1].Equals("videos", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!Guid.TryParseExact(parts[2], "N", out userId))
+            return false;
+
+        fileName = parts[^1];
+        return !string.IsNullOrWhiteSpace(fileName);
+    }
+
     private static VideoDto ToDto(VideoAsset asset) =>
         new(
             asset.Id,
             PlayUrl: $"/api/videos/{asset.Id}/stream",
-            PreviewUrl: asset.PosterUrl is null ? null : $"/api/videos/{asset.Id}/preview",
+            PreviewUrl: $"/api/videos/{asset.Id}/preview",
             StorageUrl: asset.VideoUrl,
             asset.ContentType,
             asset.ByteSize,

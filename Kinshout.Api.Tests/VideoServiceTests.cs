@@ -51,10 +51,34 @@ public class VideoServiceTests : IDisposable
         Assert.StartsWith($"/uploads/videos/{_userId:N}/", dto.StorageUrl);
         Assert.EndsWith(".mp4", dto.StorageUrl);
         Assert.Equal($"/api/videos/{dto.Id}/stream", dto.PlayUrl);
-        Assert.Null(dto.PreviewUrl);
+        Assert.Equal($"/api/videos/{dto.Id}/preview", dto.PreviewUrl);
 
         var physical = Path.Combine(_root, "wwwroot", dto.StorageUrl.TrimStart('/'));
         Assert.True(File.Exists(physical));
+    }
+
+    [Fact]
+    public async Task EnsureAssetsForStorageUrlsAsync_RegistersLegacyAndPreviewWorks()
+    {
+        var video = CreateFormFile("legacy.mp4", "video/mp4", [9, 8, 7, 6]);
+        var uploaded = await _service.UploadAsync(_userId, video);
+        var storageUrl = uploaded.StorageUrl;
+
+        // Simulate legacy discussion media: storage file exists, no VideoAsset row.
+        var existing = await _db.VideoAssets.SingleAsync(v => v.Id == uploaded.Id);
+        _db.VideoAssets.Remove(existing);
+        await _db.SaveChangesAsync();
+
+        var map = await _service.EnsureAssetsForStorageUrlsAsync([storageUrl]);
+        Assert.True(map.ContainsKey(storageUrl));
+
+        var preview = await _service.OpenPreviewAsync(map[storageUrl].Id);
+        Assert.NotNull(preview);
+        await using (preview!.Stream)
+        {
+            Assert.True(preview.Stream.Length > 0);
+            Assert.Equal("image/webp", preview.ContentType);
+        }
     }
 
     [Fact]

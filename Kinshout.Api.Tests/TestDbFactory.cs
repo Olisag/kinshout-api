@@ -63,6 +63,15 @@ internal static class TestDbFactory
         return mock.Object;
     }
 
+    public static IVideoService CreatePermissiveVideoService()
+    {
+        var mock = new Mock<IVideoService>();
+        mock.Setup(x => x.EnsureAssetsForStorageUrlsAsync(
+                It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase));
+        return mock.Object;
+    }
+
     public static IAdvertDtoMapper CreateAdvertDtoMapper(string baseUrl = "https://api.test") =>
         new AdvertDtoMapper(new UploadUrlResolver(
             Options.Create(new UploadStorageSettings { PublicBaseUrl = baseUrl }),

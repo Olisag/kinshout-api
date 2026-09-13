@@ -115,7 +115,7 @@ public class DiscussionMediaHelperTests
 
         Assert.Equal("video", item.Type);
         Assert.Equal(storage, item.Url);
-        Assert.Null(item.PreviewUrl);
+        Assert.Equal(storage, item.PreviewUrl);
         Assert.Equal(storage, item.PlayUrl);
     }
 }
@@ -171,6 +171,7 @@ public class DiscussionMediaServiceTests
             Mock.Of<IUploadStorage>(),
             TestDbFactory.CreatePermissiveCommunityService(),
             TestDbFactory.CreatePermissiveDiscussionParticipationService(),
+            TestDbFactory.CreatePermissiveVideoService(),
             TestDbFactory.CreateMemoryCache());
     }
 }

@@ -63,6 +63,7 @@ public class DiscussionServiceThreadTests
             Mock.Of<IUploadStorage>(),
             TestDbFactory.CreatePermissiveCommunityService(),
             TestDbFactory.CreatePermissiveDiscussionParticipationService(),
+            TestDbFactory.CreatePermissiveVideoService(),
             TestDbFactory.CreateMemoryCache());
     }
 }

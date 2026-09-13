@@ -75,16 +75,18 @@ public static class DiscussionMediaHelper
             Models.VideoAsset? asset = null;
             videoAssetsByStorageUrl?.TryGetValue(storageUrl, out asset);
 
-            // Prefer poster for feeds (tiny image). Fall back to range-streamed play URL.
-            string? previewUrl = asset?.PosterUrl is not null && asset.DeletedAt is null
-                ? $"/api/videos/{asset.Id}/preview"
-                : null;
-            var playUrl = asset is not null && asset.DeletedAt is null
-                ? $"/api/videos/{asset.Id}/stream"
-                : storageUrl;
-            var feedUrl = previewUrl ?? playUrl;
-
-            items.Add(new Dtos.DiscussionMediaDto("video", feedUrl, previewUrl, playUrl));
+            if (asset is not null && asset.DeletedAt is null)
+            {
+                // Always expose preview URL; poster is created lazily if missing.
+                var previewUrl = $"/api/videos/{asset.Id}/preview";
+                var playUrl = $"/api/videos/{asset.Id}/stream";
+                items.Add(new Dtos.DiscussionMediaDto("video", previewUrl, previewUrl, playUrl));
+            }
+            else
+            {
+                // Unregistered legacy path — still point preview at stream until registered.
+                items.Add(new Dtos.DiscussionMediaDto("video", storageUrl, storageUrl, storageUrl));
+            }
         }
 
         return items;
