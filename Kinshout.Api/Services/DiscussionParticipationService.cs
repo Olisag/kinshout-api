@@ -30,15 +30,24 @@ public class DiscussionParticipationService(
     {
         var discussion = await RequireDiscussionAsync(discussionId, ct);
         var isPrivate = CommunityVisibilityHelper.IsPrivate(discussion.Visibility);
+        var needsApproval = isPrivate;
 
         if (discussion.CommunityId is Guid communityId)
         {
-            // Public discussion join grants full community access immediately.
-            // Private discussion join only requests community membership until approved.
-            if (isPrivate)
+            var community = await db.Communities.AsNoTracking().FirstAsync(c => c.Id == communityId, ct);
+
+            // Public discussion in a public community grants community access immediately.
+            // Otherwise the join only requests community membership until approved.
+            if (isPrivate || CommunityVisibilityHelper.IsPrivate(community.Visibility))
+            {
                 await communities.EnsureJoinedAsync(userId, communityId, ct);
+                var membership = await FindCommunityMembershipAsync(communityId, userId, ct);
+                needsApproval = isPrivate || !CommunityAccessHelper.IsApprovedMember(community, membership, userId);
+            }
             else
+            {
                 await communities.EnsureApprovedMemberAsync(userId, communityId, userId, ct);
+            }
         }
 
         if (discussion.UserId == userId)
@@ -51,20 +60,27 @@ public class DiscussionParticipationService(
             throw new InvalidOperationException("Vous participez déjà à cette discussion.");
 
         if (existing?.Status == CommunityMemberStatuses.Pending)
+        {
+            if (needsApproval)
+                return;
+
+            existing.Status = CommunityMemberStatuses.Approved;
+            existing.ReviewedAt = DateTime.UtcNow;
+            existing.ReviewedByUserId = userId;
+            await db.SaveChangesAsync(ct);
             return;
+        }
 
         if (existing?.Status == CommunityMemberStatuses.Rejected)
             db.DiscussionParticipants.Remove(existing);
-
-        var status = isPrivate ? CommunityMemberStatuses.Pending : CommunityMemberStatuses.Approved;
 
         db.DiscussionParticipants.Add(new DiscussionParticipant
         {
             DiscussionId = discussionId,
             UserId = userId,
-            Status = status,
-            ReviewedAt = isPrivate ? null : DateTime.UtcNow,
-            ReviewedByUserId = isPrivate ? null : userId,
+            Status = needsApproval ? CommunityMemberStatuses.Pending : CommunityMemberStatuses.Approved,
+            ReviewedAt = needsApproval ? null : DateTime.UtcNow,
+            ReviewedByUserId = needsApproval ? null : userId,
         });
         await db.SaveChangesAsync(ct);
 
@@ -160,43 +176,63 @@ public class DiscussionParticipationService(
         return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
     }
 
+    /// <summary>
+    /// Public discussions are readable by anyone, including those in private communities
+    /// (they are only hidden from feeds). Private discussions require an approved community
+    /// member or participant.
+    /// </summary>
     public async Task EnsureCanViewAsync(Discussion discussion, Guid? viewerUserId, CancellationToken ct = default)
     {
-        if (discussion.CommunityId is Guid communityId)
-        {
-            var community = await db.Communities.AsNoTracking()
-                .FirstAsync(c => c.Id == communityId, ct);
-            var membership = await FindCommunityMembershipAsync(communityId, viewerUserId, ct);
-            if (CommunityAccessHelper.IsApprovedMember(community, membership, viewerUserId))
-                return;
-
-            await communities.EnsureCanAccessAsync(communityId, viewerUserId, ct);
-        }
+        var (community, membership) = await LoadCommunityAccessAsync(discussion, viewerUserId, ct);
+        var isApprovedMember = community is not null
+            && CommunityAccessHelper.IsApprovedMember(community, membership, viewerUserId);
 
         var participant = await FindParticipantAsync(discussion.Id, viewerUserId, ct);
-        if (!DiscussionAccessHelper.CanView(discussion, participant, viewerUserId))
-            throw new UnauthorizedAccessException(
-                "Accès refusé. Rejoignez la discussion ou attendez l'approbation.");
+        if (DiscussionAccessHelper.CanView(discussion, participant, viewerUserId, isApprovedMember))
+            return;
+
+        var communityRequired = community is not null
+            && !CommunityAccessHelper.CanViewDiscussions(community, membership, viewerUserId);
+        throw new DiscussionAccessDeniedException(DiscussionJoinPrompt.Build(
+            discussion,
+            community,
+            viewerUserId,
+            communityRequired,
+            communityRequired ? membership?.Status ?? participant?.Status : participant?.Status,
+            toRead: true));
     }
 
     public async Task EnsureCanParticipateAsync(Discussion discussion, Guid userId, CancellationToken ct = default)
     {
-        await EnsureCommunityAccessIfNeededAsync(discussion, userId, ct);
+        var (community, membership) = await LoadCommunityAccessAsync(discussion, userId, ct);
+        var communityRequired = community is not null
+            && !CommunityAccessHelper.CanViewDiscussions(community, membership, userId);
 
         var participant = await FindParticipantAsync(discussion.Id, userId, ct);
-        if (!DiscussionAccessHelper.CanParticipate(discussion, participant, userId))
-        {
-            if (CommunityVisibilityHelper.IsPrivate(discussion.Visibility))
-            {
-                var message = discussion.CommunityId is not null
-                    ? "Rejoignez cette discussion privée ou attendez l'approbation du créateur ou d'un modérateur."
-                    : "Rejoignez cette discussion privée ou attendez l'approbation de l'auteur.";
+        if (!communityRequired && DiscussionAccessHelper.CanParticipate(discussion, participant, userId))
+            return;
 
-                throw new UnauthorizedAccessException(message);
-            }
+        throw new DiscussionAccessDeniedException(DiscussionJoinPrompt.Build(
+            discussion,
+            community,
+            userId,
+            communityRequired,
+            communityRequired ? membership?.Status ?? participant?.Status : participant?.Status,
+            toRead: false));
+    }
 
-            throw new UnauthorizedAccessException("Rejoignez la discussion pour participer.");
-        }
+    private async Task<(Community? Community, CommunityMember? Membership)> LoadCommunityAccessAsync(
+        Discussion discussion,
+        Guid? userId,
+        CancellationToken ct)
+    {
+        if (discussion.CommunityId is not Guid communityId)
+            return (null, null);
+
+        var community = await db.Communities.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == communityId, ct)
+            ?? throw new KeyNotFoundException("Communauté introuvable.");
+        return (community, await FindCommunityMembershipAsync(communityId, userId, ct));
     }
 
     public async Task SeedAuthorParticipantAsync(Discussion discussion, CancellationToken ct)
@@ -235,12 +271,6 @@ public class DiscussionParticipationService(
 
             throw new UnauthorizedAccessException(message);
         }
-    }
-
-    private async Task EnsureCommunityAccessIfNeededAsync(Discussion discussion, Guid? userId, CancellationToken ct)
-    {
-        if (discussion.CommunityId is Guid communityId)
-            await communities.EnsureCanAccessAsync(communityId, userId, ct);
     }
 
     private async Task<Discussion> RequireDiscussionAsync(Guid discussionId, CancellationToken ct) =>

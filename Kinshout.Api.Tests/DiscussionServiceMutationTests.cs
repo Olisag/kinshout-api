@@ -1,4 +1,5 @@
 using Kinshout.Api.Data;
+using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
 using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
@@ -13,14 +14,17 @@ public class DiscussionServiceMutationTests
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var community = await TestDbFactory.SeedCommunityAsync(db, user);
         var discussion = new Discussion
         {
             UserId = user.Id,
             CategoryId = category.Id,
+            CommunityId = community.Id,
             Title = "Old title",
             Body = "Old body",
             User = user,
             Category = category,
+            Community = community,
         };
         db.Discussions.Add(discussion);
         await db.SaveChangesAsync();
@@ -35,10 +39,124 @@ public class DiscussionServiceMutationTests
         Assert.Equal("New title", updated.Title);
         Assert.Equal("New body", updated.Body);
         Assert.Equal(user.Id, updated.AuthorId);
+        Assert.True(updated.IsCommunityMember);
 
         var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == discussion.Id);
         Assert.Equal("New title", stored.Title);
         Assert.Equal("New body", stored.Body);
+        Assert.Equal(community.Id, stored.CommunityId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task CreateAsync_WithoutCommunity_PostsInGeneralAndJoinsAuthor(string? communitySlug)
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var openAi = new Mock<IOpenAiService>();
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
+        var communities = new CommunityService(db, openAi.Object, Mock.Of<ICommunityJoinNotifier>());
+
+        var service = CreateService(db, openAi.Object, communities);
+        var created = await service.CreateAsync(
+            user.Id,
+            new CreateDiscussionRequestDto("Title", "Body", communitySlug));
+
+        var general = await db.Communities.SingleAsync(c => c.Slug == CommunityDefaults.GeneralSlug);
+        var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == created.Id);
+        Assert.Equal(general.Id, stored.CommunityId);
+        Assert.True(created.IsCommunityMember);
+        Assert.Contains(db.CommunityMembers, m =>
+            m.CommunityId == general.Id && m.UserId == user.Id && m.Status == CommunityMemberStatuses.Approved);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithoutCommunitySlug_KeepsExistingCommunity()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var community = await TestDbFactory.SeedCommunityAsync(db, user, "gombe");
+        var discussion = new Discussion
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            CommunityId = community.Id,
+            Title = "Old",
+            Body = "Old",
+        };
+        db.Discussions.Add(discussion);
+        await db.SaveChangesAsync();
+
+        var openAi = new Mock<IOpenAiService>();
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
+
+        var service = CreateService(db, openAi.Object);
+        await service.UpdateAsync(user.Id, discussion.Id, new("New", "New", CommunitySlug: " "));
+
+        var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == discussion.Id);
+        Assert.Equal(community.Id, stored.CommunityId);
+    }
+
+    [Fact]
+    public async Task SaveChanges_DiscussionWithoutCommunity_IsAssignedGeneral()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        db.Discussions.Add(new Discussion { UserId = user.Id, CategoryId = category.Id, Title = "T", Body = "B" });
+        await db.SaveChangesAsync();
+
+        var general = await db.Communities.SingleAsync(c => c.Slug == CommunityDefaults.GeneralSlug);
+        Assert.All(await db.Discussions.AsNoTracking().ToListAsync(), d => Assert.Equal(general.Id, d.CommunityId));
+
+        var existing = await db.Discussions.SingleAsync();
+        existing.CommunityId = null;
+        await db.SaveChangesAsync();
+        Assert.Equal(general.Id, (await db.Discussions.AsNoTracking().SingleAsync()).CommunityId);
+        Assert.Single(db.Communities, c => c.Slug == CommunityDefaults.GeneralSlug);
+    }
+
+    [Fact]
+    public async Task Sqlite_RejectsDiscussionWithoutCommunityAtDatabaseLevel()
+    {
+        await using var db = await TestDbFactory.CreateSqliteAsync();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO Discussions (Id, UserId, CategoryId, Title, Body, CreatedAt, UpdatedAt)
+            VALUES ({0}, {1}, {2}, 'T', 'B', '2026-01-01', '2026-01-01')
+            """,
+            Guid.NewGuid(), user.Id, category.Id));
+        Assert.Contains("CommunityId is required", ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateAsync_AssignsCommunity()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var community = await TestDbFactory.SeedCommunityAsync(db, user, "gombe", "Gombe");
+
+        var openAi = new Mock<IOpenAiService>();
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
+
+        var service = CreateService(db, openAi.Object);
+        var created = await service.CreateAsync(
+            user.Id,
+            new CreateDiscussionRequestDto("Title", "Body about Kinshasa", "gombe"));
+
+        Assert.Equal("k/gombe", created.CommunitySlug);
+        Assert.True(created.IsCommunityMember);
+        var stored = await db.Discussions.SingleAsync();
+        Assert.Equal(community.Id, stored.CommunityId);
+        Assert.Equal("societe", stored.TopicSlug);
     }
 
     [Fact]
@@ -253,7 +371,10 @@ public class DiscussionServiceMutationTests
             service.DeleteReplyAsync(other.Id, discussion.Id, reply.Id));
     }
 
-    private static DiscussionService CreateService(KinshoutDbContext db, IOpenAiService? openAi = null)
+    private static DiscussionService CreateService(
+        KinshoutDbContext db,
+        IOpenAiService? openAi = null,
+        ICommunityService? communities = null)
     {
         var moderation = new Mock<IAdvertModerationService>();
         moderation.Setup(m => m.EnsureTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -265,7 +386,7 @@ public class DiscussionServiceMutationTests
             openAi,
             moderation.Object,
             Mock.Of<IUploadStorage>(),
-            TestDbFactory.CreatePermissiveCommunityService(),
+            communities ?? TestDbFactory.CreatePermissiveCommunityService(),
             TestDbFactory.CreatePermissiveDiscussionParticipationService(),
             TestDbFactory.CreatePermissiveVideoService(),
             TestDbFactory.CreateMemoryCache());

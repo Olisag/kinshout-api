@@ -163,6 +163,132 @@ public class DiscussionServiceListTests
         Assert.True(page1.HasMore);
     }
 
+    [Fact]
+    public async Task ListPublicByUserAsync_PrivateProfile_Throws()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        user.IsProfilePublic = false;
+        db.Discussions.Add(CreateDiscussion(user, category, "Hidden"));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            service.ListPublicByUserAsync(user.Id));
+    }
+
+    [Fact]
+    public async Task ListPublicByUserAsync_ReturnsOnlyPublicAuthoredDiscussions()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        user.IsProfilePublic = true;
+        var other = new User
+        {
+            Email = "other@example.com",
+            DisplayName = "Other",
+            WhatsAppNumber = "+243900000002",
+            IsProfilePublic = true,
+        };
+        db.Users.Add(other);
+
+        var publicMine = CreateDiscussion(user, category, "Public mine", createdAt: DateTime.UtcNow.AddDays(-1));
+        var privateMine = CreateDiscussion(user, category, "Private mine", createdAt: DateTime.UtcNow);
+        privateMine.Visibility = CommunityVisibilities.Private;
+        var otherPublic = CreateDiscussion(other, category, "Other public", createdAt: DateTime.UtcNow.AddHours(-1));
+
+        db.Discussions.AddRange(publicMine, privateMine, otherPublic);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListPublicByUserAsync(user.Id);
+
+        Assert.Equal(1, results.TotalCount);
+        Assert.Equal("Public mine", results.Items[0].Title);
+    }
+
+    [Fact]
+    public async Task ListPublicByUserAsync_OrdersByCreatedAtDescending()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        user.IsProfilePublic = true;
+
+        db.Discussions.AddRange(
+            CreateDiscussion(user, category, "Older", createdAt: DateTime.UtcNow.AddDays(-3)),
+            CreateDiscussion(user, category, "Newest", createdAt: DateTime.UtcNow),
+            CreateDiscussion(user, category, "Middle", createdAt: DateTime.UtcNow.AddDays(-1)));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListPublicByUserAsync(user.Id, pageSize: 10);
+
+        Assert.Equal(["Newest", "Middle", "Older"], results.Items.Select(d => d.Title).ToArray());
+    }
+
+    [Fact]
+    public async Task ListAsync_SetsIsCommunityMemberForViewer()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var member = new User
+        {
+            Email = "member@example.com",
+            DisplayName = "Member",
+            WhatsAppNumber = "+243900000003",
+        };
+        var outsider = new User
+        {
+            Email = "outsider@example.com",
+            DisplayName = "Outsider",
+            WhatsAppNumber = "+243900000004",
+        };
+        db.Users.AddRange(member, outsider);
+
+        var community = new Community
+        {
+            Slug = "gombe",
+            Name = "Gombe",
+            CreatedByUserId = creator.Id,
+            CreatedByUser = creator,
+            Visibility = CommunityVisibilities.Public,
+        };
+        db.Communities.Add(community);
+        db.CommunityMembers.AddRange(
+            new CommunityMember
+            {
+                Community = community,
+                UserId = creator.Id,
+                Role = CommunityMemberRoles.Creator,
+                Status = CommunityMemberStatuses.Approved,
+            },
+            new CommunityMember
+            {
+                Community = community,
+                UserId = member.Id,
+                Role = CommunityMemberRoles.Member,
+                Status = CommunityMemberStatuses.Approved,
+            });
+
+        var discussion = CreateDiscussion(creator, category, "Community thread");
+        discussion.Community = community;
+        discussion.CommunityId = community.Id;
+        db.Discussions.Add(discussion);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+
+        var asMember = await service.ListAsync(viewerUserId: member.Id);
+        var asOutsider = await service.ListAsync(viewerUserId: outsider.Id);
+        var asAnonymous = await service.ListAsync(viewerUserId: null);
+        var detail = await service.GetByIdAsync(discussion.Id, viewerUserId: member.Id);
+
+        Assert.True(asMember.Items[0].IsCommunityMember);
+        Assert.False(asOutsider.Items[0].IsCommunityMember);
+        Assert.False(asAnonymous.Items[0].IsCommunityMember);
+        Assert.True(detail!.IsCommunityMember);
+    }
+
     private static DiscussionService CreateService(KinshoutDbContext db)
     {
         var moderation = new Mock<IAdvertModerationService>();

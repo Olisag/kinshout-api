@@ -1,3 +1,4 @@
+using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Kinshout.Api.Configuration;
@@ -158,15 +159,28 @@ public sealed class AzureBlobUploadStorage(
 
         var container = await GetContainerAsync(ct);
         var blob = container.GetBlobClient(blobName);
-        if (!await blob.ExistsAsync(ct))
-            return null;
 
-        var download = await blob.DownloadStreamingAsync(cancellationToken: ct);
-        var contentType = download.Value.Details.ContentType;
+        BlobProperties properties;
+        try
+        {
+            properties = (await blob.GetPropertiesAsync(cancellationToken: ct)).Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+
+        var contentType = properties.ContentType;
         if (string.IsNullOrWhiteSpace(contentType))
             contentType = LocalUploadStorage.GetContentTypeFromPath(blobName);
 
-        return new UploadFileContent(download.Value.Content, contentType);
+        // Must be seekable with a known length: ASP.NET silently ignores Range requests otherwise,
+        // and Safari refuses to play video that isn't served as 206 Partial Content.
+        var stream = await blob.OpenReadAsync(
+            new BlobOpenReadOptions(allowModifications: false) { BufferSize = 1024 * 1024 },
+            ct);
+
+        return new UploadFileContent(stream, contentType);
     }
 
     public async Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default)

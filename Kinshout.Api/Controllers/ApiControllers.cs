@@ -584,7 +584,21 @@ public class DiscussionsController(
     }
 
     /// <summary>
-    /// List discussion IDs liked by the signed-in user.
+    /// List discussions liked by the signed-in user (discussion like or any reply like).
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpGet("liked")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResultDto<DiscussionDto>>> ListLiked(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await likedDiscussions.ListLikedAsync(GetUserId(), page, pageSize, ct));
+
+    /// <summary>
+    /// List discussion IDs liked by the signed-in user (discussion like or any reply like).
     /// Requires client token + user JWT.
     /// </summary>
     [HttpGet("liked/ids")]
@@ -625,7 +639,7 @@ public class DiscussionsController(
     [HttpGet("{id:guid}")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(DiscussionDetailDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(DiscussionAccessDeniedDto), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionDetailDto>> Get(
         Guid id,
@@ -637,6 +651,10 @@ public class DiscussionsController(
         {
             var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
             return item is null ? NotFound() : Ok(item);
+        }
+        catch (DiscussionAccessDeniedException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.ToResponse());
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -685,7 +703,53 @@ public class DiscussionsController(
     }
 
     /// <summary>
-    /// Start a new discussion. OpenAI assigns a category.
+    /// Like a reply. Requires client token + user JWT.
+    /// </summary>
+    [HttpPost("{id:guid}/replies/{replyId:guid}/like")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionReplyDto>> LikeReply(
+        Guid id,
+        Guid replyId,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await likedDiscussions.LikeReplyAsync(GetUserId(), id, replyId, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Remove a like from a reply. Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}/replies/{replyId:guid}/like")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionReplyDto>> UnlikeReply(
+        Guid id,
+        Guid replyId,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await likedDiscussions.UnlikeReplyAsync(GetUserId(), id, replyId, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Start a new discussion in a community (<c>communitySlug</c> required). OpenAI assigns a topic category.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpPost]
@@ -777,6 +841,7 @@ public class DiscussionsController(
     [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(DiscussionAccessDeniedDto), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionReplyDto>> Reply(Guid id, [FromBody] CreateReplyRequestDto request, CancellationToken ct)
     {
@@ -797,6 +862,14 @@ public class DiscussionsController(
         catch (AdvertModerationException ex)
         {
             return BadRequest(new { error = ex.Message });
+        }
+        catch (DiscussionAccessDeniedException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.ToResponse());
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
     }
 

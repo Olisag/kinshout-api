@@ -303,7 +303,8 @@ public record DiscussionDto(
     bool IsExternal = false,
     DiscussionSourceDto? Source = null,
     string? CommunitySlug = null,
-    IReadOnlyList<DiscussionMediaDto>? Media = null);
+    IReadOnlyList<DiscussionMediaDto>? Media = null,
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false);
 
 /// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
 public record DiscussionSourceDto(
@@ -338,13 +339,36 @@ public record DiscussionDetailDto(
     string Visibility = CommunityVisibilities.Public,
     string? ViewerStatus = null,
     bool CanAccess = false,
-    bool CanParticipate = false);
+    bool CanParticipate = false,
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
+    DiscussionJoinPromptDto? JoinPrompt = null);
 
 public record DiscussionParticipantDto(
     Guid UserId,
     string DisplayName,
     string Status,
     DateTime CreatedAt);
+
+/// <summary>
+/// Tells the viewer what to join. <see cref="Code"/> is <c>community_membership_required</c>
+/// (private community: join the community or the discussion) or <c>discussion_membership_required</c>
+/// (join the discussion). <see cref="ViewerStatus"/> is <c>pending</c> or <c>rejected</c> when the
+/// viewer already asked to join.
+/// </summary>
+public record DiscussionJoinPromptDto(
+    string Message,
+    string Code,
+    bool RequiresSignIn,
+    Guid DiscussionId,
+    DiscussionJoinPromptCommunityDto? Community,
+    string? ViewerStatus,
+    string? JoinCommunityUrl,
+    string JoinDiscussionUrl);
+
+public record DiscussionJoinPromptCommunityDto(Guid Id, string Slug, string Name, string Visibility);
+
+/// <summary>403 body when a discussion cannot be opened or posted to.</summary>
+public record DiscussionAccessDeniedDto(string Error, DiscussionJoinPromptDto JoinPrompt);
 
 public record DiscussionReplyLocationDto(
     double Latitude,
@@ -361,7 +385,9 @@ public record DiscussionReplyDto(
     string Text,
     string? ImageUrl = null,
     string? VideoUrl = null,
-    DiscussionReplyLocationDto? Location = null);
+    DiscussionReplyLocationDto? Location = null,
+    int LikeCount = 0,
+    [property: JsonPropertyName("isLiked")] bool IsLiked = false);
 
 public record CreateDiscussionRequestDto(
     string Title,

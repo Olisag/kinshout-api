@@ -20,6 +20,7 @@ public class User
     public ICollection<DiscussionReply> Replies { get; set; } = [];
     public ICollection<SavedAdvert> SavedAdverts { get; set; } = [];
     public ICollection<LikedDiscussion> LikedDiscussions { get; set; } = [];
+    public ICollection<LikedReply> LikedReplies { get; set; } = [];
     public ICollection<Community> CreatedCommunities { get; set; } = [];
     public ICollection<CommunityMember> CommunityMemberships { get; set; } = [];
 }

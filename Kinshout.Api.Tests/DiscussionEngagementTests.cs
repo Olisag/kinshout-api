@@ -58,6 +58,122 @@ public class LikedDiscussionServiceTests
         Assert.Equal(0, result.LikeCount);
         Assert.Empty(db.LikedDiscussions);
     }
+
+    [Fact]
+    public async Task LikeReplyAsync_IncrementsReplyLikeCount()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var discussion = new Discussion
+        {
+            UserId = user.Id,
+            CategoryId = category.Id,
+            Title = "Thread",
+            Body = "Body",
+        };
+        var reply = new DiscussionReply
+        {
+            Discussion = discussion,
+            UserId = user.Id,
+            Body = "A comment",
+            User = user,
+        };
+        db.Discussions.Add(discussion);
+        db.DiscussionReplies.Add(reply);
+        await db.SaveChangesAsync();
+
+        var service = new LikedDiscussionService(db);
+        var result = await service.LikeReplyAsync(user.Id, discussion.Id, reply.Id);
+
+        Assert.True(result.IsLiked);
+        Assert.Equal(1, result.LikeCount);
+        Assert.Equal(1, await db.LikedReplies.CountAsync());
+    }
+
+    [Fact]
+    public async Task ListLikedAsync_IncludesDiscussionsLikedViaReply()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var other = new User
+        {
+            Email = "other@example.com",
+            DisplayName = "Other",
+            WhatsAppNumber = "+243900000002",
+        };
+        db.Users.Add(other);
+
+        var likedDirect = new Discussion
+        {
+            UserId = other.Id,
+            CategoryId = category.Id,
+            Title = "Liked discussion",
+            Body = "Body",
+            LikeCount = 1,
+            CreatedAt = DateTime.UtcNow.AddDays(-2),
+            UpdatedAt = DateTime.UtcNow.AddDays(-2),
+            User = other,
+            Category = category,
+        };
+        var likedViaReply = new Discussion
+        {
+            UserId = other.Id,
+            CategoryId = category.Id,
+            Title = "Liked via comment",
+            Body = "Body",
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+            UpdatedAt = DateTime.UtcNow.AddDays(-1),
+            User = other,
+            Category = category,
+        };
+        var reply = new DiscussionReply
+        {
+            Discussion = likedViaReply,
+            UserId = other.Id,
+            Body = "Comment",
+            User = other,
+            LikeCount = 1,
+            CreatedAt = DateTime.UtcNow.AddHours(-1),
+        };
+        var unrelated = new Discussion
+        {
+            UserId = other.Id,
+            CategoryId = category.Id,
+            Title = "Unrelated",
+            Body = "Body",
+            User = other,
+            Category = category,
+        };
+
+        db.Discussions.AddRange(likedDirect, likedViaReply, unrelated);
+        db.DiscussionReplies.Add(reply);
+        db.LikedDiscussions.Add(new LikedDiscussion
+        {
+            UserId = user.Id,
+            DiscussionId = likedDirect.Id,
+            LikedAt = DateTime.UtcNow.AddHours(-3),
+        });
+        db.LikedReplies.Add(new LikedReply
+        {
+            UserId = user.Id,
+            ReplyId = reply.Id,
+            LikedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var service = new LikedDiscussionService(db);
+        var results = await service.ListLikedAsync(user.Id);
+
+        Assert.Equal(2, results.TotalCount);
+        Assert.Equal(["Liked via comment", "Liked discussion"], results.Items.Select(d => d.Title).ToArray());
+        Assert.False(results.Items[0].IsLiked);
+        Assert.True(results.Items[1].IsLiked);
+
+        var ids = await service.ListLikedIdsAsync(user.Id);
+        Assert.Equal(2, ids.Count);
+        Assert.Contains(likedDirect.Id, ids);
+        Assert.Contains(likedViaReply.Id, ids);
+    }
 }
 
 public class DiscussionEngagementTests
@@ -158,6 +274,7 @@ public class DiscussionEngagementTests
 
         Assert.Contains("\"isLiked\":false", json);
         Assert.Contains("\"replyCount\":0", json);
+        Assert.Contains("\"isCommunityMember\":false", json);
     }
 
     private static DiscussionService CreateService(KinshoutDbContext db)

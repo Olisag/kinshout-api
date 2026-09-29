@@ -88,44 +88,11 @@ public class DiscussionParticipationServiceTests
         await db.SaveChangesAsync();
 
         var service = CreateService(db);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+        var denied = await Assert.ThrowsAsync<DiscussionAccessDeniedException>(() =>
             service.EnsureCanViewAsync(discussion, outsider.Id));
-    }
-
-    [Fact]
-    public async Task ApproveParticipantAsync_StandalonePrivateDiscussion_AllowsAuthorToApprove()
-    {
-        await using var db = TestDbFactory.Create();
-        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
-        var joiner = new User { Email = "joiner@test", DisplayName = "Joiner" };
-        db.Users.Add(joiner);
-
-        var discussion = new Discussion
-        {
-            UserId = author.Id,
-            CategoryId = category.Id,
-            Title = "Private",
-            Body = "Body",
-            Visibility = CommunityVisibilities.Private,
-        };
-        db.Discussions.Add(discussion);
-        await db.SaveChangesAsync();
-
-        var notifier = new Mock<IDiscussionJoinNotifier>();
-        var service = CreateService(db, notifier);
-        await service.RequestJoinAsync(joiner.Id, discussion.Id);
-        await service.ApproveParticipantAsync(author.Id, discussion.Id, joiner.Id);
-
-        var participant = await db.DiscussionParticipants.SingleAsync(p => p.UserId == joiner.Id);
-        Assert.Equal(CommunityMemberStatuses.Approved, participant.Status);
-        await service.EnsureCanViewAsync(discussion, joiner.Id);
-        await service.EnsureCanParticipateAsync(discussion, joiner.Id);
-        notifier.Verify(
-            n => n.NotifyJoinApprovedAsync(
-                It.Is<Discussion>(d => d.Id == discussion.Id),
-                It.Is<User>(u => u.Id == joiner.Id),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        Assert.Equal(DiscussionJoinPrompt.DiscussionMembershipRequired, denied.JoinPrompt.Code);
+        Assert.Null(denied.JoinPrompt.JoinCommunityUrl);
+        Assert.Equal($"/api/discussions/{discussion.Id}/join", denied.JoinPrompt.JoinDiscussionUrl);
     }
 
     [Fact]
@@ -253,7 +220,7 @@ public class DiscussionParticipationServiceTests
     }
 
     [Fact]
-    public async Task RequestJoinAsync_PublicDiscussion_GrantsFullCommunityAccess()
+    public async Task RequestJoinAsync_PublicDiscussionInPrivateCommunity_RequiresApproval()
     {
         await using var db = TestDbFactory.Create();
         var (creator, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
@@ -292,13 +259,58 @@ public class DiscussionParticipationServiceTests
         var service = CreateService(db, communityService: communityService);
         await service.RequestJoinAsync(joiner.Id, discussion.Id);
 
-        var communityMembership = await db.CommunityMembers.SingleAsync(m => m.UserId == joiner.Id);
-        Assert.Equal(CommunityMemberStatuses.Approved, communityMembership.Status);
+        var communityMembership = await db.CommunityMembers.AsNoTracking().SingleAsync(m => m.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Pending, communityMembership.Status);
+        var participant = await db.DiscussionParticipants.AsNoTracking().SingleAsync(p => p.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Pending, participant.Status);
+
+        await service.EnsureCanViewAsync(discussion, joiner.Id);
+        var denied = await Assert.ThrowsAsync<DiscussionAccessDeniedException>(() =>
+            service.EnsureCanParticipateAsync(discussion, joiner.Id));
+        Assert.Equal(CommunityMemberStatuses.Pending, denied.JoinPrompt.ViewerStatus);
+
+        await communityService.ApproveMemberAsync(creator.Id, "secret-club", joiner.Id);
+
+        // Joining again once the community approved the membership activates participation.
+        await service.RequestJoinAsync(joiner.Id, discussion.Id);
+        participant = await db.DiscussionParticipants.AsNoTracking().SingleAsync(p => p.UserId == joiner.Id);
+        Assert.Equal(CommunityMemberStatuses.Approved, participant.Status);
 
         var dto = await communityService.GetBySlugAsync("secret-club", joiner.Id);
         Assert.NotNull(dto);
         Assert.True(dto!.CanAccess);
         Assert.True(dto.CanPost);
+    }
+
+    [Fact]
+    public async Task RequestJoinAsync_PublicDiscussionInPublicCommunity_GrantsAccessImmediately()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var joiner = new User { Email = "joiner@test", DisplayName = "Joiner" };
+        db.Users.Add(joiner);
+        var community = await TestDbFactory.SeedCommunityAsync(db, creator, "open-club");
+        var discussion = new Discussion
+        {
+            UserId = creator.Id,
+            CategoryId = category.Id,
+            CommunityId = community.Id,
+            Title = "Open thread",
+            Body = "Body",
+            Visibility = CommunityVisibilities.Public,
+        };
+        db.Discussions.Add(discussion);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, communityService: CreateCommunityService(db));
+        await service.RequestJoinAsync(joiner.Id, discussion.Id);
+
+        Assert.Equal(
+            CommunityMemberStatuses.Approved,
+            (await db.CommunityMembers.AsNoTracking().SingleAsync(m => m.UserId == joiner.Id)).Status);
+        Assert.Equal(
+            CommunityMemberStatuses.Approved,
+            (await db.DiscussionParticipants.AsNoTracking().SingleAsync(p => p.UserId == joiner.Id)).Status);
     }
 
     [Fact]
@@ -321,7 +333,7 @@ public class DiscussionParticipationServiceTests
         await db.SaveChangesAsync();
 
         var participation = CreateService(db);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+        await Assert.ThrowsAsync<DiscussionAccessDeniedException>(() =>
             participation.EnsureCanParticipateAsync(discussion, joiner.Id));
 
         await participation.RequestJoinAsync(joiner.Id, discussion.Id);
@@ -419,7 +431,7 @@ public class DiscussionParticipationServiceTests
 
         var service = CreateService(db, communityService: CreateCommunityService(db));
         await service.EnsureCanViewAsync(discussion, member.Id);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+        await Assert.ThrowsAsync<DiscussionAccessDeniedException>(() =>
             service.EnsureCanParticipateAsync(discussion, member.Id));
     }
 

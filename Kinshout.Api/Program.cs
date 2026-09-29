@@ -258,7 +258,7 @@ using (var scope = app.Services.CreateScope())
             }
         }
         else
-            await db.Database.MigrateAsync();
+            await DatabaseMigrator.MigrateAsync(db, app.Logger);
     }
     catch (Exception ex)
     {

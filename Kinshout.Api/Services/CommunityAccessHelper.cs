@@ -35,7 +35,8 @@ public static class CommunityAccessHelper
         || IsApprovedMember(community, membership, userId);
 
     public static bool CanViewDiscussions(Community community, CommunityMember? membership, Guid? userId) =>
-        IsApprovedMember(community, membership, userId);
+        !CommunityVisibilityHelper.IsPrivate(community.Visibility)
+        || IsApprovedMember(community, membership, userId);
 
     public static bool CanPost(Community community, CommunityMember? membership, Guid userId) =>
         community.IsActive && IsApprovedMember(community, membership, userId);

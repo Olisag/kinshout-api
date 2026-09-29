@@ -106,9 +106,17 @@ public class SearchService(
             viewerUserId,
             matchedDiscussions.Select(d => d.Id),
             ct);
+        var communityMemberIds = await DiscussionService.LoadViewerApprovedCommunityIdsAsync(
+            db,
+            viewerUserId,
+            matchedDiscussions,
+            ct);
         var advertResults = advertDtos.ToDtos(matchedAdverts, savedIds);
         var discussionResults = matchedDiscussions
-            .Select(d => ToDiscussionDto(d, likedDiscussionIds.Contains(d.Id)))
+            .Select(d => DiscussionService.ToListDto(
+                d,
+                likedDiscussionIds.Contains(d.Id),
+                isCommunityMember: DiscussionService.IsCommunityMember(d, communityMemberIds)))
             .ToList();
         if (request.Tab.Equals("all", StringComparison.OrdinalIgnoreCase))
             return BuildMixedSearchResult(
@@ -423,11 +431,12 @@ public class SearchService(
         Guid topicId,
         CancellationToken ct) =>
         await OrderDiscussions(
-            context.Discussions
-                .AsNoTracking()
-                .Include(d => d.User)
-                .Include(d => d.Category)
-                .Where(d => d.CategoryId == topicId))
+            DiscussionVisibilityFilter.WherePubliclyVisible(
+                context.Discussions
+                    .AsNoTracking()
+                    .Include(d => d.User)
+                    .Include(d => d.Category)
+                    .Where(d => d.CategoryId == topicId)))
             .ToListAsync(ct);
 
     private static async Task<List<Discussion>> LoadSemanticDiscussionsAsync(
@@ -456,7 +465,7 @@ public class SearchService(
         SearchQueryHints hints,
         CancellationToken ct)
     {
-        IQueryable<Discussion> discussionQuery = context.Discussions.AsNoTracking();
+        var discussionQuery = DiscussionVisibilityFilter.WherePubliclyVisible(context.Discussions.AsNoTracking());
         foreach (var location in hints.LocationTerms)
             discussionQuery = SearchDbTextFilter.WhereTitleOrBodyContains(discussionQuery, context, location);
 
@@ -736,8 +745,6 @@ public class SearchService(
         );
 
     }
-    private static DiscussionDto ToDiscussionDto(Discussion d, bool isLiked = false) =>
-        DiscussionService.ToListDto(d, isLiked);
 
 }
 

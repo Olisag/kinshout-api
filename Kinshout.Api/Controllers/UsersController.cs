@@ -9,7 +9,7 @@ namespace Kinshout.Api.Controllers;
 [ApiController]
 [Route("api/users")]
 [Produces("application/json")]
-public class UsersController(IUserProfileService profiles) : ControllerBase
+public class UsersController(IUserProfileService profiles, IDiscussionService discussions) : ControllerBase
 {
     /// <summary>
     /// View a user's public profile (name, avatar, member since, advert count).
@@ -42,6 +42,35 @@ public class UsersController(IUserProfileService profiles) : ControllerBase
         try
         {
             return Ok(await profiles.ListPublicAdvertsAsync(id, page, pageSize, ControllerUserHelper.TryGetUserId(HttpContext), ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// List public discussions started by a user with a public profile.
+    /// Requires frontend client token. Returns 404 if the profile is private.
+    /// </summary>
+    [HttpGet("{id:guid}/discussions")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResultDto<DiscussionDto>>> ListDiscussions(
+        Guid id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await discussions.ListPublicByUserAsync(
+                id,
+                page,
+                pageSize,
+                ControllerUserHelper.TryGetUserId(HttpContext),
+                ct));
         }
         catch (KeyNotFoundException)
         {

@@ -34,6 +34,8 @@ public sealed class KinshoutStartupHostedService(
             await ClientSeed.EnsureClientSecretAsync(db, passwordHasher, clientSecret);
             await ClientSeed.EnsureAllowedOriginsAsync(db);
             await ImportSeed.EnsureImportUserAsync(db);
+            await CommunitySeed.EnsureGeneralCommunityAsync(db);
+            await CommunitySeed.BackfillMissingDiscussionCommunitiesAsync(db, ct);
 
             var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
             await SearchQueryStatsConsolidator.ConsolidateHistoricalDuplicatesAsync(db, cache, logger, ct);

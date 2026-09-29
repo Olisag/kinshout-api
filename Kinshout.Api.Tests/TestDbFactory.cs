@@ -102,6 +102,34 @@ internal static class TestDbFactory
         return (user, category);
     }
 
+    public static async Task<Community> SeedCommunityAsync(
+        KinshoutDbContext db,
+        User creator,
+        string slug = "general",
+        string? name = null)
+    {
+        var community = new Community
+        {
+            Slug = slug,
+            Name = name ?? slug,
+            Description = "Test community",
+            Visibility = CommunityVisibilities.Public,
+            IsActive = true,
+            CreatedByUserId = creator.Id,
+            CreatedByUser = creator,
+        };
+        db.Communities.Add(community);
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            Community = community,
+            UserId = creator.Id,
+            Role = CommunityMemberRoles.Creator,
+            Status = CommunityMemberStatuses.Approved,
+        });
+        await db.SaveChangesAsync();
+        return community;
+    }
+
     public static AiAdvertAnalysis SampleAnalysis(string slug = "immobilier") =>
         new(
             slug,

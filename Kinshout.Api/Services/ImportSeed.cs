@@ -10,7 +10,17 @@ public static class ImportSeed
 
     public static async Task<User> EnsureImportUserAsync(KinshoutDbContext db, CancellationToken ct = default)
     {
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == ImportUserEmail, ct);
+        var user = await StageImportUserAsync(db, ct);
+        if (db.Entry(user).State == EntityState.Added)
+            await db.SaveChangesAsync(ct);
+        return user;
+    }
+
+    /// <summary>Finds the system import user, or adds it to the change tracker without saving.</summary>
+    public static async Task<User> StageImportUserAsync(KinshoutDbContext db, CancellationToken ct = default)
+    {
+        var user = db.Users.Local.FirstOrDefault(u => u.Email == ImportUserEmail)
+            ?? await db.Users.FirstOrDefaultAsync(u => u.Email == ImportUserEmail, ct);
         if (user is not null)
             return user;
 
@@ -20,7 +30,6 @@ public static class ImportSeed
             DisplayName = "Kinshout",
         };
         db.Users.Add(user);
-        await db.SaveChangesAsync(ct);
         return user;
     }
 }

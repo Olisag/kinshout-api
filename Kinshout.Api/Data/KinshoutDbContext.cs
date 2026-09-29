@@ -1,4 +1,5 @@
 using Kinshout.Api.Models;
+using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Data;
@@ -19,7 +20,39 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
+    public DbSet<LikedReply> LikedReplies => Set<LikedReply>();
     public DbSet<ImportWatermark> ImportWatermarks => Set<ImportWatermark>();
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        AssignDefaultCommunityToOrphanDiscussionsAsync(CancellationToken.None).GetAwaiter().GetResult();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override async Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        await AssignDefaultCommunityToOrphanDiscussionsAsync(cancellationToken);
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>Every discussion must belong to a community; unassigned ones go to k/general.</summary>
+    private async Task AssignDefaultCommunityToOrphanDiscussionsAsync(CancellationToken ct)
+    {
+        var orphans = ChangeTracker.Entries<Discussion>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified
+                && e.Entity.CommunityId is null
+                && e.Entity.Community is null)
+            .Select(e => e.Entity)
+            .ToList();
+        if (orphans.Count == 0)
+            return;
+
+        var general = await CommunitySeed.StageGeneralCommunityAsync(this, ct);
+        foreach (var discussion in orphans)
+            discussion.CommunityId = general.Id;
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -169,6 +202,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.VideoUrl).HasMaxLength(500);
             e.Property(x => x.PlaceName).HasMaxLength(200);
             e.Property(x => x.Address).HasMaxLength(300);
+            e.Property(x => x.LikeCount).HasDefaultValue(0);
             e.HasOne(x => x.Discussion).WithMany(x => x.Replies).HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.User).WithMany(x => x.Replies).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -194,6 +228,14 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasIndex(x => x.DiscussionId);
             e.HasOne(x => x.User).WithMany(x => x.LikedDiscussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Discussion).WithMany().HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LikedReply>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.ReplyId });
+            e.HasIndex(x => x.ReplyId);
+            e.HasOne(x => x.User).WithMany(x => x.LikedReplies).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Reply).WithMany(x => x.Likes).HasForeignKey(x => x.ReplyId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

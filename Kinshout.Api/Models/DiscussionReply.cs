@@ -17,7 +17,9 @@ public class DiscussionReply
     /// <summary>Optional address text for a location attachment.</summary>
     public string? Address { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public int LikeCount { get; set; }
 
     public Discussion Discussion { get; set; } = null!;
     public User User { get; set; } = null!;
+    public ICollection<LikedReply> Likes { get; set; } = [];
 }

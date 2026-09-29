@@ -363,7 +363,7 @@ public class CommunityServiceTests
     }
 
     [Fact]
-    public async Task EnsureCanAccessAsync_BlocksNonMembersOnPublicCommunity()
+    public async Task EnsureCanAccessAsync_AllowsNonMembersAndAnonymousOnPublicCommunity()
     {
         await using var db = TestDbFactory.Create();
         var (creator, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
@@ -374,8 +374,32 @@ public class CommunityServiceTests
         var service = CreateService(db);
         var created = await service.CreateAsync(creator.Id, new CreateCommunityRequestDto("open-club"));
 
+        await service.EnsureCanAccessAsync(created.Id, outsider.Id);
+        await service.EnsureCanAccessAsync(created.Id, null);
+        Assert.True((await service.GetBySlugAsync("open-club", outsider.Id))!.CanAccess);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.EnsureCanPostAsync(created.Id, outsider.Id));
+    }
+
+    [Fact]
+    public async Task EnsureCanAccessAsync_BlocksNonMembersAndAnonymousOnPrivateCommunity()
+    {
+        await using var db = TestDbFactory.Create();
+        var (creator, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var outsider = new User { Email = "outsider@test", DisplayName = "Outsider" };
+        db.Users.Add(outsider);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var created = await service.CreateAsync(
+            creator.Id,
+            new CreateCommunityRequestDto("secret-club", Visibility: CommunityVisibilities.Private));
+
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.EnsureCanAccessAsync(created.Id, outsider.Id));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.EnsureCanAccessAsync(created.Id, null));
+        await service.EnsureCanAccessAsync(created.Id, creator.Id);
     }
 
     [Fact]
