@@ -11,6 +11,8 @@ public interface IVideoService
     Task<VideoDto?> GetAsync(Guid id, CancellationToken ct = default);
     Task<UploadFileContent?> OpenPreviewAsync(Guid id, CancellationToken ct = default);
     Task<UploadFileContent?> OpenStreamAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Direct storage URL for playback, or null when the API must stream the file.</summary>
+    Task<Uri?> GetDirectStreamUriAsync(Guid id, CancellationToken ct = default);
     Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default);
     /// <summary>Register legacy storage URLs as VideoAssets so feeds can always expose preview URLs.</summary>
     Task<IReadOnlyDictionary<string, VideoAsset>> EnsureAssetsForStorageUrlsAsync(
@@ -134,6 +136,16 @@ public class VideoService(
             return null;
 
         return new UploadFileContent(file.Stream, asset.ContentType);
+    }
+
+    public async Task<Uri?> GetDirectStreamUriAsync(Guid id, CancellationToken ct = default)
+    {
+        var videoUrl = await db.VideoAssets.AsNoTracking()
+            .Where(v => v.Id == id && v.DeletedAt == null)
+            .Select(v => v.VideoUrl)
+            .FirstOrDefaultAsync(ct);
+
+        return videoUrl is null ? null : await storage.GetDirectReadUriAsync(videoUrl, ct);
     }
 
     public async Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default)

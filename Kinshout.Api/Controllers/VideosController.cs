@@ -71,15 +71,25 @@ public class VideosController(IVideoService videos) : ControllerBase
     }
 
     /// <summary>
-    /// Stream the video with HTTP range support for progressive playback (seek without full download).
+    /// Play the video. Redirects to a short-lived storage URL when available so range requests go
+    /// straight to blob storage; otherwise streams with HTTP range support (seek without full download).
     /// </summary>
     [HttpGet("{id:guid}/stream")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status206PartialContent)]
+    [ProducesResponseType(StatusCodes.Status302Found)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Stream(Guid id, CancellationToken ct)
     {
+        var directUri = await videos.GetDirectStreamUriAsync(id, ct);
+        if (directUri is not null)
+        {
+            // Must expire well before the signed URL does.
+            Response.Headers.CacheControl = "public,max-age=3600";
+            return Redirect(directUri.AbsoluteUri);
+        }
+
         var file = await videos.OpenStreamAsync(id, ct);
         if (file is null)
             return NotFound(new { error = "Vidéo introuvable." });

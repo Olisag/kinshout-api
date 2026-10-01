@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Azure.Storage.Sas;
 using Kinshout.Api.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -15,6 +16,13 @@ public interface IUploadStorage
     Task<UploadFileContent?> OpenReadAsync(string uploadUrl, CancellationToken ct = default);
     Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default);
     Task<bool> ExistsAsync(string uploadUrl, CancellationToken ct = default);
+
+    /// <summary>
+    /// Short-lived read URL that clients can fetch straight from storage (range requests included),
+    /// or null when the storage cannot hand one out and the API has to stream the file itself.
+    /// </summary>
+    Task<Uri?> GetDirectReadUriAsync(string uploadUrl, CancellationToken ct = default) =>
+        Task.FromResult<Uri?>(null);
 }
 
 public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUploadStorage> logger) : IUploadStorage
@@ -118,6 +126,9 @@ public sealed class AzureBlobUploadStorage(
     IOptions<UploadStorageSettings> options,
     ILogger<AzureBlobUploadStorage> logger) : IUploadStorage
 {
+    /// <summary>Direct read URLs stay valid for one to two windows.</summary>
+    public static readonly TimeSpan DirectReadUriWindow = TimeSpan.FromHours(6);
+
     private readonly UploadStorageSettings _settings = options.Value;
     private BlobContainerClient? _container;
 
@@ -181,6 +192,33 @@ public sealed class AzureBlobUploadStorage(
             ct);
 
         return new UploadFileContent(stream, contentType);
+    }
+
+    public async Task<Uri?> GetDirectReadUriAsync(string uploadUrl, CancellationToken ct = default)
+    {
+        if (!TryGetBlobName(uploadUrl, out var blobName))
+            return null;
+
+        var container = await GetContainerAsync(ct);
+        var blob = container.GetBlobClient(blobName);
+        if (!blob.CanGenerateSasUri)
+            return null;
+
+        // Expiry snapped to a fixed window so every viewer gets the same URL for hours:
+        // browsers can then reuse cached ranges instead of refetching the video.
+        var windowTicks = DirectReadUriWindow.Ticks;
+        var windowStart = new DateTimeOffset(
+            DateTimeOffset.UtcNow.UtcTicks / windowTicks * windowTicks,
+            TimeSpan.Zero);
+        var sas = new BlobSasBuilder(BlobSasPermissions.Read, windowStart + DirectReadUriWindow * 2)
+        {
+            BlobContainerName = container.Name,
+            BlobName = blobName,
+            Resource = "b",
+            CacheControl = "public,max-age=31536000,immutable",
+        };
+
+        return blob.GenerateSasUri(sas);
     }
 
     public async Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default)
