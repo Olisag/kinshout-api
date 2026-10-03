@@ -6,10 +6,9 @@ RUN dotnet restore Kinshout.VideoWorker/Kinshout.VideoWorker.csproj
 COPY Kinshout.VideoWorker/ Kinshout.VideoWorker/
 RUN dotnet publish Kinshout.VideoWorker/Kinshout.VideoWorker.csproj -c Release -o /app -p:IsPublishable=true
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Alpine keeps the image small: every job execution pulls it before starting.
+FROM mcr.microsoft.com/dotnet/runtime:10.0-alpine
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY --from=build /app .
 ENTRYPOINT ["dotnet", "Kinshout.VideoWorker.dll"]
