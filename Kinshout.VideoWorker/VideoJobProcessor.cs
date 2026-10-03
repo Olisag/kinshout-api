@@ -31,9 +31,12 @@ internal sealed class VideoJobProcessor(
 
             var sourceInfo = await ffmpeg.ProbeAsync(sourcePath, ct);
             var window = VideoEncodingPlan.GetTrimWindow(job, sourceInfo.DurationSeconds);
+            var copy = VideoEncodingPlan.CanCopy(sourceInfo, window);
 
             await ffmpeg.RunFfmpegAsync(
-                VideoEncodingPlan.GetEncodeArguments(sourcePath, outputPath, window, sourceInfo.HasAudio),
+                copy
+                    ? VideoEncodingPlan.GetCopyArguments(sourcePath, outputPath, sourceInfo.HasAudio)
+                    : VideoEncodingPlan.GetEncodeArguments(sourcePath, outputPath, window, sourceInfo.HasAudio),
                 ct);
 
             var outputInfo = await ffmpeg.ProbeAsync(outputPath, ct);
@@ -54,7 +57,8 @@ internal sealed class VideoJobProcessor(
                 ct);
 
             Console.WriteLine(
-                $"Processed {job.VideoId}: {window.DurationSeconds:0.#}s from {window.StartSeconds:0.#}s, " +
+                $"Processed {job.VideoId} ({(copy ? "copied" : "encoded")}): " +
+                $"{window.DurationSeconds:0.#}s from {window.StartSeconds:0.#}s, " +
                 $"{outputInfo.Width}x{outputInfo.Height}, {new FileInfo(outputPath).Length} bytes");
         }
         finally

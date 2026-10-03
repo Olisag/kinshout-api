@@ -64,6 +64,96 @@ public class VideoWorkerPlanTests
     }
 
     [Fact]
+    public void CanCopy_VideosAlreadyCompressedOnTheDevice()
+    {
+        Assert.True(VideoEncodingPlan.CanCopy(DeviceCompressed(), new TrimWindow(0, 60)));
+    }
+
+    [Fact]
+    public void CanCopy_SilentVideos()
+    {
+        var silent = DeviceCompressed() with { HasAudio = false, AudioCodec = null };
+
+        Assert.True(VideoEncodingPlan.CanCopy(silent, new TrimWindow(0, 60)));
+    }
+
+    public static TheoryData<MediaInfo> VideosThatNeedEncoding() => new()
+    {
+        DeviceCompressed() with { Width = 1080, Height = 1920 },
+        DeviceCompressed() with { VideoCodec = "hevc" },
+        DeviceCompressed() with { PixelFormat = "yuv420p10le" },
+        DeviceCompressed() with { FrameRate = 60 },
+        DeviceCompressed() with { FrameRate = 0 },
+        DeviceCompressed() with { BitRate = 12_000_000 },
+        DeviceCompressed() with { BitRate = 0 },
+        DeviceCompressed() with { AudioCodec = "opus" },
+    };
+
+    [Theory]
+    [MemberData(nameof(VideosThatNeedEncoding))]
+    public void CanCopy_RejectsVideosTheEncodeWouldChange(MediaInfo source)
+    {
+        Assert.False(VideoEncodingPlan.CanCopy(source, new TrimWindow(0, 60)));
+    }
+
+    [Theory]
+    [InlineData(5, 55)]   // starts later
+    [InlineData(0, 40)]   // ends earlier
+    public void CanCopy_RejectsVideosThatStillNeedCutting(double start, double duration)
+    {
+        Assert.False(VideoEncodingPlan.CanCopy(DeviceCompressed(), new TrimWindow(start, duration)));
+    }
+
+    [Fact]
+    public void CopyArguments_RemuxWithoutReencoding()
+    {
+        var arguments = VideoEncodingPlan.GetCopyArguments("in.mp4", "out.mp4", hasAudio: true);
+
+        Assert.Equal("copy", ArgumentAfter(arguments, "-c"));
+        Assert.Contains("0:a:0", arguments);
+        Assert.Equal("+faststart", ArgumentAfter(arguments, "-movflags"));
+        Assert.DoesNotContain("-vf", arguments);
+        Assert.Equal("out.mp4", arguments[^1]);
+    }
+
+    [Fact]
+    public void ProbeParsing_ReadsWhatDecidesBetweenCopyAndEncode()
+    {
+        const string json = """
+            {
+              "streams": [
+                { "codec_type": "video", "codec_name": "h264", "pix_fmt": "yuv420p",
+                  "width": 720, "height": 1280, "avg_frame_rate": "30000/1001", "r_frame_rate": "30/1" },
+                { "codec_type": "audio", "codec_name": "aac" }
+              ],
+              "format": { "duration": "60.0", "bit_rate": "2100000" }
+            }
+            """;
+
+        var info = FfmpegRunner.ParseProbe(json);
+
+        Assert.Equal("h264", info.VideoCodec);
+        Assert.Equal("yuv420p", info.PixelFormat);
+        Assert.Equal(29.97, info.FrameRate, 2);
+        Assert.Equal(2_100_000, info.BitRate);
+        Assert.Equal("aac", info.AudioCodec);
+    }
+
+    [Fact]
+    public void ProbeParsing_FallsBackToTheNominalFrameRate()
+    {
+        const string json = """
+            {
+              "streams": [ { "codec_type": "video", "width": 720, "height": 1280,
+                             "avg_frame_rate": "0/0", "r_frame_rate": "30/1" } ],
+              "format": { "duration": "10" }
+            }
+            """;
+
+        Assert.Equal(30, FfmpegRunner.ParseProbe(json).FrameRate, 3);
+    }
+
+    [Fact]
     public void ProbeParsing_SwapsDimensionsForRotatedPhoneVideos()
     {
         const string json = """
@@ -99,6 +189,9 @@ public class VideoWorkerPlanTests
         Assert.Equal("videos/abc/file.mp4", VideoJobProcessor.ToBlobName("/uploads/videos/abc/file.mp4"));
         Assert.Throws<PermanentVideoJobException>(() => VideoJobProcessor.ToBlobName("https://elsewhere/file.mp4"));
     }
+
+    private static MediaInfo DeviceCompressed() =>
+        new(60, 720, 1280, HasAudio: true, "h264", "yuv420p", FrameRate: 30, BitRate: 2_100_000, "aac");
 
     private static VideoJob Job(double? start, double? end) =>
         new(Guid.NewGuid(), "/uploads/videos/u/a_source.mp4", "/uploads/videos/u/a.mp4", "/uploads/videos/u/a_poster.jpg", start, end, 120);

@@ -11,7 +11,16 @@ public record VideoJob(
     double MaxDurationSeconds);
 
 /// <summary>What ffprobe reports about a file.</summary>
-public record MediaInfo(double DurationSeconds, int Width, int Height, bool HasAudio);
+public record MediaInfo(
+    double DurationSeconds,
+    int Width,
+    int Height,
+    bool HasAudio,
+    string? VideoCodec = null,
+    string? PixelFormat = null,
+    double FrameRate = 0,
+    long BitRate = 0,
+    string? AudioCodec = null);
 
 /// <summary>The part of the source that ends up in the published video.</summary>
 public record TrimWindow(double StartSeconds, double DurationSeconds);

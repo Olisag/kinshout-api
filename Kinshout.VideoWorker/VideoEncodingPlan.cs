@@ -8,6 +8,9 @@ internal static class VideoEncodingPlan
     public const int MaxShortSide = 720;
     public const int PosterMaxSide = 640;
     private const double MinimumDurationSeconds = 0.5;
+    private const long MaxCopyBitRate = 3_500_000;
+    private const double MaxCopyFrameRate = 31;
+    private const double CopyTrimToleranceSeconds = 0.25;
 
     public static TrimWindow GetTrimWindow(VideoJob job, double sourceDurationSeconds)
     {
@@ -65,6 +68,31 @@ internal static class VideoEncodingPlan
             arguments.AddRange(["-c:a", "aac", "-b:a", "96k", "-ac", "2"]);
 
         arguments.AddRange(["-map_metadata", "-1", "-movflags", "+faststart", outputPath]);
+        return arguments;
+    }
+
+    /// <summary>
+    /// Browsers that can encode compress to 720p H.264 before uploading: when the file already matches
+    /// what <see cref="GetEncodeArguments"/> would produce and nothing has to be cut, a remux is enough.
+    /// </summary>
+    public static bool CanCopy(MediaInfo source, TrimWindow window) =>
+        window.StartSeconds <= CopyTrimToleranceSeconds &&
+        window.DurationSeconds >= source.DurationSeconds - CopyTrimToleranceSeconds &&
+        source.VideoCodec == "h264" &&
+        source.PixelFormat == "yuv420p" &&
+        Math.Min(source.Width, source.Height) <= MaxShortSide &&
+        source.FrameRate is > 0 and <= MaxCopyFrameRate &&
+        source.BitRate is > 0 and <= MaxCopyBitRate &&
+        (!source.HasAudio || source.AudioCodec == "aac");
+
+    public static IReadOnlyList<string> GetCopyArguments(string inputPath, string outputPath, bool hasAudio)
+    {
+        var arguments = new List<string> { "-hide_banner", "-nostdin", "-y", "-i", inputPath, "-map", "0:v:0" };
+
+        if (hasAudio)
+            arguments.AddRange(["-map", "0:a:0"]);
+
+        arguments.AddRange(["-c", "copy", "-map_metadata", "-1", "-movflags", "+faststart", outputPath]);
         return arguments;
     }
 

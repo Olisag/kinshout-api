@@ -59,6 +59,43 @@ public class VideoWorkerFfmpegTests : IDisposable
         Assert.True(new FileInfo(poster).Length > 0);
     }
 
+    [Fact]
+    public async Task DeviceCompressedVideo_IsRemuxedNotReencoded()
+    {
+        if (!IsOnPath("ffmpeg") || !IsOnPath("ffprobe"))
+            return;
+
+        var source = Path.Combine(_directory, "device.mp4");
+        var output = Path.Combine(_directory, "output.mp4");
+        // What browsers upload after compressing: fragmented 720p H.264/AAC.
+        await RunAsync(
+            "ffmpeg",
+            "-hide_banner", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=720x1280:rate=30:duration=8",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+            "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "1500k", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "96k",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+            source);
+
+        var ffmpeg = new FfmpegRunner("ffmpeg", "ffprobe");
+        var sourceInfo = await ffmpeg.ProbeAsync(source, CancellationToken.None);
+        var job = new VideoJob(Guid.NewGuid(), "", "", "", TrimStartSeconds: null, TrimEndSeconds: null, 120);
+        var window = VideoEncodingPlan.GetTrimWindow(job, sourceInfo.DurationSeconds);
+
+        Assert.True(VideoEncodingPlan.CanCopy(sourceInfo, window));
+
+        await ffmpeg.RunFfmpegAsync(
+            VideoEncodingPlan.GetCopyArguments(source, output, sourceInfo.HasAudio),
+            CancellationToken.None);
+        var outputInfo = await ffmpeg.ProbeAsync(output, CancellationToken.None);
+
+        Assert.Equal(720, outputInfo.Width);
+        Assert.Equal(1280, outputInfo.Height);
+        Assert.InRange(outputInfo.DurationSeconds, 7.5, 8.5);
+        Assert.True(outputInfo.HasAudio);
+    }
+
     private static bool IsOnPath(string tool) =>
         (Environment.GetEnvironmentVariable("PATH") ?? "")
             .Split(Path.PathSeparator)

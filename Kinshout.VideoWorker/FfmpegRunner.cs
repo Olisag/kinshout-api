@@ -32,7 +32,7 @@ internal sealed class FfmpegRunner(string ffmpegPath, string ffprobePath)
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         JsonElement? video = null;
-        var hasAudio = false;
+        JsonElement? audio = null;
 
         foreach (var stream in root.GetProperty("streams").EnumerateArray())
         {
@@ -40,7 +40,7 @@ internal sealed class FfmpegRunner(string ffmpegPath, string ffprobePath)
             if (codecType == "video" && video is null && !IsAttachedPicture(stream))
                 video = stream;
             else if (codecType == "audio")
-                hasAudio = true;
+                audio ??= stream;
         }
 
         if (video is null)
@@ -51,13 +51,51 @@ internal sealed class FfmpegRunner(string ffmpegPath, string ffprobePath)
         if (Math.Abs(GetRotation(video.Value)) % 180 == 90)
             (width, height) = (height, width);
 
-        var duration = root.TryGetProperty("format", out var format) &&
+        var hasFormat = root.TryGetProperty("format", out var format);
+        var duration = hasFormat &&
             format.TryGetProperty("duration", out var durationValue) &&
             double.TryParse(durationValue.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
                 : 0;
+        var bitRate = hasFormat &&
+            format.TryGetProperty("bit_rate", out var bitRateValue) &&
+            long.TryParse(bitRateValue.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedBitRate)
+                ? parsedBitRate
+                : 0;
+        var frameRate = ParseRate(GetString(video.Value, "avg_frame_rate"));
+        if (frameRate <= 0)
+            frameRate = ParseRate(GetString(video.Value, "r_frame_rate"));
 
-        return new MediaInfo(duration, width, height, hasAudio);
+        return new MediaInfo(
+            duration,
+            width,
+            height,
+            audio is not null,
+            GetString(video.Value, "codec_name"),
+            GetString(video.Value, "pix_fmt"),
+            frameRate,
+            bitRate,
+            audio is { } audioStream ? GetString(audioStream, "codec_name") : null);
+    }
+
+    private static string? GetString(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    /// <summary>ffprobe rates look like "30000/1001"; "0/0" means unknown.</summary>
+    private static double ParseRate(string? rate)
+    {
+        var parts = rate?.Split('/');
+        if (parts is not { Length: 2 } ||
+            !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var numerator) ||
+            !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var denominator) ||
+            denominator <= 0)
+        {
+            return 0;
+        }
+
+        return numerator / denominator;
     }
 
     private static bool IsAttachedPicture(JsonElement stream) =>
