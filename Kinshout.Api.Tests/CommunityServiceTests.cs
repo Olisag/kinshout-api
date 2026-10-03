@@ -377,6 +377,22 @@ public class CommunityServiceTests
     }
 
     [Fact]
+    public async Task RejectMember_RefusesTheGeneralCommunity()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db);
+        await CommunitySeed.JoinGeneralCommunityAsync(db, user.Id);
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RejectMemberAsync(general.CreatedByUserId, CommunityDefaults.GeneralSlug, user.Id));
+
+        Assert.Contains(db.CommunityMembers, m =>
+            m.CommunityId == general.Id && m.UserId == user.Id && m.Status == CommunityMemberStatuses.Approved);
+    }
+
+    [Fact]
     public async Task BackfillGeneralMemberships_JoinsEveryoneOnce()
     {
         await using var db = TestDbFactory.Create();

@@ -9,6 +9,9 @@ public static class CommunityAccessHelper
         if (userId is null)
             return false;
 
+        if (community.Slug == CommunityDefaults.GeneralSlug)
+            return true;
+
         if (membership is not null && membership.Status == CommunityMemberStatuses.Approved)
             return true;
 
@@ -40,4 +43,13 @@ public static class CommunityAccessHelper
 
     public static bool CanPost(Community community, CommunityMember? membership, Guid userId) =>
         community.IsActive && IsApprovedMember(community, membership, userId);
+
+    public static bool IsGeneral(Community? community) =>
+        community?.Slug == CommunityDefaults.GeneralSlug;
+
+    /// <summary>
+    /// Being in k/general (that is, being any user) must not reveal its private discussions.
+    /// </summary>
+    public static bool CanViewPrivateDiscussions(Community community, CommunityMember? membership, Guid? userId) =>
+        !IsGeneral(community) && IsApprovedMember(community, membership, userId);
 }

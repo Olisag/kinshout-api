@@ -98,6 +98,8 @@ public class DiscussionJoinNotifier(
                 .FirstOrDefaultAsync(c => c.Id == communityId, ct);
             if (community is not null)
                 recipientIds.Add(community.CreatedByUserId);
+            if (CommunityAccessHelper.IsGeneral(community))
+                recipientIds.Add(discussion.UserId);
 
             var modIds = await db.CommunityMembers
                 .AsNoTracking()

@@ -368,7 +368,7 @@ public class DiscussionService(
 
         var category = await AssignTopicCategoryAsync($"{title}. {body}", ct);
         var communityId = !string.IsNullOrWhiteSpace(request.CommunitySlug)
-            ? await ResolveCommunityIdAsync(request.CommunitySlug, ct)
+            ? await ResolveCommunityIdAsync(request.CommunitySlug, userId, ct)
             : discussion.CommunityId ?? await ResolveDefaultCommunityIdAsync(userId, ct);
 
         await communities.EnsureCanPostAsync(communityId, userId, ct);
@@ -410,7 +410,7 @@ public class DiscussionService(
     public async Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default)
     {
         var communityId = !string.IsNullOrWhiteSpace(request.CommunitySlug)
-            ? await ResolveCommunityIdAsync(request.CommunitySlug, ct)
+            ? await ResolveCommunityIdAsync(request.CommunitySlug, userId, ct)
             : await ResolveDefaultCommunityIdAsync(userId, ct);
         await communities.EnsureCanPostAsync(communityId, userId, ct);
         await moderation.EnsureTextAllowedAsync($"{request.Title}\n{request.Body}", ct);
@@ -922,9 +922,12 @@ public class DiscussionService(
         return await videos.EnsureAssetsForStorageUrlsAsync(storageUrls, ct);
     }
 
-    private async Task<Guid> ResolveCommunityIdAsync(string communitySlug, CancellationToken ct)
+    private async Task<Guid> ResolveCommunityIdAsync(string communitySlug, Guid userId, CancellationToken ct)
     {
         var slug = CommunitySlugHelper.Normalize(communitySlug);
+        if (slug == CommunityDefaults.GeneralSlug)
+            return await ResolveDefaultCommunityIdAsync(userId, ct);
+
         var community = await db.Communities.AsNoTracking().FirstOrDefaultAsync(c => c.Slug == slug, ct)
             ?? throw new ArgumentException($"Communauté k/{slug} introuvable.");
         return community.Id;
@@ -932,9 +935,7 @@ public class DiscussionService(
 
     private async Task<Guid> ResolveDefaultCommunityIdAsync(Guid userId, CancellationToken ct)
     {
-        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db, ct);
-        await communities.EnsureJoinedAsync(userId, general.Id, ct);
-        return general.Id;
+        return await CommunitySeed.JoinGeneralCommunityAsync(db, userId, ct);
     }
 
     private async Task DeleteStoredMediaAsync(Discussion discussion, CancellationToken ct)
@@ -992,7 +993,10 @@ public class DiscussionService(
         var communityRequired = community is not null
             && !CommunityAccessHelper.CanViewDiscussions(community, membership, viewerUserId);
         var canAccess = DiscussionAccessHelper.CanView(
-            discussion, participant, viewerUserId, isApprovedCommunityMember);
+            discussion,
+            participant,
+            viewerUserId,
+            community is not null && CommunityAccessHelper.CanViewPrivateDiscussions(community, membership, viewerUserId));
         var canParticipate = !communityRequired
             && viewerUserId is Guid userId
             && DiscussionAccessHelper.CanParticipate(discussion, participant, userId);

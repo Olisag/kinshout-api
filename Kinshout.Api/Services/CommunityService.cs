@@ -433,6 +433,8 @@ public class CommunityService(
         var actorMembership = await FindMembershipAsync(community.Id, actorUserId, ct);
         if (!CommunityAccessHelper.CanModerate(community, actorMembership, actorUserId))
             throw new UnauthorizedAccessException("Seuls le créateur ou un modérateur peuvent refuser des membres.");
+        if (community.Slug == CommunityDefaults.GeneralSlug)
+            throw new InvalidOperationException("Tout le monde fait partie de k/general.");
 
         var membership = await db.CommunityMembers
             .FirstOrDefaultAsync(m => m.CommunityId == community.Id && m.UserId == targetUserId, ct)

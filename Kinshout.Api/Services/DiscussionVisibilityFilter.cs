@@ -16,7 +16,8 @@ public static class DiscussionVisibilityFilter
     /// <summary>
     /// Discussions the viewer may see in feeds. A private community hides all of its
     /// discussions from non-members, even public ones; a private discussion additionally
-    /// requires being its author, an approved participant, or an approved community member.
+    /// requires being its author, an approved participant, or an approved community member
+    /// (except in k/general, which everyone belongs to).
     /// </summary>
     public static IQueryable<Discussion> WhereVisibleTo(
         IQueryable<Discussion> query,
@@ -40,11 +41,14 @@ public static class DiscussionVisibilityFilter
                 || d.UserId == viewerUserId
                 || d.Participants.Any(p =>
                     p.UserId == viewerUserId && p.Status == CommunityMemberStatuses.Approved)
-                || (d.CommunityId != null && db.CommunityMembers.Any(m =>
-                    m.CommunityId == d.CommunityId
-                    && m.UserId == viewerUserId
-                    && m.Status == CommunityMemberStatuses.Approved))
+                || (d.CommunityId != null
+                    && d.Community!.Slug != CommunityDefaults.GeneralSlug
+                    && db.CommunityMembers.Any(m =>
+                        m.CommunityId == d.CommunityId
+                        && m.UserId == viewerUserId
+                        && m.Status == CommunityMemberStatuses.Approved))
                 || (d.Community != null
+                    && d.Community.Slug != CommunityDefaults.GeneralSlug
                     && d.Community.CreatedByUserId == viewerUserId
                     && !db.CommunityMembers.Any(m =>
                         m.CommunityId == d.CommunityId && m.UserId == viewerUserId))));

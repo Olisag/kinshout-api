@@ -185,7 +185,7 @@ public class DiscussionParticipationService(
     {
         var (community, membership) = await LoadCommunityAccessAsync(discussion, viewerUserId, ct);
         var isApprovedMember = community is not null
-            && CommunityAccessHelper.IsApprovedMember(community, membership, viewerUserId);
+            && CommunityAccessHelper.CanViewPrivateDiscussions(community, membership, viewerUserId);
 
         var participant = await FindParticipantAsync(discussion.Id, viewerUserId, ct);
         if (DiscussionAccessHelper.CanView(discussion, participant, viewerUserId, isApprovedMember))
@@ -260,7 +260,8 @@ public class DiscussionParticipationService(
             var community = await db.Communities.AsNoTracking().FirstAsync(c => c.Id == communityId, ct);
             var membership = await db.CommunityMembers.AsNoTracking()
                 .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == actorUserId, ct);
-            isCommunityModerator = CommunityAccessHelper.CanModerate(community, membership, actorUserId);
+            isCommunityModerator = CommunityAccessHelper.CanModerate(community, membership, actorUserId)
+                || (CommunityAccessHelper.IsGeneral(community) && DiscussionAccessHelper.IsAuthor(discussion, actorUserId));
         }
 
         if (!DiscussionAccessHelper.CanModerateParticipants(discussion, actorUserId, isCommunityModerator))

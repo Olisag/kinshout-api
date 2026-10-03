@@ -74,6 +74,54 @@ public class DiscussionServiceMutationTests
             m.CommunityId == general.Id && m.UserId == user.Id && m.Status == CommunityMemberStatuses.Approved);
     }
 
+    [Theory]
+    [InlineData("general")]
+    [InlineData("k/general")]
+    [InlineData("General")]
+    public async Task CreateAsync_InGeneral_WorksBeforeTheCommunityExists(string communitySlug)
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var service = CreateGeneralPostingService(db);
+        var created = await service.CreateAsync(
+            user.Id,
+            new CreateDiscussionRequestDto("Title", "Body", communitySlug));
+
+        var general = await db.Communities.SingleAsync(c => c.Slug == CommunityDefaults.GeneralSlug);
+        var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == created.Id);
+        Assert.Equal(general.Id, stored.CommunityId);
+        Assert.Contains(db.CommunityMembers, m =>
+            m.CommunityId == general.Id && m.UserId == user.Id && m.Status == CommunityMemberStatuses.Approved);
+    }
+
+    [Theory]
+    [InlineData(CommunityMemberStatuses.Pending)]
+    [InlineData(CommunityMemberStatuses.Rejected)]
+    public async Task CreateAsync_InGeneral_WorksForUnapprovedMembersOfAnInactiveGeneral(string status)
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db);
+        general.IsActive = false;
+        general.Visibility = CommunityVisibilities.Private;
+        db.CommunityMembers.Add(new CommunityMember { CommunityId = general.Id, UserId = user.Id, Status = status });
+        await db.SaveChangesAsync();
+
+        var service = CreateGeneralPostingService(db);
+        var created = await service.CreateAsync(
+            user.Id,
+            new CreateDiscussionRequestDto("Title", "Body", CommunityDefaults.GeneralSlug));
+
+        var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == created.Id);
+        Assert.Equal(general.Id, stored.CommunityId);
+        var storedGeneral = await db.Communities.AsNoTracking().SingleAsync(c => c.Id == general.Id);
+        Assert.True(storedGeneral.IsActive);
+        Assert.Equal(CommunityVisibilities.Public, storedGeneral.Visibility);
+        Assert.Contains(db.CommunityMembers, m =>
+            m.CommunityId == general.Id && m.UserId == user.Id && m.Status == CommunityMemberStatuses.Approved);
+    }
+
     [Fact]
     public async Task UpdateAsync_WithoutCommunitySlug_KeepsExistingCommunity()
     {
@@ -390,5 +438,14 @@ public class DiscussionServiceMutationTests
             TestDbFactory.CreatePermissiveDiscussionParticipationService(),
             TestDbFactory.CreatePermissiveVideoService(),
             TestDbFactory.CreateMemoryCache());
+    }
+
+    private static DiscussionService CreateGeneralPostingService(KinshoutDbContext db)
+    {
+        var openAi = new Mock<IOpenAiService>();
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
+        var communities = new CommunityService(db, openAi.Object, Mock.Of<ICommunityJoinNotifier>());
+        return CreateService(db, openAi.Object, communities);
     }
 }

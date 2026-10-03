@@ -165,6 +165,47 @@ public class DiscussionParticipationServiceTests
     }
 
     [Fact]
+    public async Task PrivateDiscussionInGeneral_StaysPrivateAndItsAuthorApprovesParticipants()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var joiner = new User { Email = "joiner@test", DisplayName = "Joiner" };
+        db.Users.Add(joiner);
+        await db.SaveChangesAsync();
+        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db);
+        await CommunitySeed.JoinGeneralCommunityAsync(db, author.Id);
+        await CommunitySeed.JoinGeneralCommunityAsync(db, joiner.Id);
+
+        var discussion = new Discussion
+        {
+            UserId = author.Id,
+            CategoryId = category.Id,
+            CommunityId = general.Id,
+            Title = "Private in general",
+            Body = "Body",
+            Visibility = CommunityVisibilities.Private,
+        };
+        db.Discussions.Add(discussion);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, communityService: CreateCommunityService(db));
+        await Assert.ThrowsAsync<DiscussionAccessDeniedException>(() =>
+            service.EnsureCanViewAsync(discussion, joiner.Id));
+        Assert.False(await DiscussionVisibilityFilter
+            .WhereVisibleTo(db.Discussions, db, joiner.Id)
+            .AnyAsync(d => d.Id == discussion.Id));
+
+        await service.RequestJoinAsync(joiner.Id, discussion.Id);
+        await service.ApproveParticipantAsync(author.Id, discussion.Id, joiner.Id);
+
+        await service.EnsureCanViewAsync(discussion, joiner.Id);
+        await service.EnsureCanParticipateAsync(discussion, joiner.Id);
+        Assert.True(await DiscussionVisibilityFilter
+            .WhereVisibleTo(db.Discussions, db, joiner.Id)
+            .AnyAsync(d => d.Id == discussion.Id));
+    }
+
+    [Fact]
     public async Task ApproveParticipantAsync_PrivateCommunity_GrantsFullCommunityAccess()
     {
         await using var db = TestDbFactory.Create();

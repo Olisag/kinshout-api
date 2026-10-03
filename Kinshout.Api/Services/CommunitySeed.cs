@@ -18,7 +18,7 @@ public static class CommunitySeed
         CancellationToken ct = default)
     {
         var community = await StageGeneralCommunityAsync(db, ct);
-        if (db.Entry(community).State == EntityState.Added)
+        if (db.Entry(community).State is EntityState.Added or EntityState.Modified)
             await db.SaveChangesAsync(ct);
         return community;
     }
@@ -33,7 +33,12 @@ public static class CommunitySeed
         var existing = db.Communities.Local.FirstOrDefault(c => c.Slug == CommunityDefaults.GeneralSlug)
             ?? await db.Communities.FirstOrDefaultAsync(c => c.Slug == CommunityDefaults.GeneralSlug, ct);
         if (existing is not null)
+        {
+            // Posting to k/general must always work.
+            existing.IsActive = true;
+            existing.Visibility = CommunityVisibilities.Public;
             return existing;
+        }
 
         var importUser = await ImportSeed.StageImportUserAsync(db, ct);
         var community = new Community
@@ -56,25 +61,39 @@ public static class CommunitySeed
         return community;
     }
 
-    /// <summary>Everyone belongs to k/general: called when an account is created.</summary>
-    public static async Task JoinGeneralCommunityAsync(
+    /// <summary>Everyone belongs to k/general: makes the user an approved member and returns its id.</summary>
+    public static async Task<Guid> JoinGeneralCommunityAsync(
         KinshoutDbContext db,
         Guid userId,
         CancellationToken ct = default)
     {
         var general = await EnsureGeneralCommunityAsync(db, ct);
-        if (await db.CommunityMembers.AnyAsync(m => m.CommunityId == general.Id && m.UserId == userId, ct))
-            return;
+        var membership = await db.CommunityMembers
+            .FirstOrDefaultAsync(m => m.CommunityId == general.Id && m.UserId == userId, ct);
 
-        db.CommunityMembers.Add(new CommunityMember
+        if (membership is null)
         {
-            CommunityId = general.Id,
-            UserId = userId,
-            Role = CommunityMemberRoles.Member,
-            Status = CommunityMemberStatuses.Approved,
-            ReviewedAt = DateTime.UtcNow,
-        });
+            db.CommunityMembers.Add(new CommunityMember
+            {
+                CommunityId = general.Id,
+                UserId = userId,
+                Role = CommunityMemberRoles.Member,
+                Status = CommunityMemberStatuses.Approved,
+                ReviewedAt = DateTime.UtcNow,
+            });
+        }
+        else if (membership.Status != CommunityMemberStatuses.Approved)
+        {
+            membership.Status = CommunityMemberStatuses.Approved;
+            membership.ReviewedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            return general.Id;
+        }
+
         await db.SaveChangesAsync(ct);
+        return general.Id;
     }
 
     /// <summary>Makes every existing account an approved member of k/general.</summary>
