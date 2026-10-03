@@ -281,12 +281,15 @@ public record CategoryDto(
 /// <summary>
 /// Discussion media item. For videos in feeds, <see cref="Url"/> prefers the cheap poster
 /// (<c>previewUrl</c>) when available; use <see cref="PlayUrl"/> for playback.
+/// <see cref="Status"/> is set only while a video is not playable yet (<c>processing</c>) or
+/// could not be processed (<c>failed</c>); posts are published before processing ends.
 /// </summary>
 public record DiscussionMediaDto(
     string Type,
     string Url,
     string? PreviewUrl = null,
-    string? PlayUrl = null);
+    string? PlayUrl = null,
+    string? Status = null);
 
 public record DiscussionDto(
     Guid Id,

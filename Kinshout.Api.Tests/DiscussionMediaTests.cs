@@ -104,6 +104,32 @@ public class DiscussionMediaHelperTests
         Assert.Equal($"/api/videos/{asset.Id}/preview", item.Url);
         Assert.Equal($"/api/videos/{asset.Id}/preview", item.PreviewUrl);
         Assert.Equal($"/api/videos/{asset.Id}/stream", item.PlayUrl);
+        Assert.Null(item.Status);
+    }
+
+    [Theory]
+    [InlineData(VideoAssetStatus.Uploading, VideoAssetStatus.Processing)]
+    [InlineData(VideoAssetStatus.Processing, VideoAssetStatus.Processing)]
+    [InlineData(VideoAssetStatus.Failed, VideoAssetStatus.Failed)]
+    public void ToMediaDtos_VideoNotReady_ExposesStatus(string assetStatus, string expected)
+    {
+        var asset = new VideoAsset
+        {
+            Id = Guid.NewGuid(),
+            UserId = Guid.NewGuid(),
+            VideoUrl = "/uploads/videos/abc/clip.mp4",
+            ContentType = "video/mp4",
+            Status = assetStatus,
+        };
+        var map = new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase)
+        {
+            [asset.VideoUrl] = asset,
+        };
+
+        var item = Assert.Single(DiscussionMediaHelper.ToMediaDtos([], [asset.VideoUrl], map));
+
+        Assert.Equal(expected, item.Status);
+        Assert.Equal($"/api/videos/{asset.Id}/stream", item.PlayUrl);
     }
 
     [Fact]

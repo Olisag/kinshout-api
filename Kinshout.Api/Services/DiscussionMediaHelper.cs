@@ -80,7 +80,13 @@ public static class DiscussionMediaHelper
                 // Always expose preview URL; poster is created lazily if missing.
                 var previewUrl = $"/api/videos/{asset.Id}/preview";
                 var playUrl = $"/api/videos/{asset.Id}/stream";
-                items.Add(new Dtos.DiscussionMediaDto("video", previewUrl, previewUrl, playUrl));
+                var status = asset.Status switch
+                {
+                    Models.VideoAssetStatus.Ready => null,
+                    Models.VideoAssetStatus.Failed => Models.VideoAssetStatus.Failed,
+                    _ => Models.VideoAssetStatus.Processing,
+                };
+                items.Add(new Dtos.DiscussionMediaDto("video", previewUrl, previewUrl, playUrl, status));
             }
             else
             {
