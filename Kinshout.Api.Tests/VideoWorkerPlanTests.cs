@@ -70,6 +70,14 @@ public class VideoWorkerPlanTests
     }
 
     [Fact]
+    public void CanCopy_SafariFullRangeVideos()
+    {
+        var safari = DeviceCompressed() with { Width = 576, Height = 1024, PixelFormat = "yuvj420p", FrameRate = 27.3 };
+
+        Assert.True(VideoEncodingPlan.CanCopy(safari, new TrimWindow(0, 60)));
+    }
+
+    [Fact]
     public void CanCopy_SilentVideos()
     {
         var silent = DeviceCompressed() with { HasAudio = false, AudioCodec = null };

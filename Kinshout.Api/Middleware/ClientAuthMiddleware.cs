@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
+using System.Text.RegularExpressions;
 using Kinshout.Api.Auth;
 using Kinshout.Api.Configuration;
 using Microsoft.Extensions.Options;
@@ -15,6 +16,10 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
         "/api/health",
     };
 
+    private static readonly Regex VideoWorkerCallbackPath = new(
+        @"^/api/videos/[0-9a-fA-F-]{36}/processing-result$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly JwtSettings _jwt = jwtOptions.Value;
     private readonly TokenValidationParameters _clientValidation = BuildValidationParameters(jwtOptions.Value);
 
@@ -24,7 +29,8 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
         if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
             || PublicPaths.Contains(path)
             || path.StartsWith("/api/imports", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
+            || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
+            || IsVideoWorkerCallback(context.Request.Method, path))
         {
             await next(context);
             return;
@@ -62,6 +68,10 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
 
         await Write401Async(context, "Invalid or expired frontend client token.");
     }
+
+    /// <summary>The video worker has no frontend client; the endpoint checks its worker key instead.</summary>
+    public static bool IsVideoWorkerCallback(string method, string path) =>
+        HttpMethods.IsPost(method) && VideoWorkerCallbackPath.IsMatch(path);
 
     private async Task<List<string>> CollectClientTokenCandidatesAsync(HttpContext context)
     {

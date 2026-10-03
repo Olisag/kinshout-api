@@ -79,7 +79,8 @@ internal static class VideoEncodingPlan
         window.StartSeconds <= CopyTrimToleranceSeconds &&
         window.DurationSeconds >= source.DurationSeconds - CopyTrimToleranceSeconds &&
         source.VideoCodec == "h264" &&
-        source.PixelFormat == "yuv420p" &&
+        // Safari's encoder writes full-range yuvj420p, which plays everywhere too.
+        source.PixelFormat is "yuv420p" or "yuvj420p" &&
         Math.Min(source.Width, source.Height) <= MaxShortSide &&
         source.FrameRate is > 0 and <= MaxCopyFrameRate &&
         source.BitRate is > 0 and <= MaxCopyBitRate &&
