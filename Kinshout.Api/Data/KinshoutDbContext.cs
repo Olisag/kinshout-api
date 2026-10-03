@@ -184,6 +184,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.PosterUrl).HasMaxLength(500);
             e.Property(x => x.ContentType).HasMaxLength(100);
             e.Property(x => x.OriginalFileName).HasMaxLength(260);
+            e.Property(x => x.Status).HasMaxLength(20);
+            e.Property(x => x.SourceUrl).HasMaxLength(500);
+            e.Property(x => x.ProcessingError).HasMaxLength(500);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

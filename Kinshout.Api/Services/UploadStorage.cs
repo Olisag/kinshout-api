@@ -23,6 +23,17 @@ public interface IUploadStorage
     /// </summary>
     Task<Uri?> GetDirectReadUriAsync(string uploadUrl, CancellationToken ct = default) =>
         Task.FromResult<Uri?>(null);
+
+    /// <summary>
+    /// Short-lived URL clients can upload a file to (in blocks) without going through the API,
+    /// or null when the storage cannot hand one out.
+    /// </summary>
+    Task<Uri?> GetDirectWriteUriAsync(string uploadUrl, TimeSpan lifetime, CancellationToken ct = default) =>
+        Task.FromResult<Uri?>(null);
+
+    /// <summary>Size in bytes of a stored file, or null when it does not exist.</summary>
+    Task<long?> GetLengthAsync(string uploadUrl, CancellationToken ct = default) =>
+        Task.FromResult<long?>(null);
 }
 
 public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUploadStorage> logger) : IUploadStorage
@@ -77,6 +88,12 @@ public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUpl
 
     public Task<bool> ExistsAsync(string uploadUrl, CancellationToken ct = default) =>
         Task.FromResult(TryResolvePhysicalPath(uploadUrl, out var fullPath) && File.Exists(fullPath));
+
+    public Task<long?> GetLengthAsync(string uploadUrl, CancellationToken ct = default) =>
+        Task.FromResult<long?>(
+            TryResolvePhysicalPath(uploadUrl, out var fullPath) && File.Exists(fullPath)
+                ? new FileInfo(fullPath).Length
+                : null);
 
     private string GetUploadsRoot() =>
         Path.Combine(env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot"), "uploads");
@@ -219,6 +236,48 @@ public sealed class AzureBlobUploadStorage(
         };
 
         return blob.GenerateSasUri(sas);
+    }
+
+    public async Task<Uri?> GetDirectWriteUriAsync(
+        string uploadUrl,
+        TimeSpan lifetime,
+        CancellationToken ct = default)
+    {
+        if (!TryGetBlobName(uploadUrl, out var blobName))
+            return null;
+
+        var container = await GetContainerAsync(ct);
+        var blob = container.GetBlobClient(blobName);
+        if (!blob.CanGenerateSasUri)
+            return null;
+
+        var sas = new BlobSasBuilder(
+            BlobSasPermissions.Create | BlobSasPermissions.Write,
+            DateTimeOffset.UtcNow + lifetime)
+        {
+            BlobContainerName = container.Name,
+            BlobName = blobName,
+            Resource = "b",
+        };
+
+        return blob.GenerateSasUri(sas);
+    }
+
+    public async Task<long?> GetLengthAsync(string uploadUrl, CancellationToken ct = default)
+    {
+        if (!TryGetBlobName(uploadUrl, out var blobName))
+            return null;
+
+        var container = await GetContainerAsync(ct);
+        try
+        {
+            var properties = await container.GetBlobClient(blobName).GetPropertiesAsync(cancellationToken: ct);
+            return properties.Value.ContentLength;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
     }
 
     public async Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default)

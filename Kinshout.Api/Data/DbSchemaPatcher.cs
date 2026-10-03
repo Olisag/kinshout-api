@@ -711,7 +711,38 @@ public static class DbSchemaPatcher
         }
 
         await EnsureVideoAssetsSchemaAsync(db, connection, sqlServer, ct);
+        await EnsureVideoAssetProcessingSchemaAsync(db, connection, sqlServer, ct);
         await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsureVideoAssetProcessingSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        (string Column, string SqlServerType, string SqliteType)[] columns =
+        [
+            ("Status", $"nvarchar(20) NOT NULL DEFAULT '{VideoAssetStatus.Ready}'", $"TEXT NOT NULL DEFAULT '{VideoAssetStatus.Ready}'"),
+            ("SourceUrl", "nvarchar(500) NULL", "TEXT"),
+            ("TrimStartSeconds", "float NULL", "REAL"),
+            ("TrimEndSeconds", "float NULL", "REAL"),
+            ("DurationSeconds", "float NULL", "REAL"),
+            ("Width", "int NULL", "INTEGER"),
+            ("Height", "int NULL", "INTEGER"),
+            ("ProcessingError", "nvarchar(500) NULL", "TEXT"),
+        ];
+
+        foreach (var (column, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "VideoAssets", column, ct))
+                continue;
+
+            var type = sqlServer ? sqlServerType : sqliteType;
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE VideoAssets ADD {(sqlServer ? "" : "COLUMN ")}{column} {type}",
+                cancellationToken: ct);
+        }
     }
 
     private static async Task EnsureVideoAssetsSchemaAsync(

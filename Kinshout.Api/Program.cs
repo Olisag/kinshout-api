@@ -24,6 +24,7 @@ builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(Open
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<UploadStorageSettings>(builder.Configuration.GetSection(UploadStorageSettings.SectionName));
+builder.Services.Configure<VideoProcessingSettings>(builder.Configuration.GetSection(VideoProcessingSettings.SectionName));
 builder.Services.Configure<ImportSettings>(builder.Configuration.GetSection(ImportSettings.SectionName));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
 
@@ -93,6 +94,7 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
         : sp.GetRequiredService<LocalUploadStorage>();
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
+builder.Services.AddSingleton<IVideoProcessingQueue, AzureVideoProcessingQueue>();
 builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
 builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();

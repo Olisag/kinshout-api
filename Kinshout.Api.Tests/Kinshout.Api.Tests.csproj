@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Kinshout.Api\Kinshout.Api.csproj" />
+    <ProjectReference Include="..\Kinshout.VideoWorker\Kinshout.VideoWorker.csproj" />
   </ItemGroup>
 
 </Project>

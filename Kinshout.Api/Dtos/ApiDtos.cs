@@ -536,7 +536,26 @@ public record VideoDto(
     long ByteSize,
     string? OriginalFileName,
     DateTime CreatedAt,
-    Guid OwnerId);
+    Guid OwnerId,
+    string Status = "ready",
+    double? DurationSeconds = null,
+    int? Width = null,
+    int? Height = null,
+    string? Error = null);
+
+/// <summary>Start a direct upload: the client then PUTs the file to <c>UploadUrl</c> in blocks.</summary>
+public record CreateVideoUploadRequestDto(string FileName, string? ContentType, long ByteSize);
+
+public record VideoUploadDto(Guid Id, string UploadUrl, DateTime ExpiresAt, VideoDto Video);
+
+/// <summary>Sent by the video worker once a job finished, successfully or not.</summary>
+public record VideoProcessingResultDto(
+    bool Succeeded,
+    long? ByteSize = null,
+    double? DurationSeconds = null,
+    int? Width = null,
+    int? Height = null,
+    string? Error = null);
 
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,

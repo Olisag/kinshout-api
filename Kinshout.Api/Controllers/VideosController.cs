@@ -1,21 +1,110 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Kinshout.Api.Auth;
+using Kinshout.Api.Configuration;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace Kinshout.Api.Controllers;
 
 /// <summary>
-/// Reddit-style videos: upload once, cheap poster preview for feeds, range-streamed playback, owner delete.
-/// Avoids paid cloud transcoder fees — original file + optional poster only.
+/// Videos: direct upload to storage, server-side trim (two minutes max) and 720p re-encode,
+/// cheap poster preview for feeds, range-streamed playback, owner delete.
 /// </summary>
 [ApiController]
 [Route("api/videos")]
 [Produces("application/json")]
-public class VideosController(IVideoService videos) : ControllerBase
+public class VideosController(
+    IVideoService videos,
+    IOptions<VideoProcessingSettings>? processingOptions = null) : ControllerBase
 {
+    public const string WorkerKeyHeader = "X-Video-Worker-Key";
+
+    /// <summary>
+    /// Start a direct upload. The client PUTs the source file to <c>uploadUrl</c> (Azure block blob API),
+    /// then calls <c>POST /api/videos/{id}/complete</c>. 501 when the storage cannot issue upload URLs:
+    /// fall back to <c>POST /api/videos</c>.
+    /// </summary>
+    [HttpPost("uploads")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(VideoUploadDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status501NotImplemented)]
+    public async Task<ActionResult<VideoUploadDto>> CreateUpload(
+        [FromBody] CreateVideoUploadRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var upload = await videos.CreateUploadAsync(GetUserId(), request, ct);
+            if (upload is null)
+                return StatusCode(StatusCodes.Status501NotImplemented, new { error = "Envoi direct indisponible." });
+
+            return CreatedAtAction(nameof(Get), new { id = upload.Id }, upload);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Finish a direct upload: optional trim range (seconds, two minutes max) and poster image.
+    /// Poll <c>GET /api/videos/{id}</c> until <c>status</c> is <c>ready</c> or <c>failed</c>.
+    /// </summary>
+    [HttpPost("{id:guid}/complete")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(2_097_152)]
+    [ProducesResponseType(typeof(VideoDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<VideoDto>> CompleteUpload(
+        Guid id,
+        [FromForm] double? trimStart,
+        [FromForm] double? trimEnd,
+        IFormFile? poster,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await videos.CompleteUploadAsync(GetUserId(), id, trimStart, trimEnd, poster, ct));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Vidéo introuvable." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>Video worker callback. Authenticated with the shared worker key, not a user token.</summary>
+    [HttpPost("{id:guid}/processing-result")]
+    [AllowAnonymous]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public async Task<IActionResult> ProcessingResult(
+        Guid id,
+        [FromBody] VideoProcessingResultDto result,
+        CancellationToken ct)
+    {
+        if (!IsWorkerRequest())
+            return Unauthorized();
+
+        return await videos.ApplyProcessingResultAsync(id, result, ct)
+            ? NoContent()
+            : NotFound(new { error = "Vidéo introuvable." });
+    }
     /// <summary>
     /// Upload a video (mp4/webm/mov, max 50MB) with an optional poster image for feed previews.
     /// Returns play/preview URLs. Attach <c>playUrl</c> or the underlying storage path when posting discussions.
@@ -119,6 +208,18 @@ public class VideosController(IVideoService videos) : ControllerBase
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
+    }
+
+    private bool IsWorkerRequest()
+    {
+        var expected = processingOptions?.Value.WorkerKey;
+        if (string.IsNullOrWhiteSpace(expected))
+            return false;
+
+        var provided = Request.Headers[WorkerKeyHeader].ToString();
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(provided),
+            Encoding.UTF8.GetBytes(expected));
     }
 
     private Guid GetUserId() =>

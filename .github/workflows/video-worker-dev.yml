@@ -1,0 +1,59 @@
+# Builds the video worker image in Azure Container Registry and points the dev Container Apps job at it.
+name: Build and deploy video worker (dev)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Kinshout.VideoWorker/**"
+      - ".dockerignore"
+      - ".github/workflows/video-worker-dev.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: video-worker-dev
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: Phpnet20211126011001ResourceGroup
+  REGISTRY: Splitti3DS
+  REGISTRY_SERVER: splitti3ds.azurecr.io
+  IMAGE: kinshout-video-worker
+  JOB_NAME: kinshout-video-worker
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_1337B3058976429FB9074939041B8172 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_3FCE721D276A4239A5CCC54A1EE0B495 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_34B03CFC9ED44EAD9905F975EB67AF1C }}
+
+      - name: Build image
+        run: >
+          az acr build
+          --registry "$REGISTRY"
+          --resource-group "$RESOURCE_GROUP"
+          --image "$IMAGE:${{ github.sha }}"
+          --image "$IMAGE:latest"
+          --file Kinshout.VideoWorker/Dockerfile
+          .
+
+      - name: Update job
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az containerapp job update \
+            --name "$JOB_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$REGISTRY_SERVER/$IMAGE:${{ github.sha }}"

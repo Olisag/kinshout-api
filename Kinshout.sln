@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kinshout.Api.Tests", "Kinsh
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kinshout.ExternalImporter", "Kinshout.ExternalImporter\Kinshout.ExternalImporter.csproj", "{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kinshout.VideoWorker", "Kinshout.VideoWorker\Kinshout.VideoWorker.csproj", "{750EF45D-72F2-489F-9B4D-B49E69796D82}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +54,18 @@ Global
 		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x64.Build.0 = Release|Any CPU
 		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x86.ActiveCfg = Release|Any CPU
 		{0087C9C9-A15A-434A-B4C1-1A5FA92BC6A6}.Release|x86.Build.0 = Release|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Debug|x64.Build.0 = Debug|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Debug|x86.Build.0 = Debug|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Release|Any CPU.Build.0 = Release|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Release|x64.ActiveCfg = Release|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Release|x64.Build.0 = Release|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Release|x86.ActiveCfg = Release|Any CPU
+		{750EF45D-72F2-489F-9B4D-B49E69796D82}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
