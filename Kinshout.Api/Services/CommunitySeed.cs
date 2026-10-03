@@ -56,6 +56,66 @@ public static class CommunitySeed
         return community;
     }
 
+    /// <summary>Everyone belongs to k/general: called when an account is created.</summary>
+    public static async Task JoinGeneralCommunityAsync(
+        KinshoutDbContext db,
+        Guid userId,
+        CancellationToken ct = default)
+    {
+        var general = await EnsureGeneralCommunityAsync(db, ct);
+        if (await db.CommunityMembers.AnyAsync(m => m.CommunityId == general.Id && m.UserId == userId, ct))
+            return;
+
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = general.Id,
+            UserId = userId,
+            Role = CommunityMemberRoles.Member,
+            Status = CommunityMemberStatuses.Approved,
+            ReviewedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Makes every existing account an approved member of k/general.</summary>
+    public static async Task BackfillGeneralMembershipsAsync(
+        KinshoutDbContext db,
+        CancellationToken ct = default)
+    {
+        var general = await EnsureGeneralCommunityAsync(db, ct);
+
+        var notApproved = await db.CommunityMembers
+            .Where(m => m.CommunityId == general.Id && m.Status != CommunityMemberStatuses.Approved)
+            .ToListAsync(ct);
+        foreach (var membership in notApproved)
+        {
+            membership.Status = CommunityMemberStatuses.Approved;
+            membership.ReviewedAt = DateTime.UtcNow;
+        }
+
+        if (notApproved.Count > 0)
+            await db.SaveChangesAsync(ct);
+
+        var missingUserIds = await db.Users
+            .Where(u => !db.CommunityMembers.Any(m => m.CommunityId == general.Id && m.UserId == u.Id))
+            .Select(u => u.Id)
+            .ToListAsync(ct);
+
+        foreach (var batch in missingUserIds.Chunk(500))
+        {
+            db.CommunityMembers.AddRange(batch.Select(userId => new CommunityMember
+            {
+                CommunityId = general.Id,
+                UserId = userId,
+                Role = CommunityMemberRoles.Member,
+                Status = CommunityMemberStatuses.Approved,
+                ReviewedAt = DateTime.UtcNow,
+            }));
+            await db.SaveChangesAsync(ct);
+            db.ChangeTracker.Clear();
+        }
+    }
+
     public static async Task BackfillMissingDiscussionCommunitiesAsync(
         KinshoutDbContext db,
         CancellationToken ct = default)

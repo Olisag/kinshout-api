@@ -27,9 +27,13 @@ public class AuthServiceEmailTests
         Assert.Equal("marie@kinoiserie.test", response.User.Email);
         Assert.Equal("Marie K.", response.User.DisplayName);
 
-        var user = Assert.Single(db.Users);
+        var user = Assert.Single(db.Users, u => u.Email == "marie@kinoiserie.test");
         Assert.False(string.IsNullOrWhiteSpace(user.PasswordHash));
         Assert.Contains(db.UserLogins, l => l.Provider == AuthProvider.Local);
+        Assert.Contains(db.CommunityMembers, m =>
+            m.UserId == user.Id
+            && m.Community.Slug == CommunityDefaults.GeneralSlug
+            && m.Status == CommunityMemberStatuses.Approved);
     }
 
     [Fact]

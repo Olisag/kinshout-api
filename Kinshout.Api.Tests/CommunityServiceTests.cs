@@ -363,6 +363,52 @@ public class CommunityServiceTests
     }
 
     [Fact]
+    public async Task Leave_RefusesTheGeneralCommunity()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        await CommunitySeed.JoinGeneralCommunityAsync(db, user.Id);
+        var service = CreateService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.LeaveAsync(user.Id, $"k/{CommunityDefaults.GeneralSlug}"));
+
+        Assert.Contains(db.CommunityMembers, m => m.UserId == user.Id && m.Community.Slug == CommunityDefaults.GeneralSlug);
+    }
+
+    [Fact]
+    public async Task BackfillGeneralMemberships_JoinsEveryoneOnce()
+    {
+        await using var db = TestDbFactory.Create();
+        var (joined, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var pending = new User { Email = "pending@test", DisplayName = "Pending" };
+        var outsider = new User { Email = "outsider@test", DisplayName = "Outsider" };
+        db.Users.AddRange(pending, outsider);
+        await db.SaveChangesAsync();
+        await CommunitySeed.JoinGeneralCommunityAsync(db, joined.Id);
+        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db);
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = general.Id,
+            UserId = pending.Id,
+            Status = CommunityMemberStatuses.Pending,
+        });
+        await db.SaveChangesAsync();
+
+        await CommunitySeed.BackfillGeneralMembershipsAsync(db);
+        await CommunitySeed.BackfillGeneralMembershipsAsync(db);
+
+        var members = await db.CommunityMembers.AsNoTracking()
+            .Where(m => m.CommunityId == general.Id)
+            .ToListAsync();
+        foreach (var userId in await db.Users.Select(u => u.Id).ToListAsync())
+        {
+            var membership = Assert.Single(members, m => m.UserId == userId);
+            Assert.Equal(CommunityMemberStatuses.Approved, membership.Status);
+        }
+    }
+
+    [Fact]
     public async Task EnsureCanAccessAsync_AllowsNonMembersAndAnonymousOnPublicCommunity()
     {
         await using var db = TestDbFactory.Create();

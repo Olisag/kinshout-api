@@ -173,6 +173,7 @@ public class AuthService(
             ProviderKey = email,
         });
         await db.SaveChangesAsync(ct);
+        await CommunitySeed.JoinGeneralCommunityAsync(db, user.Id, ct);
 
         var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
         return new AuthResponseDto(token, expiresAt, ToProfile(user));
@@ -331,6 +332,7 @@ public class AuthService(
             .FirstOrDefaultAsync(l => l.Provider == provider && l.ProviderKey == providerKey, ct);
 
         User user;
+        var isNewUser = false;
         if (login is not null)
         {
             user = login.User;
@@ -351,6 +353,7 @@ public class AuthService(
                     LastLoginAt = DateTime.UtcNow,
                 };
                 db.Users.Add(user);
+                isNewUser = true;
             }
             else
             {
@@ -369,6 +372,9 @@ public class AuthService(
         }
 
         await db.SaveChangesAsync(ct);
+        if (isNewUser)
+            await CommunitySeed.JoinGeneralCommunityAsync(db, user.Id, ct);
+
         var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
         return new AuthResponseDto(token, expiresAt, ToProfile(user));
     }

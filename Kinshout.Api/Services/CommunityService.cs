@@ -509,6 +509,9 @@ public class CommunityService(
     public async Task LeaveAsync(Guid userId, string slugOrRoute, CancellationToken ct = default)
     {
         var community = await RequireCommunityAsync(slugOrRoute, ct);
+        if (community.Slug == CommunityDefaults.GeneralSlug)
+            throw new InvalidOperationException("Tout le monde fait partie de k/general.");
+
         var membership = await db.CommunityMembers
             .FirstOrDefaultAsync(m => m.CommunityId == community.Id && m.UserId == userId, ct);
 
