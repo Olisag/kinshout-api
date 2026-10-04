@@ -31,6 +31,11 @@ public interface IVideoService
     /// <summary>Direct storage URL for playback, or null when the API must stream the file.</summary>
     Task<Uri?> GetDirectStreamUriAsync(Guid id, CancellationToken ct = default);
     Task DeleteAsync(Guid userId, Guid id, CancellationToken ct = default);
+    /// <summary>
+    /// Deletes direct uploads that were never completed within <paramref name="olderThan"/>
+    /// (tab closed mid-upload, post abandoned). Returns how many were deleted.
+    /// </summary>
+    Task<int> DeleteAbandonedUploadsAsync(TimeSpan olderThan, CancellationToken ct = default);
     /// <summary>Register legacy storage URLs as VideoAssets so feeds can always expose preview URLs.</summary>
     Task<IReadOnlyDictionary<string, VideoAsset>> EnsureAssetsForStorageUrlsAsync(
         IEnumerable<string> storageUrls,
@@ -372,6 +377,43 @@ public class VideoService(
 
         asset.DeletedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<int> DeleteAbandonedUploadsAsync(TimeSpan olderThan, CancellationToken ct = default)
+    {
+        const int batchSize = 100;
+        var cutoff = DateTime.UtcNow - olderThan;
+        var deleted = 0;
+
+        while (true)
+        {
+            var abandoned = await db.VideoAssets
+                .Where(v => v.Status == VideoAssetStatus.Uploading && v.DeletedAt == null && v.CreatedAt < cutoff)
+                .OrderBy(v => v.CreatedAt)
+                .Take(batchSize)
+                .ToListAsync(ct);
+
+            foreach (var asset in abandoned)
+            {
+                if (!string.IsNullOrWhiteSpace(asset.SourceUrl))
+                    await storage.DeleteIfExistsAsync(asset.SourceUrl, ct);
+
+                asset.DeletedAt = DateTime.UtcNow;
+            }
+
+            if (abandoned.Count > 0)
+                await db.SaveChangesAsync(ct);
+
+            deleted += abandoned.Count;
+
+            if (abandoned.Count < batchSize)
+                break;
+        }
+
+        if (deleted > 0)
+            logger.LogInformation("Deleted {Count} abandoned video uploads", deleted);
+
+        return deleted;
     }
 
     public async Task<IReadOnlyDictionary<string, VideoAsset>> EnsureAssetsForStorageUrlsAsync(

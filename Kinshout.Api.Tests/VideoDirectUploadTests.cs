@@ -7,6 +7,7 @@ using Kinshout.Api.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -248,6 +249,31 @@ public class VideoDirectUploadTests : IDisposable
         var result = await controller.ProcessingResult(id, new(true), CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
+    }
+
+    [Fact]
+    public async Task DeleteAbandonedUploads_OnlyDeletesOldUploadsThatWereNeverCompleted()
+    {
+        var service = CreateService(new DirectUploadStorage(_localStorage));
+        var abandoned = await CreateUploadedVideoAsync(service);
+        var completed = await service.CreateUploadAsync(_userId, new("done.mp4", "video/mp4", 1024));
+        var recent = await service.CreateUploadAsync(_userId, new("recent.mp4", "video/mp4", 1024));
+        var completedAsset = await _db.VideoAssets.SingleAsync(v => v.Id == completed!.Id);
+        WriteStoredFile(completedAsset.SourceUrl!, new byte[1024]);
+        await service.CompleteUploadAsync(_userId, completed!.Id, null, null);
+
+        foreach (var asset in _db.VideoAssets.Where(v => v.Id != recent!.Id))
+            asset.CreatedAt = DateTime.UtcNow.AddDays(-2);
+        await _db.SaveChangesAsync();
+
+        var abandonedSource = (await _db.VideoAssets.SingleAsync(v => v.Id == abandoned.Id)).SourceUrl!;
+        var deleted = await service.DeleteAbandonedUploadsAsync(TimeSpan.FromDays(1));
+
+        Assert.Equal(1, deleted);
+        Assert.NotNull((await _db.VideoAssets.SingleAsync(v => v.Id == abandoned.Id)).DeletedAt);
+        Assert.False(await _localStorage.ExistsAsync(abandonedSource));
+        Assert.Null((await _db.VideoAssets.SingleAsync(v => v.Id == completed.Id)).DeletedAt);
+        Assert.Null((await _db.VideoAssets.SingleAsync(v => v.Id == recent!.Id)).DeletedAt);
     }
 
     private VideoService CreateService(IUploadStorage storage, bool enabled = true) =>

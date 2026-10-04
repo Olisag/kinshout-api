@@ -108,6 +108,7 @@ builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussi
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
 builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
 builder.Services.AddHostedService<KinshoutStartupHostedService>();
+builder.Services.AddHostedService<AbandonedVideoUploadCleanupService>();
 
 builder.Services
     .AddAuthentication(options =>
