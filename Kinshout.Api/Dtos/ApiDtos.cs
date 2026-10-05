@@ -307,7 +307,10 @@ public record DiscussionDto(
     DiscussionSourceDto? Source = null,
     string? CommunitySlug = null,
     IReadOnlyList<DiscussionMediaDto>? Media = null,
-    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false);
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
+    Guid? AuthorId = null,
+    // Only set by the signed-in user's own list: they wrote it or moderate its community.
+    bool CanManage = false);
 
 /// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
 public record DiscussionSourceDto(

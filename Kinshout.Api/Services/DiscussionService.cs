@@ -194,12 +194,17 @@ public class DiscussionService(
         var likedIds = await LoadLikedDiscussionIdsAsync(db, userId, items.Select(d => d.Id), ct);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(items, ct);
         var communityMemberIds = await LoadViewerApprovedCommunityIdsAsync(db, userId, items, ct);
+        var moderatedCommunityIds = await LoadViewerModeratedCommunityIdsAsync(userId, items, ct);
         return PagingHelper.Create(
             items.Select(d => ToListDto(
                 d,
                 likedIds.Contains(d.Id),
                 videoAssets,
-                IsCommunityMember(d, communityMemberIds))).ToList(),
+                IsCommunityMember(d, communityMemberIds),
+                DiscussionAccessHelper.CanManage(
+                    d,
+                    userId,
+                    d.CommunityId is Guid communityId && moderatedCommunityIds.Contains(communityId)))).ToList(),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -496,7 +501,8 @@ public class DiscussionService(
             discussion,
             isLiked: false,
             videoAssets,
-            IsCommunityMember(discussion, communityMemberIds));
+            IsCommunityMember(discussion, communityMemberIds),
+            canManage: true);
     }
 
     public async Task<DiscussionDto> AddMediaAsync(
@@ -863,7 +869,8 @@ public class DiscussionService(
         Discussion d,
         bool isLiked = false,
         IReadOnlyDictionary<string, VideoAsset>? videoAssetsByStorageUrl = null,
-        bool isCommunityMember = false)
+        bool isCommunityMember = false,
+        bool canManage = false)
     {
         var images = DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson);
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
@@ -883,7 +890,35 @@ public class DiscussionService(
             DiscussionSourceMapper.ToSourceDto(d),
             d.Community is null ? null : CommunitySlugHelper.ToRouteSlug(d.Community.Slug),
             DiscussionMediaHelper.ToMediaDtos(images, videos, videoAssetsByStorageUrl),
-            isCommunityMember);
+            isCommunityMember,
+            d.UserId,
+            canManage);
+    }
+
+    /// <summary>The communities of <paramref name="discussions"/> that the user moderates.</summary>
+    private async Task<HashSet<Guid>> LoadViewerModeratedCommunityIdsAsync(
+        Guid userId,
+        IReadOnlyList<Discussion> discussions,
+        CancellationToken ct)
+    {
+        var communities = discussions
+            .Where(d => d.Community is not null)
+            .Select(d => d.Community!)
+            .DistinctBy(c => c.Id)
+            .ToList();
+        if (communities.Count == 0)
+            return [];
+
+        var communityIds = communities.Select(c => c.Id).ToList();
+        var memberships = await db.CommunityMembers
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && communityIds.Contains(m.CommunityId))
+            .ToDictionaryAsync(m => m.CommunityId, ct);
+
+        return communities
+            .Where(c => CommunityAccessHelper.CanModerate(c, memberships.GetValueOrDefault(c.Id), userId))
+            .Select(c => c.Id)
+            .ToHashSet();
     }
 
     internal static bool IsCommunityMember(Discussion discussion, IReadOnlySet<Guid> approvedCommunityIds) =>

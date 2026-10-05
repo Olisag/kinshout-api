@@ -70,6 +70,8 @@ public class DiscussionServiceMutationTests
         var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == created.Id);
         Assert.Equal(general.Id, stored.CommunityId);
         Assert.True(created.IsCommunityMember);
+        Assert.True(created.CanManage);
+        Assert.Equal(user.Id, created.AuthorId);
         Assert.Contains(db.CommunityMembers, m =>
             m.CommunityId == general.Id && m.UserId == user.Id && m.Status == CommunityMemberStatuses.Approved);
     }
@@ -523,6 +525,38 @@ public class DiscussionServiceMutationTests
         Assert.True(await CanManage(creator.Id));
         Assert.False(await CanManage(member.Id));
         Assert.False(await CanManage(null));
+    }
+
+    [Fact]
+    public async Task ListMineAsync_CanManage_OwnPostsAndModeratedCommunitiesOnly()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var (moderator, _) = await SeedCommunityUserAsync(db, CommunityMemberRoles.Moderator);
+        var moderated = await db.Communities.SingleAsync(c => c.Slug == "moderated");
+        var elsewhere = await TestDbFactory.SeedCommunityAsync(db, author, "elsewhere");
+        var own = AddDiscussion(db, moderator, category, moderated);
+        var inModerated = AddDiscussion(db, author, category, moderated);
+        var inElsewhere = AddDiscussion(db, author, category, elsewhere);
+        foreach (var discussion in new[] { inModerated, inElsewhere })
+        {
+            db.DiscussionReplies.Add(new DiscussionReply
+            {
+                DiscussionId = discussion.Id,
+                UserId = moderator.Id,
+                Body = "Reply",
+            });
+        }
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var items = (await service.ListMineAsync(moderator.Id)).Items.ToDictionary(d => d.Id);
+
+        Assert.Equal(3, items.Count);
+        Assert.True(items[own.Id].CanManage);
+        Assert.True(items[inModerated.Id].CanManage);
+        Assert.False(items[inElsewhere.Id].CanManage);
+        Assert.Equal(author.Id, items[inElsewhere.Id].AuthorId);
     }
 
     /// <summary>Seeds k/moderated (created by a new user) and a second user with the given role.</summary>
