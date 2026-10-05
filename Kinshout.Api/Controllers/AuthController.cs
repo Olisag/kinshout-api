@@ -117,12 +117,17 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<AuthResponseDto>> Register([FromBody] EmailRegisterRequestDto request, CancellationToken ct)
     {
         try
         {
             var clientId = GetClientId();
             return Ok(await auth.RegisterWithEmailAsync(request, clientId, ct));
+        }
+        catch (EmailAuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new { code = ex.Code, error = ex.Message });
         }
         catch (ArgumentException ex)
         {
@@ -141,6 +146,7 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<AuthResponseDto>> Login([FromBody] EmailLoginRequestDto request, CancellationToken ct)
     {
@@ -148,6 +154,10 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
         {
             var clientId = GetClientId();
             return Ok(await auth.LoginWithEmailAsync(request, clientId, ct));
+        }
+        catch (EmailAuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new { code = ex.Code, error = ex.Message });
         }
         catch (ArgumentException ex)
         {

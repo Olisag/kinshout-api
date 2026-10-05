@@ -145,14 +145,35 @@ public class AuthService(
         var email = NormalizeEmail(request.Email);
         var password = request.Password ?? string.Empty;
         if (password.Length < MinPasswordLength)
-            throw new ArgumentException($"Le mot de passe doit contenir au moins {MinPasswordLength} caractères.");
+        {
+            throw new EmailAuthException(
+                EmailAuthErrorCodes.PasswordTooShort,
+                $"Le mot de passe doit contenir au moins {MinPasswordLength} caractères.",
+                StatusCodes.Status400BadRequest);
+        }
 
         if (await db.Users.AnyAsync(u => u.Email == email, ct))
-            throw new ArgumentException("Un compte existe déjà avec cet e-mail.");
+        {
+            throw new EmailAuthException(
+                EmailAuthErrorCodes.EmailInUse,
+                "Un compte existe déjà avec cet e-mail.",
+                StatusCodes.Status409Conflict);
+        }
 
-        var displayName = string.IsNullOrWhiteSpace(request.DisplayName)
-            ? email.Split('@')[0]
-            : ValidateDisplayName(request.DisplayName);
+        string displayName;
+        try
+        {
+            displayName = string.IsNullOrWhiteSpace(request.DisplayName)
+                ? email.Split('@')[0]
+                : ValidateDisplayName(request.DisplayName);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new EmailAuthException(
+                EmailAuthErrorCodes.InvalidDisplayName,
+                ex.Message,
+                StatusCodes.Status400BadRequest);
+        }
 
         if (await IsDisplayNameTakenAsync(displayName, Guid.Empty, ct))
             displayName = await EnsureUniqueDisplayNameAsync(displayName, ct);
@@ -186,15 +207,19 @@ public class AuthService(
     {
         var email = NormalizeEmail(request.Email);
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct)
-            ?? throw new UnauthorizedAccessException("E-mail ou mot de passe incorrect.");
+            ?? throw InvalidCredentials();
 
         if (string.IsNullOrWhiteSpace(user.PasswordHash))
-            throw new UnauthorizedAccessException(
-                "Ce compte utilise une connexion sociale. Connectez-vous avec Google, Apple ou Facebook.");
+        {
+            throw new EmailAuthException(
+                EmailAuthErrorCodes.SocialAccount,
+                "Ce compte utilise une connexion sociale. Connectez-vous avec Google, Apple ou Facebook.",
+                StatusCodes.Status401Unauthorized);
+        }
 
         var result = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password ?? string.Empty);
         if (result == PasswordVerificationResult.Failed)
-            throw new UnauthorizedAccessException("E-mail ou mot de passe incorrect.");
+            throw InvalidCredentials();
 
         if (result == PasswordVerificationResult.SuccessRehashNeeded)
             user.PasswordHash = passwordHasher.HashPassword(user, request.Password!);
@@ -394,13 +419,22 @@ public class AuthService(
         return trimmed;
     }
 
+    private static EmailAuthException InvalidCredentials() =>
+        new(
+            EmailAuthErrorCodes.InvalidCredentials,
+            "E-mail ou mot de passe incorrect.",
+            StatusCodes.Status401Unauthorized);
+
+    private static EmailAuthException InvalidEmail(string message) =>
+        new(EmailAuthErrorCodes.InvalidEmail, message, StatusCodes.Status400BadRequest);
+
     private static string NormalizeEmail(string? email)
     {
         var value = email?.Trim().ToLowerInvariant() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(value) || !value.Contains('@'))
-            throw new ArgumentException("Adresse e-mail invalide.");
+            throw InvalidEmail("Adresse e-mail invalide.");
         if (value.Length > 320)
-            throw new ArgumentException("Adresse e-mail trop longue.");
+            throw InvalidEmail("Adresse e-mail trop longue.");
         return value;
     }
 

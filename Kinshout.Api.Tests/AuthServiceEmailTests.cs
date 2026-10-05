@@ -62,10 +62,72 @@ public class AuthServiceEmailTests
             new EmailRegisterRequestDto("login@kinoiserie.test", "password123", null),
             "kinshout-web");
 
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+        var ex = await Assert.ThrowsAsync<EmailAuthException>(() =>
             service.LoginWithEmailAsync(
                 new EmailLoginRequestDto("login@kinoiserie.test", "wrong-password"),
                 "kinshout-web"));
+
+        Assert.Equal(EmailAuthErrorCodes.InvalidCredentials, ex.Code);
+        Assert.Equal(StatusCodes.Status401Unauthorized, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginWithEmailAsync_RejectsUnknownEmailLikeAWrongPassword()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<EmailAuthException>(() =>
+            service.LoginWithEmailAsync(
+                new EmailLoginRequestDto("nobody@kinoiserie.test", "password123"),
+                "kinshout-web"));
+
+        Assert.Equal(EmailAuthErrorCodes.InvalidCredentials, ex.Code);
+    }
+
+    [Fact]
+    public async Task LoginWithEmailAsync_TellsSocialAccountsToUseTheirProvider()
+    {
+        await using var db = TestDbFactory.Create();
+        db.Users.Add(new User { DisplayName = "Google User", Email = "google@kinoiserie.test" });
+        await db.SaveChangesAsync();
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<EmailAuthException>(() =>
+            service.LoginWithEmailAsync(
+                new EmailLoginRequestDto("google@kinoiserie.test", "password123"),
+                "kinshout-web"));
+
+        Assert.Equal(EmailAuthErrorCodes.SocialAccount, ex.Code);
+    }
+
+    [Fact]
+    public async Task RegisterWithEmailAsync_RejectsShortPassword()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<EmailAuthException>(() =>
+            service.RegisterWithEmailAsync(
+                new EmailRegisterRequestDto("short@kinoiserie.test", "short", null),
+                "kinshout-web"));
+
+        Assert.Equal(EmailAuthErrorCodes.PasswordTooShort, ex.Code);
+        Assert.Equal(StatusCodes.Status400BadRequest, ex.StatusCode);
+    }
+
+    [Fact]
+    public async Task RegisterWithEmailAsync_RejectsInvalidEmail()
+    {
+        await using var db = TestDbFactory.Create();
+        var service = CreateService(db);
+
+        var ex = await Assert.ThrowsAsync<EmailAuthException>(() =>
+            service.RegisterWithEmailAsync(
+                new EmailRegisterRequestDto("not-an-email", "password123", null),
+                "kinshout-web"));
+
+        Assert.Equal(EmailAuthErrorCodes.InvalidEmail, ex.Code);
     }
 
     [Fact]
@@ -77,12 +139,13 @@ public class AuthServiceEmailTests
             new EmailRegisterRequestDto("dup@kinoiserie.test", "password123", null),
             "kinshout-web");
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+        var ex = await Assert.ThrowsAsync<EmailAuthException>(() =>
             service.RegisterWithEmailAsync(
                 new EmailRegisterRequestDto("dup@kinoiserie.test", "password456", null),
                 "kinshout-web"));
 
-        Assert.Contains("e-mail", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(EmailAuthErrorCodes.EmailInUse, ex.Code);
+        Assert.Equal(StatusCodes.Status409Conflict, ex.StatusCode);
     }
 
     private static AuthService CreateService(KinshoutDbContext db) =>
