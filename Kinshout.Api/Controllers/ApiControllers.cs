@@ -874,7 +874,8 @@ public class DiscussionsController(
     }
 
     /// <summary>
-    /// Update a discussion started by the signed-in user.
+    /// Update a discussion started by the signed-in user, or posted in a community they moderate.
+    /// Only the author can move it to another community.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpPut("{id:guid}")]
@@ -909,7 +910,8 @@ public class DiscussionsController(
     }
 
     /// <summary>
-    /// Permanently delete a discussion started by the signed-in user.
+    /// Permanently delete a discussion started by the signed-in user, or posted in a community
+    /// they moderate.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpDelete("{id:guid}")]

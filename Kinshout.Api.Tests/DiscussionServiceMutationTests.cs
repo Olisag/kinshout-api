@@ -419,6 +419,161 @@ public class DiscussionServiceMutationTests
             service.DeleteReplyAsync(other.Id, discussion.Id, reply.Id));
     }
 
+    [Fact]
+    public async Task UpdateAsync_CommunityModerator_UpdatesAndKeepsAuthorMedia()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var (moderator, _) = await SeedCommunityUserAsync(db, CommunityMemberRoles.Moderator);
+        var community = await db.Communities.SingleAsync(c => c.Slug == "moderated");
+        var authorImage = $"/uploads/images/{author.Id:N}/photo.jpg";
+        var moderatorVideo = $"/uploads/videos/{moderator.Id:N}/clip.mp4";
+        var discussion = AddDiscussion(db, author, category, community, authorImage);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, CreateAnalyzingOpenAi());
+        var updated = await service.UpdateAsync(
+            moderator.Id,
+            discussion.Id,
+            new("Edited", "Edited body", community.Slug, [authorImage], [moderatorVideo]));
+
+        Assert.Equal("Edited", updated.Title);
+        Assert.Equal(author.Id, updated.AuthorId);
+        Assert.True(updated.CanManage);
+        var stored = await db.Discussions.AsNoTracking().SingleAsync(d => d.Id == discussion.Id);
+        Assert.Equal(author.Id, stored.UserId);
+        Assert.Equal(community.Id, stored.CommunityId);
+        Assert.Contains(authorImage, stored.ImageUrlsJson);
+        Assert.Contains(moderatorVideo, stored.VideoUrlsJson);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CommunityModerator_CannotMoveTheDiscussion()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var (moderator, _) = await SeedCommunityUserAsync(db, CommunityMemberRoles.Moderator);
+        var community = await db.Communities.SingleAsync(c => c.Slug == "moderated");
+        await TestDbFactory.SeedCommunityAsync(db, moderator, "elsewhere");
+        var discussion = AddDiscussion(db, author, category, community);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, CreateAnalyzingOpenAi());
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.UpdateAsync(moderator.Id, discussion.Id, new("Moved", "Moved", "k/elsewhere")));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CommunityMember_Throws()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var (member, _) = await SeedCommunityUserAsync(db, CommunityMemberRoles.Member);
+        var community = await db.Communities.SingleAsync(c => c.Slug == "moderated");
+        var discussion = AddDiscussion(db, author, category, community);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, CreateAnalyzingOpenAi());
+        await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            service.UpdateAsync(member.Id, discussion.Id, new("Hack", "Hack")));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.DeleteAsync(member.Id, discussion.Id));
+    }
+
+    [Fact]
+    public async Task DeleteAsync_CommunityModerator_RemovesDiscussion()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var (moderator, _) = await SeedCommunityUserAsync(db, CommunityMemberRoles.Moderator);
+        var community = await db.Communities.SingleAsync(c => c.Slug == "moderated");
+        var discussion = AddDiscussion(db, author, category, community);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        await service.DeleteAsync(moderator.Id, discussion.Id);
+
+        Assert.False(await db.Discussions.AnyAsync(d => d.Id == discussion.Id));
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_CanManage_ForAuthorAndModeratorsOnly()
+    {
+        await using var db = TestDbFactory.Create();
+        var (author, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var (moderator, creator) = await SeedCommunityUserAsync(db, CommunityMemberRoles.Moderator);
+        var member = new User { Email = "member@test", DisplayName = "Member" };
+        db.Users.Add(member);
+        var community = await db.Communities.SingleAsync(c => c.Slug == "moderated");
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = community.Id,
+            UserId = member.Id,
+            Role = CommunityMemberRoles.Member,
+            Status = CommunityMemberStatuses.Approved,
+        });
+        var discussion = AddDiscussion(db, author, category, community);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        async Task<bool?> CanManage(Guid? viewer) =>
+            (await service.GetByIdAsync(discussion.Id, viewerUserId: viewer))?.CanManage;
+
+        Assert.True(await CanManage(author.Id));
+        Assert.True(await CanManage(moderator.Id));
+        Assert.True(await CanManage(creator.Id));
+        Assert.False(await CanManage(member.Id));
+        Assert.False(await CanManage(null));
+    }
+
+    /// <summary>Seeds k/moderated (created by a new user) and a second user with the given role.</summary>
+    private static async Task<(User User, User Creator)> SeedCommunityUserAsync(KinshoutDbContext db, string role)
+    {
+        var creator = new User { Email = "creator@test", DisplayName = "Creator" };
+        var user = new User { Email = $"{role}@test", DisplayName = role };
+        db.Users.AddRange(creator, user);
+        var community = await TestDbFactory.SeedCommunityAsync(db, creator, "moderated");
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            CommunityId = community.Id,
+            UserId = user.Id,
+            Role = role,
+            Status = CommunityMemberStatuses.Approved,
+        });
+        await db.SaveChangesAsync();
+        return (user, creator);
+    }
+
+    private static Discussion AddDiscussion(
+        KinshoutDbContext db,
+        User author,
+        Category category,
+        Community community,
+        string? imageUrl = null)
+    {
+        var discussion = new Discussion
+        {
+            UserId = author.Id,
+            CategoryId = category.Id,
+            CommunityId = community.Id,
+            Title = "Original",
+            Body = "Body",
+            User = author,
+            Category = category,
+            Community = community,
+            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(imageUrl is null ? [] : [imageUrl]),
+        };
+        db.Discussions.Add(discussion);
+        return discussion;
+    }
+
+    private static IOpenAiService CreateAnalyzingOpenAi()
+    {
+        var openAi = new Mock<IOpenAiService>();
+        openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
+        return openAi.Object;
+    }
+
     private static DiscussionService CreateService(
         KinshoutDbContext db,
         IOpenAiService? openAi = null,

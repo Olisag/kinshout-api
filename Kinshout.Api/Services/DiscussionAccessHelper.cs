@@ -36,6 +36,10 @@ public static class DiscussionAccessHelper
     public static bool CanParticipate(Discussion discussion, DiscussionParticipant? participant, Guid userId) =>
         IsApprovedParticipant(discussion, participant, userId);
 
+    /// <summary>Editing and deleting: the author, or a moderator of the discussion's community.</summary>
+    public static bool CanManage(Discussion discussion, Guid? userId, bool isCommunityModerator) =>
+        IsAuthor(discussion, userId) || (discussion.CommunityId is not null && isCommunityModerator);
+
     public static bool CanModerateParticipants(
         Discussion discussion,
         Guid actorUserId,

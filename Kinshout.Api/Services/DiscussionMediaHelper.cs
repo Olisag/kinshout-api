@@ -35,7 +35,8 @@ public static class DiscussionMediaHelper
         Guid userId,
         string folder,
         int maxCount,
-        string itemLabel)
+        string itemLabel,
+        IReadOnlyCollection<string>? keptUrls = null)
     {
         if (urls is null || urls.Count == 0)
             return [];
@@ -52,7 +53,9 @@ public static class DiscussionMediaHelper
 
         foreach (var url in normalized)
         {
-            if (!url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            // URLs already on the discussion may belong to its author when a moderator edits it.
+            if (!url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && keptUrls?.Contains(url, StringComparer.OrdinalIgnoreCase) != true)
             {
                 throw new ArgumentException(
                     $"Seuls vos fichiers téléversés sur Kinoiserie ({folder}) sont autorisés.");

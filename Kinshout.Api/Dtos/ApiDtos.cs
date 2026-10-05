@@ -344,7 +344,9 @@ public record DiscussionDetailDto(
     bool CanAccess = false,
     bool CanParticipate = false,
     [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
-    DiscussionJoinPromptDto? JoinPrompt = null);
+    DiscussionJoinPromptDto? JoinPrompt = null,
+    // The viewer wrote the discussion or moderates its community: they may edit or delete it.
+    bool CanManage = false);
 
 public record DiscussionParticipantDto(
     Guid UserId,

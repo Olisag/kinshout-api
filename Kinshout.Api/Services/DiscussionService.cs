@@ -295,7 +295,7 @@ public class DiscussionService(
 
         var images = DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson);
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
-        var (viewerStatus, canAccess, canParticipate, isCommunityMember, joinPrompt) =
+        var (viewerStatus, canAccess, canParticipate, isCommunityMember, joinPrompt, canManage) =
             await GetViewerAccessAsync(d, viewerUserId, ct);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(videos, ct);
 
@@ -321,7 +321,8 @@ public class DiscussionService(
             canAccess,
             canParticipate,
             isCommunityMember,
-            joinPrompt);
+            joinPrompt,
+            canManage);
     }
 
     public Task RequestJoinAsync(Guid userId, Guid discussionId, CancellationToken ct = default) =>
@@ -360,27 +361,42 @@ public class DiscussionService(
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
             throw new ArgumentException("Le titre et le message sont requis.");
 
-        var discussion = await db.Discussions
-            .FirstOrDefaultAsync(d => d.Id == discussionId && d.UserId == userId, ct)
-            ?? throw new KeyNotFoundException("Discussion introuvable.");
+        var discussion = await RequireManageableDiscussionAsync(discussionId, userId, ct);
 
         await moderation.EnsureTextAllowedAsync($"{title}\n{body}", ct);
 
         var category = await AssignTopicCategoryAsync($"{title}. {body}", ct);
-        var communityId = !string.IsNullOrWhiteSpace(request.CommunitySlug)
-            ? await ResolveCommunityIdAsync(request.CommunitySlug, userId, ct)
-            : discussion.CommunityId ?? await ResolveDefaultCommunityIdAsync(userId, ct);
+        Guid communityId;
+        if (DiscussionAccessHelper.IsAuthor(discussion, userId))
+        {
+            communityId = !string.IsNullOrWhiteSpace(request.CommunitySlug)
+                ? await ResolveCommunityIdAsync(request.CommunitySlug, userId, ct)
+                : discussion.CommunityId ?? await ResolveDefaultCommunityIdAsync(userId, ct);
 
-        await communities.EnsureCanPostAsync(communityId, userId, ct);
+            await communities.EnsureCanPostAsync(communityId, userId, ct);
+        }
+        else
+        {
+            // Moderators edit within their community only.
+            communityId = discussion.CommunityId!.Value;
+            var community = await db.Communities.AsNoTracking().FirstAsync(c => c.Id == communityId, ct);
+            if (!string.IsNullOrWhiteSpace(request.CommunitySlug)
+                && CommunitySlugHelper.Normalize(request.CommunitySlug) != community.Slug)
+            {
+                throw new ArgumentException("Seul l'auteur peut déplacer la discussion vers une autre communauté.");
+            }
+        }
 
+        var currentImages = DiscussionMediaHelper.ParseUrlList(discussion.ImageUrlsJson);
+        var currentVideos = DiscussionMediaHelper.ParseUrlList(discussion.VideoUrlsJson);
         var images = request.ImageUrls is null
-            ? DiscussionMediaHelper.ParseUrlList(discussion.ImageUrlsJson)
+            ? currentImages
             : DiscussionMediaHelper.NormalizeUrls(
-                request.ImageUrls, userId, "images", DiscussionMediaHelper.MaxImages, "photos");
+                request.ImageUrls, userId, "images", DiscussionMediaHelper.MaxImages, "photos", currentImages);
         var videos = request.VideoUrls is null
-            ? DiscussionMediaHelper.ParseUrlList(discussion.VideoUrlsJson)
+            ? currentVideos
             : DiscussionMediaHelper.NormalizeUrls(
-                request.VideoUrls, userId, "videos", DiscussionMediaHelper.MaxVideos, "vidéos");
+                request.VideoUrls, userId, "videos", DiscussionMediaHelper.MaxVideos, "vidéos", currentVideos);
 
         discussion.Title = title;
         discussion.Body = body;
@@ -398,13 +414,39 @@ public class DiscussionService(
 
     public async Task DeleteAsync(Guid userId, Guid discussionId, CancellationToken ct = default)
     {
-        var discussion = await db.Discussions
-            .FirstOrDefaultAsync(d => d.Id == discussionId && d.UserId == userId, ct)
-            ?? throw new KeyNotFoundException("Discussion introuvable.");
+        var discussion = await RequireManageableDiscussionAsync(discussionId, userId, ct);
 
         await DeleteStoredMediaAsync(discussion, ct);
         db.Discussions.Remove(discussion);
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The discussion, when the user wrote it or moderates its community. Others get the same
+    /// "not found" as for a missing discussion.
+    /// </summary>
+    private async Task<Discussion> RequireManageableDiscussionAsync(
+        Guid discussionId,
+        Guid userId,
+        CancellationToken ct)
+    {
+        var discussion = await db.Discussions.FirstOrDefaultAsync(d => d.Id == discussionId, ct)
+            ?? throw new KeyNotFoundException("Discussion introuvable.");
+
+        var isCommunityModerator = false;
+        if (!DiscussionAccessHelper.IsAuthor(discussion, userId) && discussion.CommunityId is Guid communityId)
+        {
+            var community = await db.Communities.AsNoTracking().FirstOrDefaultAsync(c => c.Id == communityId, ct);
+            var membership = await db.CommunityMembers.AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == userId, ct);
+            isCommunityModerator = community is not null
+                && CommunityAccessHelper.CanModerate(community, membership, userId);
+        }
+
+        if (!DiscussionAccessHelper.CanManage(discussion, userId, isCommunityModerator))
+            throw new KeyNotFoundException("Discussion introuvable.");
+
+        return discussion;
     }
 
     public async Task<DiscussionDto> CreateAsync(Guid userId, CreateDiscussionRequestDto request, CancellationToken ct = default)
@@ -964,7 +1006,8 @@ public class DiscussionService(
         bool CanAccess,
         bool CanParticipate,
         bool IsCommunityMember,
-        DiscussionJoinPromptDto? JoinPrompt)> GetViewerAccessAsync(
+        DiscussionJoinPromptDto? JoinPrompt,
+        bool CanManage)> GetViewerAccessAsync(
         Discussion discussion,
         Guid? viewerUserId,
         CancellationToken ct)
@@ -1015,7 +1058,12 @@ public class DiscussionService(
                 communityRequired ? membership?.Status ?? participant?.Status : participant?.Status,
                 toRead: false);
 
-        return (viewerStatus, canAccess, canParticipate, isApprovedCommunityMember, joinPrompt);
+        var canManage = DiscussionAccessHelper.CanManage(
+            discussion,
+            viewerUserId,
+            community is not null && CommunityAccessHelper.CanModerate(community, membership, viewerUserId));
+
+        return (viewerStatus, canAccess, canParticipate, isApprovedCommunityMember, joinPrompt, canManage);
     }
 
     private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)
