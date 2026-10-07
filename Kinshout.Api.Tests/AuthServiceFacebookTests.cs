@@ -37,7 +37,7 @@ public class AuthServiceFacebookTests
             DisplayName = "Squatter",
             Email = "marie@example.com",
             PasswordHash = "not-proven",
-            EmailConfirmationTokenHash = EmailConfirmationTokens.Hash("pending-token"),
+            EmailConfirmationTokenHash = AuthEmailTokens.Hash("pending-token"),
             EmailConfirmationSentAt = DateTime.UtcNow,
         };
         db.Users.Add(pending);
@@ -81,6 +81,6 @@ public class AuthServiceFacebookTests
             Options.Create(new OAuthSettings()),
             facebook,
             new Microsoft.AspNetCore.Identity.PasswordHasher<User>(),
-            Mock.Of<IEmailConfirmationSender>(),
+            Mock.Of<IAuthEmailSender>(),
             Mock.Of<ILogger<AuthService>>());
 }

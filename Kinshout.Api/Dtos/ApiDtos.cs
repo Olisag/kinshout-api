@@ -56,6 +56,13 @@ public record ConfirmEmailRequestDto(string? Token);
 
 public record ResendConfirmationRequestDto(string? Email);
 
+public record ForgotPasswordRequestDto(string? Email);
+
+/// <summary>Sent whether or not <paramref name="Email"/> has an account.</summary>
+public record PasswordResetRequestedDto(string Email);
+
+public record ResetPasswordRequestDto(string? Token, string? Password);
+
 public record FacebookLoginRequestDto(string AccessToken);
 
 public record ClientAuthRequestDto(string ClientId, string? ClientSecret);

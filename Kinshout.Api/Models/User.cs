@@ -14,6 +14,11 @@ public class User
     /// <summary>SHA-256 (hex) of the pending confirmation token; the token itself is only in the e-mail.</summary>
     public string? EmailConfirmationTokenHash { get; set; }
     public DateTime? EmailConfirmationSentAt { get; set; }
+    /// <summary>SHA-256 (hex) of the pending password reset token; the token itself is only in the e-mail.</summary>
+    public string? PasswordResetTokenHash { get; set; }
+    public DateTime? PasswordResetSentAt { get; set; }
+    /// <summary>User JWTs issued before this instant are refused, so a password reset signs out every other device.</summary>
+    public DateTime? SessionsValidAfter { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public string? WhatsAppNumber { get; set; }

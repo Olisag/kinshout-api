@@ -20,9 +20,11 @@ public class JwtTokenService(IOptions<JwtSettings> options) : IJwtTokenService
 
     public string CreateUserToken(User user, string clientId, out DateTime expiresAt)
     {
-        expiresAt = DateTime.UtcNow.AddMinutes(_settings.ExpirationMinutes);
+        var issuedAt = DateTimeOffset.UtcNow;
+        expiresAt = issuedAt.UtcDateTime.AddMinutes(_settings.ExpirationMinutes);
         var claims = new List<Claim>
         {
+            new(JwtRegisteredClaimNames.Iat, issuedAt.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
             new(AuthConstants.TokenTypeClaim, AuthConstants.UserTokenType),
             new(AuthConstants.ClientIdClaim, clientId),
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),

@@ -714,6 +714,37 @@ public static class DbSchemaPatcher
         await EnsureVideoAssetProcessingSchemaAsync(db, connection, sqlServer, ct);
         await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
         await EnsureEmailConfirmationSchemaAsync(db, connection, sqlServer, ct);
+        await EnsurePasswordResetSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsurePasswordResetSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        (string Column, string SqlServerType, string SqliteType)[] columns =
+        [
+            ("PasswordResetTokenHash", "nvarchar(64) NULL", "TEXT"),
+            ("PasswordResetSentAt", "datetime2 NULL", "TEXT"),
+            ("SessionsValidAfter", "datetime2 NULL", "TEXT"),
+        ];
+        foreach (var (column, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "Users", column, ct))
+                continue;
+
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE Users ADD {(sqlServer ? "" : "COLUMN ")}{column} {(sqlServer ? sqlServerType : sqliteType)}",
+                cancellationToken: ct);
+        }
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Users_PasswordResetTokenHash", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_Users_PasswordResetTokenHash ON Users (PasswordResetTokenHash)",
+                cancellationToken: ct);
+        }
     }
 
     private static async Task EnsureEmailConfirmationSchemaAsync(

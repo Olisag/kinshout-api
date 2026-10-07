@@ -1,4 +1,6 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.IO.Compression;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using Kinshout.Api.Auth;
@@ -14,6 +16,7 @@ using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
@@ -87,7 +90,8 @@ builder.Services.AddScoped<IEmailService>(sp =>
         ? sp.GetRequiredService<AcsEmailService>()
         : sp.GetRequiredService<SmtpEmailService>();
 });
-builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
+builder.Services.AddScoped<IAuthEmailSender, AuthEmailSender>();
+builder.Services.AddScoped<IUserSessionValidator, UserSessionValidator>();
 builder.Services.AddScoped<ICommunityJoinNotifier, CommunityJoinNotifier>();
 builder.Services.AddScoped<IDiscussionParticipationService, DiscussionParticipationService>();
 builder.Services.AddScoped<IDiscussionJoinNotifier, DiscussionJoinNotifier>();
@@ -140,6 +144,22 @@ builder.Services
         };
         options.Events = new JwtBearerEvents
         {
+            OnTokenValidated = async context =>
+            {
+                var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!Guid.TryParse(userId, out var id))
+                    return;
+
+                var issuedAt = context.SecurityToken switch
+                {
+                    JsonWebToken token => token.IssuedAt,
+                    JwtSecurityToken token => token.IssuedAt,
+                    _ => DateTime.MinValue,
+                };
+                var sessions = context.HttpContext.RequestServices.GetRequiredService<IUserSessionValidator>();
+                if (!await sessions.IsActiveAsync(id, issuedAt, context.HttpContext.RequestAborted))
+                    context.Fail("The user session was signed out.");
+            },
             OnChallenge = context =>
             {
                 if (context.Request.Path.StartsWithSegments("/api"))
@@ -147,7 +167,11 @@ builder.Services
                     context.HandleResponse();
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     context.Response.ContentType = "application/json";
-                    var message = context.Error == "invalid_token"
+                    var tokenRefused = context.AuthenticateFailure is not null;
+                    // Lets the web app drop a session the API no longer accepts.
+                    if (tokenRefused)
+                        context.Response.Headers.WWWAuthenticate = "Bearer error=\"invalid_token\"";
+                    var message = tokenRefused
                         ? "Invalid or expired user session token."
                         : "User sign-in required. Send Authorization: Bearer with a user JWT.";
                     return context.Response.WriteAsJsonAsync(new { error = message });

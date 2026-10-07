@@ -38,4 +38,16 @@ public class JwtTokenServiceTests
         Assert.Equal(user.Email, jwt.Claims.First(c => c.Type == JwtRegisteredClaimNames.Email).Value);
         Assert.True(expiresAt > DateTime.UtcNow);
     }
+
+    [Fact]
+    public void CreateUserToken_RecordsWhenItWasIssued()
+    {
+        var before = DateTime.UtcNow.AddSeconds(-1);
+        var user = new User { Id = Guid.NewGuid(), Email = "user@kinshout.test", DisplayName = "Jane Doe" };
+
+        var token = CreateService().CreateUserToken(user, "kinshout-web", out _);
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+
+        Assert.InRange(jwt.IssuedAt, before, DateTime.UtcNow.AddSeconds(1));
+    }
 }

@@ -25,4 +25,8 @@ public static class EmailAuthErrorCodes
     public const string InvalidConfirmationToken = "invalid_confirmation_token";
     /// <summary>The account exists but its confirmation e-mail could not be sent; signing up again retries.</summary>
     public const string ConfirmationEmailFailed = "confirmation_email_failed";
+    /// <summary>The password reset link is unknown, already used or expired.</summary>
+    public const string InvalidResetToken = "invalid_reset_token";
+    /// <summary>The password reset e-mail could not be sent; asking again retries.</summary>
+    public const string PasswordResetEmailFailed = "password_reset_email_failed";
 }

@@ -200,6 +200,60 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
     }
 
     /// <summary>
+    /// E-mail a password reset link (at most once a minute per account).
+    /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
+    /// </summary>
+    /// <remarks>Answers 202 whether or not the address has an account.</remarks>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PasswordResetRequestedDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<PasswordResetRequestedDto>> ForgotPassword(
+        [FromBody] ForgotPasswordRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            await auth.RequestPasswordResetAsync(request.Email, ct);
+            return Accepted(new PasswordResetRequestedDto(request.Email?.Trim().ToLowerInvariant() ?? string.Empty));
+        }
+        catch (EmailAuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new { code = ex.Code, error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Choose a new password with the token from a reset link, and sign the user in.
+    /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
+    /// </summary>
+    /// <remarks>Every session opened before the reset is signed out.</remarks>
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthResponseDto>> ResetPassword(
+        [FromBody] ResetPasswordRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var clientId = GetClientId();
+            return Ok(await auth.ResetPasswordAsync(request.Token, request.Password, clientId, ct));
+        }
+        catch (EmailAuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new { code = ex.Code, error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Sign in with email and password.
     /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
     /// </summary>
