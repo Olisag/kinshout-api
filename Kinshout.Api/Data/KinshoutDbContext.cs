@@ -68,6 +68,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasIndex(x => x.Email).IsUnique();
             e.Property(x => x.Email).HasMaxLength(320);
             e.Property(x => x.PasswordHash).HasMaxLength(500);
+            e.Property(x => x.EmailConfirmationTokenHash).HasMaxLength(64);
+            e.HasIndex(x => x.EmailConfirmationTokenHash);
             e.Property(x => x.DisplayName).HasMaxLength(120);
             e.Property(x => x.WhatsAppNumber).HasMaxLength(32);
             e.Property(x => x.DisplayPreference).HasMaxLength(16).HasDefaultValue(DisplayPreferenceMode.Clair);

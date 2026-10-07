@@ -713,6 +713,43 @@ public static class DbSchemaPatcher
         await EnsureVideoAssetsSchemaAsync(db, connection, sqlServer, ct);
         await EnsureVideoAssetProcessingSchemaAsync(db, connection, sqlServer, ct);
         await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
+        await EnsureEmailConfirmationSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsureEmailConfirmationSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        (string Column, string SqlServerType, string SqliteType)[] columns =
+        [
+            ("EmailConfirmedAt", "datetime2 NULL", "TEXT"),
+            ("EmailConfirmationTokenHash", "nvarchar(64) NULL", "TEXT"),
+            ("EmailConfirmationSentAt", "datetime2 NULL", "TEXT"),
+        ];
+        foreach (var (column, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "Users", column, ct))
+                continue;
+
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE Users ADD {(sqlServer ? "" : "COLUMN ")}{column} {(sqlServer ? sqlServerType : sqliteType)}",
+                cancellationToken: ct);
+        }
+
+        // Accounts from before e-mail confirmation count as confirmed. Every e-mail sign-up since then keeps a
+        // token hash until it is confirmed, so this never confirms one, and is safe to run on every start.
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE Users SET EmailConfirmedAt = CreatedAt WHERE EmailConfirmedAt IS NULL AND EmailConfirmationTokenHash IS NULL",
+            cancellationToken: ct);
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Users_EmailConfirmationTokenHash", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_Users_EmailConfirmationTokenHash ON Users (EmailConfirmationTokenHash)",
+                cancellationToken: ct);
+        }
     }
 
     private static async Task EnsureVideoAssetProcessingSchemaAsync(

@@ -6,6 +6,14 @@ public class User
     public string Email { get; set; } = string.Empty;
     /// <summary>Password hash for email/password (Local) auth. Null for OAuth-only users.</summary>
     public string? PasswordHash { get; set; }
+    /// <summary>
+    /// When the user proved they own <see cref="Email"/>. Social providers count as proof; e-mail sign-ups
+    /// stay null (and cannot sign in) until they open the confirmation link.
+    /// </summary>
+    public DateTime? EmailConfirmedAt { get; set; }
+    /// <summary>SHA-256 (hex) of the pending confirmation token; the token itself is only in the e-mail.</summary>
+    public string? EmailConfirmationTokenHash { get; set; }
+    public DateTime? EmailConfirmationSentAt { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public string? WhatsAppNumber { get; set; }

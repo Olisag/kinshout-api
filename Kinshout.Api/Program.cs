@@ -78,7 +78,16 @@ builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
 builder.Services.AddScoped<ICommunityService, CommunityService>();
-builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddSingleton<AcsEmailService>();
+builder.Services.AddScoped<SmtpEmailService>();
+builder.Services.AddScoped<IEmailService>(sp =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmailSettings>>().Value;
+    return settings.Enabled && !string.IsNullOrWhiteSpace(settings.AcsEndpoint)
+        ? sp.GetRequiredService<AcsEmailService>()
+        : sp.GetRequiredService<SmtpEmailService>();
+});
+builder.Services.AddScoped<IEmailConfirmationSender, EmailConfirmationSender>();
 builder.Services.AddScoped<ICommunityJoinNotifier, CommunityJoinNotifier>();
 builder.Services.AddScoped<IDiscussionParticipationService, DiscussionParticipationService>();
 builder.Services.AddScoped<IDiscussionJoinNotifier, DiscussionJoinNotifier>();

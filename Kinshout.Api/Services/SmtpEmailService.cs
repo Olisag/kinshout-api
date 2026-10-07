@@ -7,6 +7,7 @@ namespace Kinshout.Api.Services;
 
 public class SmtpEmailService(
     IOptions<EmailSettings> options,
+    IHostEnvironment environment,
     ILogger<SmtpEmailService> logger) : IEmailService
 {
     private readonly EmailSettings _settings = options.Value;
@@ -18,10 +19,22 @@ public class SmtpEmailService(
 
         if (!_settings.Enabled)
         {
-            logger.LogInformation(
-                "Email disabled — would send to {To}: {Subject}",
-                toAddress,
-                subject);
+            // Bodies can hold sign-in links, so they only reach the log on a developer machine.
+            if (environment.IsDevelopment())
+            {
+                logger.LogInformation(
+                    "Email disabled — would send to {To}: {Subject}\n{Body}",
+                    toAddress,
+                    subject,
+                    plainTextBody);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Email disabled — would send to {To}: {Subject}",
+                    toAddress,
+                    subject);
+            }
             return;
         }
 

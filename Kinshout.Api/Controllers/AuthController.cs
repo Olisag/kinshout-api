@@ -112,18 +112,25 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
     /// Register with email and password (Kinoiserie local auth).
     /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
     /// </summary>
+    /// <remarks>
+    /// Does not sign the user in: a confirmation link is e-mailed, and <c>POST /api/auth/confirm-email</c>
+    /// with its token returns the user JWT. Signing up again with a still-unconfirmed address replaces that
+    /// pending account and sends a new link.
+    /// </remarks>
     [HttpPost("register")]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(EmailConfirmationPendingDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<AuthResponseDto>> Register([FromBody] EmailRegisterRequestDto request, CancellationToken ct)
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<EmailConfirmationPendingDto>> Register(
+        [FromBody] EmailRegisterRequestDto request,
+        CancellationToken ct)
     {
         try
         {
-            var clientId = GetClientId();
-            return Ok(await auth.RegisterWithEmailAsync(request, clientId, ct));
+            return Ok(await auth.RegisterWithEmailAsync(request, ct));
         }
         catch (EmailAuthException ex)
         {
@@ -140,14 +147,69 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
     }
 
     /// <summary>
+    /// Confirm an e-mail sign-up with the token from the confirmation link, and sign the user in.
+    /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
+    /// </summary>
+    [HttpPost("confirm-email")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthResponseDto>> ConfirmEmail(
+        [FromBody] ConfirmEmailRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var clientId = GetClientId();
+            return Ok(await auth.ConfirmEmailAsync(request.Token, clientId, ct));
+        }
+        catch (EmailAuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new { code = ex.Code, error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Send a new confirmation link to a pending e-mail sign-up (at most once a minute).
+    /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
+    /// </summary>
+    /// <remarks>Answers 202 whether or not the address has a pending sign-up.</remarks>
+    [HttpPost("resend-confirmation")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(EmailConfirmationPendingDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<EmailConfirmationPendingDto>> ResendConfirmation(
+        [FromBody] ResendConfirmationRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            await auth.ResendConfirmationAsync(request.Email, ct);
+            return Accepted(new EmailConfirmationPendingDto(request.Email?.Trim().ToLowerInvariant() ?? string.Empty));
+        }
+        catch (EmailAuthException ex)
+        {
+            return StatusCode(ex.StatusCode, new { code = ex.Code, error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Sign in with email and password.
     /// Requires a valid frontend client token in <c>X-Kinshout-Client-Token</c>.
     /// </summary>
+    /// <remarks>Answers 403 <c>email_not_confirmed</c> when the password is right but the link was never opened.</remarks>
     [HttpPost("login")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<AuthResponseDto>> Login([FromBody] EmailLoginRequestDto request, CancellationToken ct)
     {
         try

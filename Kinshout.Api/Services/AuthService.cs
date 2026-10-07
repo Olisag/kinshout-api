@@ -19,8 +19,11 @@ public interface IAuthService
     Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default);
     Task<AuthResponseDto> SignInWithAppleAsync(string idToken, string clientId, CancellationToken ct = default);
     Task<AuthResponseDto> SignInWithFacebookAsync(string accessToken, string clientId, CancellationToken ct = default);
-    Task<AuthResponseDto> RegisterWithEmailAsync(EmailRegisterRequestDto request, string clientId, CancellationToken ct = default);
+    Task<EmailConfirmationPendingDto> RegisterWithEmailAsync(EmailRegisterRequestDto request, CancellationToken ct = default);
     Task<AuthResponseDto> LoginWithEmailAsync(EmailLoginRequestDto request, string clientId, CancellationToken ct = default);
+    Task<AuthResponseDto> ConfirmEmailAsync(string? token, string clientId, CancellationToken ct = default);
+    /// <summary>Sends a fresh link to a pending sign-up. Says nothing about whether the address has an account.</summary>
+    Task ResendConfirmationAsync(string? email, CancellationToken ct = default);
     Task<UserProfileDto?> GetProfileAsync(Guid userId, CancellationToken ct = default);
     Task<UserProfileDto> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken ct = default);
     Task<UserProfileDto> UpdateDisplayNameAsync(
@@ -49,10 +52,12 @@ public class AuthService(
     IOptions<OAuthSettings> oauthOptions,
     IFacebookAuthValidator facebookAuth,
     IPasswordHasher<User> passwordHasher,
+    IEmailConfirmationSender confirmationEmail,
     ILogger<AuthService> logger) : IAuthService
 {
     private const int DisplayNameMaxLength = 120;
     private const int MinPasswordLength = 8;
+    private static readonly TimeSpan ConfirmationResendCooldown = TimeSpan.FromSeconds(60);
     private readonly OAuthSettings _oauth = oauthOptions.Value;
 
     public async Task<AuthResponseDto> SignInWithGoogleAsync(string idToken, string clientId, CancellationToken ct = default)
@@ -137,9 +142,8 @@ public class AuthService(
             ct);
     }
 
-    public async Task<AuthResponseDto> RegisterWithEmailAsync(
+    public async Task<EmailConfirmationPendingDto> RegisterWithEmailAsync(
         EmailRegisterRequestDto request,
-        string clientId,
         CancellationToken ct = default)
     {
         var email = NormalizeEmail(request.Email);
@@ -152,7 +156,9 @@ public class AuthService(
                 StatusCodes.Status400BadRequest);
         }
 
-        if (await db.Users.AnyAsync(u => u.Email == email, ct))
+        // An unconfirmed sign-up proves nothing about who owns the address, so signing up again replaces it.
+        var pending = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        if (pending is not null && pending.EmailConfirmedAt is not null)
         {
             throw new EmailAuthException(
                 EmailAuthErrorCodes.EmailInUse,
@@ -175,30 +181,108 @@ public class AuthService(
                 StatusCodes.Status400BadRequest);
         }
 
-        if (await IsDisplayNameTakenAsync(displayName, Guid.Empty, ct))
+        if (await IsDisplayNameTakenAsync(displayName, pending?.Id ?? Guid.Empty, ct))
             displayName = await EnsureUniqueDisplayNameAsync(displayName, ct);
 
-        var user = new User
-        {
-            Email = email,
-            DisplayName = displayName,
-            LastLoginAt = DateTime.UtcNow,
-        };
+        var user = pending ?? new User { Email = email };
+        user.DisplayName = displayName;
         user.PasswordHash = passwordHasher.HashPassword(user, password);
 
-        db.Users.Add(user);
-        db.UserLogins.Add(new UserLogin
-        {
-            User = user,
-            Provider = AuthProvider.Local,
-            ProviderKey = email,
-        });
-        await db.SaveChangesAsync(ct);
-        await CommunitySeed.JoinGeneralCommunityAsync(db, user.Id, ct);
+        var sendEmail = pending?.EmailConfirmationSentAt is not { } sentAt
+            || DateTime.UtcNow - sentAt >= ConfirmationResendCooldown;
+        var confirmationToken = sendEmail ? IssueConfirmationToken(user) : null;
 
-        var token = jwt.CreateUserToken(user, clientId, out var expiresAt);
-        return new AuthResponseDto(token, expiresAt, ToProfile(user));
+        if (pending is null)
+        {
+            db.Users.Add(user);
+            db.UserLogins.Add(new UserLogin
+            {
+                User = user,
+                Provider = AuthProvider.Local,
+                ProviderKey = email,
+            });
+        }
+        await db.SaveChangesAsync(ct);
+        if (pending is null)
+            await CommunitySeed.JoinGeneralCommunityAsync(db, user.Id, ct);
+
+        if (confirmationToken is not null)
+            await SendConfirmationAsync(user, confirmationToken, ct);
+
+        return new EmailConfirmationPendingDto(user.Email);
     }
+
+    public async Task<AuthResponseDto> ConfirmEmailAsync(string? token, string clientId, CancellationToken ct = default)
+    {
+        var trimmed = token?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            throw InvalidConfirmationToken();
+
+        var hash = EmailConfirmationTokens.Hash(trimmed);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.EmailConfirmationTokenHash == hash, ct)
+            ?? throw InvalidConfirmationToken();
+        if (user.EmailConfirmationSentAt is not { } sentAt
+            || DateTime.UtcNow - sentAt > EmailConfirmationTokens.Lifetime)
+        {
+            throw InvalidConfirmationToken();
+        }
+
+        var now = DateTime.UtcNow;
+        user.EmailConfirmedAt = now;
+        user.EmailConfirmationTokenHash = null;
+        user.EmailConfirmationSentAt = null;
+        user.LastLoginAt = now;
+        await db.SaveChangesAsync(ct);
+
+        var jwtToken = jwt.CreateUserToken(user, clientId, out var expiresAt);
+        return new AuthResponseDto(jwtToken, expiresAt, ToProfile(user));
+    }
+
+    public async Task ResendConfirmationAsync(string? email, CancellationToken ct = default)
+    {
+        var normalized = NormalizeEmail(email);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == normalized, ct);
+        if (user is null || user.EmailConfirmedAt is not null)
+            return;
+        if (user.EmailConfirmationSentAt is { } sentAt && DateTime.UtcNow - sentAt < ConfirmationResendCooldown)
+            return;
+
+        var confirmationToken = IssueConfirmationToken(user);
+        await db.SaveChangesAsync(ct);
+        await SendConfirmationAsync(user, confirmationToken, ct);
+    }
+
+    private static string IssueConfirmationToken(User user)
+    {
+        var token = EmailConfirmationTokens.Create();
+        user.EmailConfirmationTokenHash = EmailConfirmationTokens.Hash(token);
+        user.EmailConfirmationSentAt = DateTime.UtcNow;
+        return token;
+    }
+
+    private async Task SendConfirmationAsync(User user, string confirmationToken, CancellationToken ct)
+    {
+        try
+        {
+            await confirmationEmail.SendAsync(user, confirmationToken, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Could not send the e-mail confirmation link to user {UserId}", user.Id);
+            user.EmailConfirmationSentAt = null;
+            await db.SaveChangesAsync(CancellationToken.None);
+            throw new EmailAuthException(
+                EmailAuthErrorCodes.ConfirmationEmailFailed,
+                "Impossible d'envoyer l'e-mail de confirmation pour le moment. Réessayez dans quelques minutes.",
+                StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    private static EmailAuthException InvalidConfirmationToken() =>
+        new(
+            EmailAuthErrorCodes.InvalidConfirmationToken,
+            "Ce lien de confirmation est invalide ou a expiré.",
+            StatusCodes.Status400BadRequest);
 
     public async Task<AuthResponseDto> LoginWithEmailAsync(
         EmailLoginRequestDto request,
@@ -220,6 +304,14 @@ public class AuthService(
         var result = passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password ?? string.Empty);
         if (result == PasswordVerificationResult.Failed)
             throw InvalidCredentials();
+
+        if (user.EmailConfirmedAt is null)
+        {
+            throw new EmailAuthException(
+                EmailAuthErrorCodes.EmailNotConfirmed,
+                "Confirmez votre adresse e-mail avec le lien que nous vous avons envoyé avant de vous connecter.",
+                StatusCodes.Status403Forbidden);
+        }
 
         if (result == PasswordVerificationResult.SuccessRehashNeeded)
             user.PasswordHash = passwordHasher.HashPassword(user, request.Password!);
@@ -362,6 +454,7 @@ public class AuthService(
         {
             user = login.User;
             user.LastLoginAt = DateTime.UtcNow;
+            user.EmailConfirmedAt ??= DateTime.UtcNow;
             if (!string.IsNullOrWhiteSpace(avatarUrl) && string.IsNullOrWhiteSpace(user.AvatarUrl))
                 user.AvatarUrl = avatarUrl;
         }
@@ -376,6 +469,7 @@ public class AuthService(
                     DisplayName = displayName,
                     AvatarUrl = avatarUrl,
                     LastLoginAt = DateTime.UtcNow,
+                    EmailConfirmedAt = DateTime.UtcNow,
                 };
                 db.Users.Add(user);
                 isNewUser = true;
@@ -384,6 +478,18 @@ public class AuthService(
             {
                 user = existing;
                 user.LastLoginAt = DateTime.UtcNow;
+                if (user.EmailConfirmedAt is null)
+                {
+                    // The provider vouches for the address; whoever set the pending password never did.
+                    user.EmailConfirmedAt = DateTime.UtcNow;
+                    user.EmailConfirmationTokenHash = null;
+                    user.EmailConfirmationSentAt = null;
+                    user.PasswordHash = null;
+                    db.UserLogins.RemoveRange(
+                        await db.UserLogins
+                            .Where(l => l.UserId == user.Id && l.Provider == AuthProvider.Local)
+                            .ToListAsync(ct));
+                }
                 if (!string.IsNullOrWhiteSpace(avatarUrl) && string.IsNullOrWhiteSpace(user.AvatarUrl))
                     user.AvatarUrl = avatarUrl;
             }

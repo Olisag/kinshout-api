@@ -215,6 +215,7 @@ public class AuthServiceTests
             Options.Create(new OAuthSettings()),
             Mock.Of<IFacebookAuthValidator>(),
             new Microsoft.AspNetCore.Identity.PasswordHasher<User>(),
+            Mock.Of<IEmailConfirmationSender>(),
             Mock.Of<ILogger<AuthService>>());
 
     private static UploadUrlResolver CreateUploadUrlResolver() =>

@@ -76,6 +76,12 @@ public class EmailSettings
     public string SmtpUsername { get; set; } = string.Empty;
     public string SmtpPassword { get; set; } = string.Empty;
     public bool UseSsl { get; set; } = true;
+    /// <summary>
+    /// Azure Communication Services endpoint (https://&lt;name&gt;.communication.azure.com). When set, e-mail is
+    /// sent through it with the app's managed identity instead of SMTP; <see cref="FromAddress"/> must be a
+    /// sender of a domain connected to that resource.
+    /// </summary>
+    public string AcsEndpoint { get; set; } = string.Empty;
     /// <summary>Base URL for links in notification emails (e.g. https://app.example.com).</summary>
     public string WebBaseUrl { get; set; } = "http://localhost:5173";
 }
