@@ -333,7 +333,7 @@ public class CategoriesController(KinshoutDbContext db, IMemoryCache cache) : Co
     }
 }
 
-/// <summary>Semantic search — OpenAI matches adverts and discussions to the user's query.</summary>
+/// <summary>Kinoiserie search — discussions only (popular / recent). No adverts.</summary>
 [ApiController]
 [Route("api/search")]
 [Produces("application/json")]
@@ -353,16 +353,26 @@ public class SearchController(ISearchService search) : ControllerBase
         Ok(await search.GetPopularSearchesAsync(page, pageSize, ct));
 
     /// <summary>
-    /// Search adverts and discussions using OpenAI semantic matching (POST body).
-    /// Records the query for popularity stats.
+    /// Recent search queries (most recently searched first).
+    /// Requires frontend client token only.
+    /// </summary>
+    [HttpGet("recent")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PagedResultDto<PopularSearchDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResultDto<PopularSearchDto>>> Recent(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await search.GetRecentSearchesAsync(page, pageSize, ct));
+
+    /// <summary>
+    /// Search discussions only (Kinoiserie). Records the query for popularity stats.
     /// Requires frontend client token only.
     /// </summary>
     /// <remarks>
-    /// Set <c>tab</c> to <c>all</c>, <c>annonces</c>, or <c>discussions</c> to filter result types.
-    /// Use <c>sort</c> (<c>recent</c> or <c>popular</c>) and optional <c>intent</c> (<c>demande</c>, <c>offre</c>, <c>discussion</c>).
+    /// Results are always discussions — adverts are never returned.
+    /// Use <c>sort</c> (<c>recent</c> or <c>popular</c>).
     /// Use <c>page</c> (1-based) and <c>pageSize</c> (max 50, default 20) for pagination.
-    /// Optional <c>source</c> filters adverts by origin — same values as <c>GET /api/adverts?source=</c>
-    /// (<c>kinshout</c>, <c>external</c>, <c>facebook_marketplace</c>, <c>mediacongo</c>, <c>zwandako</c>, <c>jiji_rdc</c>, <c>other</c>).
     /// Falls back to keyword matching if OpenAI is unavailable.
     /// </remarks>
     [HttpPost]
@@ -381,20 +391,17 @@ public class SearchController(ISearchService search) : ControllerBase
     }
 
     /// <summary>
-    /// Search adverts and discussions (query string). Same behaviour as POST /api/search.
+    /// Search discussions only (query string). Same behaviour as POST /api/search.
     /// Records the query for popularity stats.
     /// Requires frontend client token only.
     /// </summary>
     /// <param name="q">Search text, e.g. "appartement à Gombe".</param>
-    /// <param name="tab">Result filter: all, annonces, or discussions.</param>
+    /// <param name="tab">Ignored — search is always discussions-only.</param>
     /// <param name="sort">Sort order: recent (default) or popular.</param>
-    /// <param name="intent">Optional intent filter: demande, offre, or discussion.</param>
+    /// <param name="intent">Ignored for Kinoiserie search.</param>
     /// <param name="page">Page number (1-based).</param>
-    /// <param name="pageSize">Results per type per page (max 50).</param>
-    /// <param name="source">
-    /// Optional listing source filter — same values as <c>GET /api/adverts?source=</c>
-    /// (<c>kinshout</c>, <c>external</c>, provider slugs, or <c>all</c>/<c>toutes</c> for no filter).
-    /// </param>
+    /// <param name="pageSize">Results per page (max 50).</param>
+    /// <param name="source">Ignored — adverts are not searched.</param>
     /// <param name="ct">Cancellation token.</param>
     [HttpGet]
     [AllowAnonymous]
@@ -548,6 +555,7 @@ public class DiscussionsController(
     /// </summary>
     /// <param name="q">Optional text filter on title or body.</param>
     /// <param name="categoryId">Optional discussion topic category ID.</param>
+    /// <param name="community">Optional community slug (<c>k/community1</c> or <c>community1</c>).</param>
     /// <param name="page">Page number (1-based).</param>
     /// <param name="pageSize">Items per page (max 50).</param>
     /// <param name="sort">Sort order: <c>recent</c> (default) or <c>popular</c> (view count).</param>
@@ -555,17 +563,42 @@ public class DiscussionsController(
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<PagedResultDto<DiscussionDto>>> List(
         [FromQuery] string? q,
         [FromQuery] Guid? categoryId,
+        [FromQuery] string? community,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string sort = "recent",
-        CancellationToken ct = default) =>
-        Ok(await discussions.ListAsync(q, categoryId, page, pageSize, sort, TryGetUserId(), ct));
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await discussions.ListAsync(q, categoryId, null, community, page, pageSize, sort, TryGetUserId(), ct));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
 
     /// <summary>
-    /// List discussion IDs liked by the signed-in user.
+    /// List discussions liked by the signed-in user (discussion like or any reply like).
+    /// Requires client token + user JWT.
+    /// </summary>
+    [HttpGet("liked")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResultDto<DiscussionDto>>> ListLiked(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default) =>
+        Ok(await likedDiscussions.ListLikedAsync(GetUserId(), page, pageSize, ct));
+
+    /// <summary>
+    /// List discussion IDs liked by the signed-in user (discussion like or any reply like).
     /// Requires client token + user JWT.
     /// </summary>
     [HttpGet("liked/ids")]
@@ -606,6 +639,7 @@ public class DiscussionsController(
     [HttpGet("{id:guid}")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(DiscussionDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DiscussionAccessDeniedDto), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionDetailDto>> Get(
         Guid id,
@@ -613,8 +647,19 @@ public class DiscussionsController(
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
-        return item is null ? NotFound() : Ok(item);
+        try
+        {
+            var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
+            return item is null ? NotFound() : Ok(item);
+        }
+        catch (DiscussionAccessDeniedException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.ToResponse());
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
     }
 
     /// <summary>
@@ -658,7 +703,53 @@ public class DiscussionsController(
     }
 
     /// <summary>
-    /// Start a new discussion. OpenAI assigns a category.
+    /// Like a reply. Requires client token + user JWT.
+    /// </summary>
+    [HttpPost("{id:guid}/replies/{replyId:guid}/like")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionReplyDto>> LikeReply(
+        Guid id,
+        Guid replyId,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await likedDiscussions.LikeReplyAsync(GetUserId(), id, replyId, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Remove a like from a reply. Requires client token + user JWT.
+    /// </summary>
+    [HttpDelete("{id:guid}/replies/{replyId:guid}/like")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionReplyDto>> UnlikeReply(
+        Guid id,
+        Guid replyId,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await likedDiscussions.UnlikeReplyAsync(GetUserId(), id, replyId, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Start a new discussion in a community (<c>communitySlug</c> required). OpenAI assigns a topic category.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpPost]
@@ -673,7 +764,69 @@ public class DiscussionsController(
             var item = await discussions.CreateAsync(userId, request, ct);
             return CreatedAtAction(nameof(Get), new { id = item.Id }, item);
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
         catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Attach photos/videos to a discussion (upload URLs from <c>/api/uploads/images</c> or <c>/api/uploads/videos</c>).
+    /// </summary>
+    [HttpPost("{id:guid}/media")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDto>> AddMedia(
+        Guid id,
+        [FromBody] DiscussionMediaUpdateRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await discussions.AddMediaAsync(GetUserId(), id, request, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Remove photos/videos from a discussion by URL.
+    /// </summary>
+    [HttpDelete("{id:guid}/media")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(DiscussionDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DiscussionDto>> RemoveMedia(
+        Guid id,
+        [FromBody] DiscussionMediaUpdateRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            return Ok(await discussions.RemoveMediaAsync(GetUserId(), id, request, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (ArgumentException ex)
         {
             return BadRequest(new { error = ex.Message });
         }
@@ -686,7 +839,9 @@ public class DiscussionsController(
     [HttpPost("{id:guid}/replies")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
     [ProducesResponseType(typeof(DiscussionReplyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(DiscussionAccessDeniedDto), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DiscussionReplyDto>> Reply(Guid id, [FromBody] CreateReplyRequestDto request, CancellationToken ct)
     {
@@ -700,14 +855,27 @@ public class DiscussionsController(
         {
             return NotFound();
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
         catch (AdvertModerationException ex)
         {
             return BadRequest(new { error = ex.Message });
         }
+        catch (DiscussionAccessDeniedException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, ex.ToResponse());
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
     }
 
     /// <summary>
-    /// Update a discussion started by the signed-in user.
+    /// Update a discussion started by the signed-in user, or posted in a community they moderate.
+    /// Only the author can move it to another community.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpPut("{id:guid}")]
@@ -742,7 +910,8 @@ public class DiscussionsController(
     }
 
     /// <summary>
-    /// Permanently delete a discussion started by the signed-in user.
+    /// Permanently delete a discussion started by the signed-in user, or posted in a community
+    /// they moderate.
     /// Requires client token + user JWT.
     /// </summary>
     [HttpDelete("{id:guid}")]
@@ -818,6 +987,106 @@ public class DiscussionsController(
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+    }
+
+    /// <summary>
+    /// Join a discussion. Public discussions grant access immediately; private discussions
+    /// create a pending request and email the community creator and moderators.
+    /// Any one creator or moderator approval is sufficient.
+    /// </summary>
+    [HttpPost("{id:guid}/join")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Join(Guid id, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.RequestJoinAsync(GetUserId(), id, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Discussion introuvable." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("{id:guid}/members/pending")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<DiscussionParticipantDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResultDto<DiscussionParticipantDto>>> ListPendingParticipants(
+        Guid id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await discussions.ListPendingParticipantsAsync(GetUserId(), id, page, pageSize, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Discussion introuvable." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/members/{userId:guid}/approve")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ApproveParticipant(Guid id, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.ApproveParticipantAsync(GetUserId(), id, userId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/members/{userId:guid}/reject")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RejectParticipant(Guid id, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await discussions.RejectParticipantAsync(GetUserId(), id, userId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
     }
 

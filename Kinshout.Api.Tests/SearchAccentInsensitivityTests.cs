@@ -36,9 +36,9 @@ public class SearchAccentInsensitivityTests
 
         var result = await service.SearchAsync(new SearchRequestDto("Felix", "all"));
 
-        Assert.NotNull(result.Items);
+        Assert.Empty(result.Adverts);
         Assert.Contains(
-            result.Items,
-            item => item.Discussion?.Title.Contains("Félix Tshisekedi", StringComparison.Ordinal) == true);
+            result.Discussions,
+            d => d.Title.Contains("Félix Tshisekedi", StringComparison.Ordinal));
     }
 }

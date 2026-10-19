@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Kinshout.Api.Models;
 
 namespace Kinshout.Api.Dtos;
 
@@ -43,6 +44,24 @@ public record UpdateDisplayPreferenceRequestDto(string Mode);
 /// <summary>Google or Apple ID token (RS256 JWT from the provider). Not the Kinshout client or user JWT.</summary>
 /// <param name="IdToken">Provider-issued ID token.</param>
 public record ExternalLoginRequestDto(string IdToken);
+
+public record EmailRegisterRequestDto(string Email, string Password, string? DisplayName);
+
+public record EmailLoginRequestDto(string Email, string Password);
+
+/// <summary>The account waits for the user to open the link sent to <paramref name="Email"/>.</summary>
+public record EmailConfirmationPendingDto(string Email, bool ConfirmationRequired = true);
+
+public record ConfirmEmailRequestDto(string? Token);
+
+public record ResendConfirmationRequestDto(string? Email);
+
+public record ForgotPasswordRequestDto(string? Email);
+
+/// <summary>Sent whether or not <paramref name="Email"/> has an account.</summary>
+public record PasswordResetRequestedDto(string Email);
+
+public record ResetPasswordRequestDto(string? Token, string? Password);
 
 public record FacebookLoginRequestDto(string AccessToken);
 
@@ -273,6 +292,19 @@ public record CategoryDto(
     bool IsAiGenerated
 );
 
+/// <summary>
+/// Discussion media item. For videos in feeds, <see cref="Url"/> prefers the cheap poster
+/// (<c>previewUrl</c>) when available; use <see cref="PlayUrl"/> for playback.
+/// <see cref="Status"/> is set only while a video is not playable yet (<c>processing</c>) or
+/// could not be processed (<c>failed</c>); posts are published before processing ends.
+/// </summary>
+public record DiscussionMediaDto(
+    string Type,
+    string Url,
+    string? PreviewUrl = null,
+    string? PlayUrl = null,
+    string? Status = null);
+
 public record DiscussionDto(
     Guid Id,
     string Title,
@@ -286,7 +318,13 @@ public record DiscussionDto(
     int ViewCount,
     [property: JsonPropertyName("isLiked")] bool IsLiked = false,
     bool IsExternal = false,
-    DiscussionSourceDto? Source = null);
+    DiscussionSourceDto? Source = null,
+    string? CommunitySlug = null,
+    IReadOnlyList<DiscussionMediaDto>? Media = null,
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
+    Guid? AuthorId = null,
+    // Only set by the signed-in user's own list: they wrote it or moderate its community.
+    bool CanManage = false);
 
 /// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
 public record DiscussionSourceDto(
@@ -315,7 +353,50 @@ public record DiscussionDetailDto(
     [property: JsonPropertyName("isLiked")] bool IsLiked,
     PagedResultDto<DiscussionReplyDto> Thread,
     bool IsExternal = false,
-    DiscussionSourceDto? Source = null);
+    DiscussionSourceDto? Source = null,
+    string? CommunitySlug = null,
+    IReadOnlyList<DiscussionMediaDto>? Media = null,
+    string Visibility = CommunityVisibilities.Public,
+    string? ViewerStatus = null,
+    bool CanAccess = false,
+    bool CanParticipate = false,
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
+    DiscussionJoinPromptDto? JoinPrompt = null,
+    // The viewer wrote the discussion or moderates its community: they may edit or delete it.
+    bool CanManage = false);
+
+public record DiscussionParticipantDto(
+    Guid UserId,
+    string DisplayName,
+    string Status,
+    DateTime CreatedAt);
+
+/// <summary>
+/// Tells the viewer what to join. <see cref="Code"/> is <c>community_membership_required</c>
+/// (private community: join the community or the discussion) or <c>discussion_membership_required</c>
+/// (join the discussion). <see cref="ViewerStatus"/> is <c>pending</c> or <c>rejected</c> when the
+/// viewer already asked to join.
+/// </summary>
+public record DiscussionJoinPromptDto(
+    string Message,
+    string Code,
+    bool RequiresSignIn,
+    Guid DiscussionId,
+    DiscussionJoinPromptCommunityDto? Community,
+    string? ViewerStatus,
+    string? JoinCommunityUrl,
+    string JoinDiscussionUrl);
+
+public record DiscussionJoinPromptCommunityDto(Guid Id, string Slug, string Name, string Visibility);
+
+/// <summary>403 body when a discussion cannot be opened or posted to.</summary>
+public record DiscussionAccessDeniedDto(string Error, DiscussionJoinPromptDto JoinPrompt);
+
+public record DiscussionReplyLocationDto(
+    double Latitude,
+    double Longitude,
+    string? PlaceName = null,
+    string? Address = null);
 
 public record DiscussionReplyDto(
     Guid Id,
@@ -323,16 +404,84 @@ public record DiscussionReplyDto(
     string Author,
     string Avatar,
     string Time,
-    string Text
-);
+    string Text,
+    string? ImageUrl = null,
+    string? VideoUrl = null,
+    DiscussionReplyLocationDto? Location = null,
+    int LikeCount = 0,
+    [property: JsonPropertyName("isLiked")] bool IsLiked = false);
 
-public record CreateDiscussionRequestDto(string Title, string Body);
+public record CreateDiscussionRequestDto(
+    string Title,
+    string Body,
+    string? CommunitySlug = null,
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null,
+    string Visibility = CommunityVisibilities.Public);
 
-public record UpdateDiscussionRequestDto(string Title, string Body);
+public record UpdateDiscussionRequestDto(
+    string Title,
+    string Body,
+    string? CommunitySlug = null,
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null);
 
-public record CreateReplyRequestDto(string Body);
+public record DiscussionMediaUpdateRequestDto(
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null,
+    IReadOnlyList<string>? Urls = null);
 
-public record UpdateReplyRequestDto(string Body);
+public record CommunityDto(
+    Guid Id,
+    string RouteSlug,
+    string Slug,
+    string Name,
+    string? Description,
+    string Visibility,
+    bool IsActive,
+    int DiscussionCount,
+    int ModeratorCount,
+    Guid CreatedByUserId,
+    DateTime CreatedAt,
+    string? ViewerStatus = null,
+    bool CanAccess = false,
+    bool CanPost = false,
+    bool CanModerate = false);
+
+public record CreateCommunityRequestDto(
+    string Slug,
+    string? Name = null,
+    string? Description = null,
+    string Visibility = CommunityVisibilities.Public);
+
+public record CommunityMemberDto(
+    Guid UserId,
+    string DisplayName,
+    string Role,
+    string Status,
+    DateTime CreatedAt);
+
+public record InviteCommunityMemberRequestDto(Guid UserId);
+
+public record SuggestCommunityRequestDto(string Title, string Body);
+
+public record SuggestCommunityResponseDto(
+    CommunityDto? Community,
+    double Confidence,
+    string Summary,
+    string Source);
+
+public record CreateReplyRequestDto(
+    string Body,
+    string? ImageUrl = null,
+    string? VideoUrl = null,
+    DiscussionReplyLocationDto? Location = null);
+
+public record UpdateReplyRequestDto(
+    string Body,
+    string? ImageUrl = null,
+    string? VideoUrl = null,
+    DiscussionReplyLocationDto? Location = null);
 
 /// <summary>Search request body for POST /api/search.</summary>
 /// <param name="Query">Free-text search. Optional for browse-style queries with filters only.</param>
@@ -395,6 +544,40 @@ public record CategorizeResponseDto(
 );
 
 public record UploadResponseDto(IReadOnlyList<string> Urls);
+
+/// <summary>
+/// Reddit-style video asset: cheap poster for feeds, original file streamed with range requests.
+/// Use <c>storageUrl</c> when attaching to discussions; use <c>previewUrl</c> in feeds and <c>playUrl</c> for playback.
+/// </summary>
+public record VideoDto(
+    Guid Id,
+    string PlayUrl,
+    string? PreviewUrl,
+    string StorageUrl,
+    string ContentType,
+    long ByteSize,
+    string? OriginalFileName,
+    DateTime CreatedAt,
+    Guid OwnerId,
+    string Status = "ready",
+    double? DurationSeconds = null,
+    int? Width = null,
+    int? Height = null,
+    string? Error = null);
+
+/// <summary>Start a direct upload: the client then PUTs the file to <c>UploadUrl</c> in blocks.</summary>
+public record CreateVideoUploadRequestDto(string FileName, string? ContentType, long ByteSize);
+
+public record VideoUploadDto(Guid Id, string UploadUrl, DateTime ExpiresAt, VideoDto Video);
+
+/// <summary>Sent by the video worker once a job finished, successfully or not.</summary>
+public record VideoProcessingResultDto(
+    bool Succeeded,
+    long? ByteSize = null,
+    double? DurationSeconds = null,
+    int? Width = null,
+    int? Height = null,
+    string? Error = null);
 
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,

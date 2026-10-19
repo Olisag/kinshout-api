@@ -1,5 +1,7 @@
+using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Azure.Storage.Sas;
 using Kinshout.Api.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -14,6 +16,24 @@ public interface IUploadStorage
     Task<UploadFileContent?> OpenReadAsync(string uploadUrl, CancellationToken ct = default);
     Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default);
     Task<bool> ExistsAsync(string uploadUrl, CancellationToken ct = default);
+
+    /// <summary>
+    /// Short-lived read URL that clients can fetch straight from storage (range requests included),
+    /// or null when the storage cannot hand one out and the API has to stream the file itself.
+    /// </summary>
+    Task<Uri?> GetDirectReadUriAsync(string uploadUrl, CancellationToken ct = default) =>
+        Task.FromResult<Uri?>(null);
+
+    /// <summary>
+    /// Short-lived URL clients can upload a file to (in blocks) without going through the API,
+    /// or null when the storage cannot hand one out.
+    /// </summary>
+    Task<Uri?> GetDirectWriteUriAsync(string uploadUrl, TimeSpan lifetime, CancellationToken ct = default) =>
+        Task.FromResult<Uri?>(null);
+
+    /// <summary>Size in bytes of a stored file, or null when it does not exist.</summary>
+    Task<long?> GetLengthAsync(string uploadUrl, CancellationToken ct = default) =>
+        Task.FromResult<long?>(null);
 }
 
 public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUploadStorage> logger) : IUploadStorage
@@ -69,6 +89,12 @@ public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUpl
     public Task<bool> ExistsAsync(string uploadUrl, CancellationToken ct = default) =>
         Task.FromResult(TryResolvePhysicalPath(uploadUrl, out var fullPath) && File.Exists(fullPath));
 
+    public Task<long?> GetLengthAsync(string uploadUrl, CancellationToken ct = default) =>
+        Task.FromResult<long?>(
+            TryResolvePhysicalPath(uploadUrl, out var fullPath) && File.Exists(fullPath)
+                ? new FileInfo(fullPath).Length
+                : null);
+
     private string GetUploadsRoot() =>
         Path.Combine(env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot"), "uploads");
 
@@ -103,6 +129,9 @@ public sealed class LocalUploadStorage(IWebHostEnvironment env, ILogger<LocalUpl
             ".png" => "image/png",
             ".webp" => "image/webp",
             ".gif" => "image/gif",
+            ".mp4" => "video/mp4",
+            ".webm" => "video/webm",
+            ".mov" => "video/quicktime",
             ".pdf" => "application/pdf",
             ".doc" => "application/msword",
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -114,6 +143,9 @@ public sealed class AzureBlobUploadStorage(
     IOptions<UploadStorageSettings> options,
     ILogger<AzureBlobUploadStorage> logger) : IUploadStorage
 {
+    /// <summary>Direct read URLs stay valid for one to two windows.</summary>
+    public static readonly TimeSpan DirectReadUriWindow = TimeSpan.FromHours(6);
+
     private readonly UploadStorageSettings _settings = options.Value;
     private BlobContainerClient? _container;
 
@@ -155,15 +187,97 @@ public sealed class AzureBlobUploadStorage(
 
         var container = await GetContainerAsync(ct);
         var blob = container.GetBlobClient(blobName);
-        if (!await blob.ExistsAsync(ct))
-            return null;
 
-        var download = await blob.DownloadStreamingAsync(cancellationToken: ct);
-        var contentType = download.Value.Details.ContentType;
+        BlobProperties properties;
+        try
+        {
+            properties = (await blob.GetPropertiesAsync(cancellationToken: ct)).Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+
+        var contentType = properties.ContentType;
         if (string.IsNullOrWhiteSpace(contentType))
             contentType = LocalUploadStorage.GetContentTypeFromPath(blobName);
 
-        return new UploadFileContent(download.Value.Content, contentType);
+        // Must be seekable with a known length: ASP.NET silently ignores Range requests otherwise,
+        // and Safari refuses to play video that isn't served as 206 Partial Content.
+        var stream = await blob.OpenReadAsync(
+            new BlobOpenReadOptions(allowModifications: false) { BufferSize = 1024 * 1024 },
+            ct);
+
+        return new UploadFileContent(stream, contentType);
+    }
+
+    public async Task<Uri?> GetDirectReadUriAsync(string uploadUrl, CancellationToken ct = default)
+    {
+        if (!TryGetBlobName(uploadUrl, out var blobName))
+            return null;
+
+        var container = await GetContainerAsync(ct);
+        var blob = container.GetBlobClient(blobName);
+        if (!blob.CanGenerateSasUri)
+            return null;
+
+        // Expiry snapped to a fixed window so every viewer gets the same URL for hours:
+        // browsers can then reuse cached ranges instead of refetching the video.
+        var windowTicks = DirectReadUriWindow.Ticks;
+        var windowStart = new DateTimeOffset(
+            DateTimeOffset.UtcNow.UtcTicks / windowTicks * windowTicks,
+            TimeSpan.Zero);
+        var sas = new BlobSasBuilder(BlobSasPermissions.Read, windowStart + DirectReadUriWindow * 2)
+        {
+            BlobContainerName = container.Name,
+            BlobName = blobName,
+            Resource = "b",
+            CacheControl = "public,max-age=31536000,immutable",
+        };
+
+        return blob.GenerateSasUri(sas);
+    }
+
+    public async Task<Uri?> GetDirectWriteUriAsync(
+        string uploadUrl,
+        TimeSpan lifetime,
+        CancellationToken ct = default)
+    {
+        if (!TryGetBlobName(uploadUrl, out var blobName))
+            return null;
+
+        var container = await GetContainerAsync(ct);
+        var blob = container.GetBlobClient(blobName);
+        if (!blob.CanGenerateSasUri)
+            return null;
+
+        var sas = new BlobSasBuilder(
+            BlobSasPermissions.Create | BlobSasPermissions.Write,
+            DateTimeOffset.UtcNow + lifetime)
+        {
+            BlobContainerName = container.Name,
+            BlobName = blobName,
+            Resource = "b",
+        };
+
+        return blob.GenerateSasUri(sas);
+    }
+
+    public async Task<long?> GetLengthAsync(string uploadUrl, CancellationToken ct = default)
+    {
+        if (!TryGetBlobName(uploadUrl, out var blobName))
+            return null;
+
+        var container = await GetContainerAsync(ct);
+        try
+        {
+            var properties = await container.GetBlobClient(blobName).GetPropertiesAsync(cancellationToken: ct);
+            return properties.Value.ContentLength;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
     }
 
     public async Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default)

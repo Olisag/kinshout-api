@@ -28,7 +28,8 @@ public class ExternalDiscussionImportService(
     KinshoutDbContext db,
     IExternalDiscussionTransformService transform,
     IOpenAiService openAi,
-    IMemoryCache cache) : IExternalDiscussionImportService
+    IMemoryCache cache,
+    ICommunityService communities) : IExternalDiscussionImportService
 {
     public async Task<ImportExternalDiscussionsResponseDto> ImportAsync(
         IReadOnlyList<ImportExternalDiscussionDto> discussions,
@@ -288,6 +289,7 @@ public class ExternalDiscussionImportService(
         var platformName = item.Source.ProviderName ?? DiscussionSourceProvider.DisplayName(provider);
         var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
         var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
+        var communityId = await ResolveImportCommunityIdAsync(transformed.Title, transformed.Body, ct);
 
         var now = DateTime.UtcNow;
         var importedAt = item.Source.ImportedAt ?? now;
@@ -299,6 +301,7 @@ public class ExternalDiscussionImportService(
             importUser.Id,
             topicCategory.Id,
             topicCategory.Slug,
+            communityId,
             importedAt,
             lastSeenAt,
             firstSeenAt,
@@ -317,6 +320,7 @@ public class ExternalDiscussionImportService(
         existing.SourceRawBody = rawBody;
         existing.CategoryId = mapped.CategoryId;
         existing.TopicSlug = mapped.TopicSlug;
+        existing.CommunityId ??= mapped.CommunityId;
         existing.SourceProviderName = mapped.SourceProviderName;
         existing.SourceExternalUrl = mapped.SourceExternalUrl;
         existing.SourceImportedAt = existing.SourceImportedAt ?? importedAt;
@@ -330,12 +334,30 @@ public class ExternalDiscussionImportService(
         return UpsertOutcome.Updated;
     }
 
+    private async Task<Guid> ResolveImportCommunityIdAsync(string title, string body, CancellationToken ct)
+    {
+        try
+        {
+            var suggestion = await communities.SuggestAsync(title, body, ct);
+            if (suggestion.Community is not null)
+                return suggestion.Community.Id;
+        }
+        catch
+        {
+            // Fall through to the default community.
+        }
+
+        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db, ct);
+        return general.Id;
+    }
+
     private static Discussion MapFields(
         ImportExternalDiscussionDto item,
         string provider,
         Guid userId,
         Guid categoryId,
         string topicSlug,
+        Guid communityId,
         DateTime importedAt,
         DateTime lastSeenAt,
         DateTime firstSeenAt,
@@ -352,6 +374,7 @@ public class ExternalDiscussionImportService(
             UserId = userId,
             CategoryId = categoryId,
             TopicSlug = topicSlug,
+            CommunityId = communityId,
             Title = title.Trim(),
             Body = body.Trim(),
             SourceRawBody = rawBody,

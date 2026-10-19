@@ -1,4 +1,6 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.IO.Compression;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using Kinshout.Api.Auth;
@@ -14,6 +16,7 @@ using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
@@ -24,7 +27,9 @@ builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection(Open
 builder.Services.Configure<OAuthSettings>(builder.Configuration.GetSection(OAuthSettings.SectionName));
 builder.Services.Configure<CorsSettings>(builder.Configuration.GetSection(CorsSettings.SectionName));
 builder.Services.Configure<UploadStorageSettings>(builder.Configuration.GetSection(UploadStorageSettings.SectionName));
+builder.Services.Configure<VideoProcessingSettings>(builder.Configuration.GetSection(VideoProcessingSettings.SectionName));
 builder.Services.Configure<ImportSettings>(builder.Configuration.GetSection(ImportSettings.SectionName));
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("Jwt settings are required.");
@@ -68,12 +73,28 @@ builder.Services.AddScoped<IFacebookAuthValidator, FacebookGraphAuthValidator>()
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddSingleton<IPasswordHasher<ApiClient>, PasswordHasher<ApiClient>>();
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 builder.Services.AddScoped<IAdvertService, AdvertService>();
 builder.Services.AddScoped<ISavedAdvertService, SavedAdvertService>();
 builder.Services.AddScoped<ILikedDiscussionService, LikedDiscussionService>();
 builder.Services.AddScoped<ISearchService, SearchService>();
 builder.Services.AddScoped<IDiscussionService, DiscussionService>();
+builder.Services.AddScoped<ICommunityService, CommunityService>();
+builder.Services.AddSingleton<AcsEmailService>();
+builder.Services.AddScoped<SmtpEmailService>();
+builder.Services.AddScoped<IEmailService>(sp =>
+{
+    var settings = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmailSettings>>().Value;
+    return settings.Enabled && !string.IsNullOrWhiteSpace(settings.AcsEndpoint)
+        ? sp.GetRequiredService<AcsEmailService>()
+        : sp.GetRequiredService<SmtpEmailService>();
+});
+builder.Services.AddScoped<IAuthEmailSender, AuthEmailSender>();
+builder.Services.AddScoped<IUserSessionValidator, UserSessionValidator>();
+builder.Services.AddScoped<ICommunityJoinNotifier, CommunityJoinNotifier>();
+builder.Services.AddScoped<IDiscussionParticipationService, DiscussionParticipationService>();
+builder.Services.AddScoped<IDiscussionJoinNotifier, DiscussionJoinNotifier>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<IUploadUrlResolver, UploadUrlResolver>();
 builder.Services.AddSingleton<LocalUploadStorage>();
@@ -86,6 +107,8 @@ builder.Services.AddSingleton<IUploadStorage>(sp =>
         : sp.GetRequiredService<LocalUploadStorage>();
 });
 builder.Services.AddScoped<IUploadService, UploadService>();
+builder.Services.AddSingleton<IVideoProcessingQueue, AzureVideoProcessingQueue>();
+builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddSingleton<IAdvertImageProcessor, AdvertImageProcessor>();
 builder.Services.AddSingleton<IAdvertDtoMapper, AdvertDtoMapper>();
 builder.Services.AddSingleton<IAdvertImageVariantBackfillScheduler, AdvertImageVariantBackfillScheduler>();
@@ -98,6 +121,7 @@ builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussi
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
 builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
 builder.Services.AddHostedService<KinshoutStartupHostedService>();
+builder.Services.AddHostedService<AbandonedVideoUploadCleanupService>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -120,6 +144,22 @@ builder.Services
         };
         options.Events = new JwtBearerEvents
         {
+            OnTokenValidated = async context =>
+            {
+                var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!Guid.TryParse(userId, out var id))
+                    return;
+
+                var issuedAt = context.SecurityToken switch
+                {
+                    JsonWebToken token => token.IssuedAt,
+                    JwtSecurityToken token => token.IssuedAt,
+                    _ => DateTime.MinValue,
+                };
+                var sessions = context.HttpContext.RequestServices.GetRequiredService<IUserSessionValidator>();
+                if (!await sessions.IsActiveAsync(id, issuedAt, context.HttpContext.RequestAborted))
+                    context.Fail("The user session was signed out.");
+            },
             OnChallenge = context =>
             {
                 if (context.Request.Path.StartsWithSegments("/api"))
@@ -127,7 +167,11 @@ builder.Services
                     context.HandleResponse();
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     context.Response.ContentType = "application/json";
-                    var message = context.Error == "invalid_token"
+                    var tokenRefused = context.AuthenticateFailure is not null;
+                    // Lets the web app drop a session the API no longer accepts.
+                    if (tokenRefused)
+                        context.Response.Headers.WWWAuthenticate = "Bearer error=\"invalid_token\"";
+                    var message = tokenRefused
                         ? "Invalid or expired user session token."
                         : "User sign-in required. Send Authorization: Bearer with a user JWT.";
                     return context.Response.WriteAsJsonAsync(new { error = message });
@@ -250,7 +294,7 @@ using (var scope = app.Services.CreateScope())
             }
         }
         else
-            await db.Database.MigrateAsync();
+            await DatabaseMigrator.MigrateAsync(db, app.Logger);
     }
     catch (Exception ex)
     {

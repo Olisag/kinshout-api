@@ -54,7 +54,14 @@ public class FacebookOAuthSettings
 public class CorsSettings
 {
     public const string SectionName = "Cors";
-    public string[] AllowedOrigins { get; set; } = ["https://kinshout.vercel.app", "http://localhost:5173"];
+    public string[] AllowedOrigins { get; set; } =
+    [
+        "https://kinoiserie.com",
+        "https://www.kinoiserie.com",
+        "https://kinshout.vercel.app",
+        "https://kinoiserie.vercel.app",
+        "http://localhost:5173",
+    ];
 }
 
 public class ClientAuthSettings
@@ -63,4 +70,25 @@ public class ClientAuthSettings
     public string KinshoutWebSecret { get; set; } = string.Empty;
     /// <summary>When true, any Origin is accepted for POST /api/auth/client (dev / Swagger).</summary>
     public bool AllowAnyOrigin { get; set; } = true;
+}
+
+public class EmailSettings
+{
+    public const string SectionName = "Email";
+    public bool Enabled { get; set; }
+    public string FromAddress { get; set; } = "noreply@kinoiserie.local";
+    public string FromName { get; set; } = "Kinoiserie";
+    public string SmtpHost { get; set; } = string.Empty;
+    public int SmtpPort { get; set; } = 587;
+    public string SmtpUsername { get; set; } = string.Empty;
+    public string SmtpPassword { get; set; } = string.Empty;
+    public bool UseSsl { get; set; } = true;
+    /// <summary>
+    /// Azure Communication Services endpoint (https://&lt;name&gt;.communication.azure.com). When set, e-mail is
+    /// sent through it with the app's managed identity instead of SMTP; <see cref="FromAddress"/> must be a
+    /// sender of a domain connected to that resource.
+    /// </summary>
+    public string AcsEndpoint { get; set; } = string.Empty;
+    /// <summary>Base URL for links in notification emails (e.g. https://app.example.com).</summary>
+    public string WebBaseUrl { get; set; } = "https://kinoiserie.com";
 }

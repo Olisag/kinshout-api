@@ -9,7 +9,7 @@ namespace Kinshout.Api.Tests;
 public class SearchServiceMixedFeedTests
 {
     [Fact]
-    public async Task SearchAsync_AllTab_ReturnsMixedFeedSortedByPopularity()
+    public async Task SearchAsync_AllTab_ReturnsDiscussionsOnly()
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
@@ -36,24 +36,23 @@ public class SearchServiceMixedFeedTests
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
         var result = await service.SearchAsync(new SearchRequestDto("kinshasa", "all", PageSize: 10, Sort: ListSortHelper.Popular));
 
-        Assert.NotNull(result.Items);
         Assert.Empty(result.Adverts);
-        Assert.Empty(result.Discussions);
-        Assert.Equal(["Hot thread Kinshasa", "Warm advert", "Quiet advert"], result.Items!.Select(i => i.Advert?.Title ?? i.Discussion?.Title).ToArray());
-        Assert.Equal(3, result.Pagination.TotalItems);
-        Assert.False(result.Pagination.HasMore);
+        Assert.Single(result.Discussions);
+        Assert.Equal("Hot thread Kinshasa", result.Discussions[0].Title);
+        Assert.True(result.Items is null || result.Items.Count == 0);
     }
 
     [Fact]
-    public async Task SearchAsync_AllTab_PaginatesMixedFeed()
+    public async Task SearchAsync_AllTab_PaginatesDiscussionsOnly()
     {
         await using var db = TestDbFactory.Create();
         var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
 
         var advert = CreateAdvert(user, category, "Advert", viewCount: 1, createdAt: DateTime.UtcNow.AddDays(-1));
         var discussion = CreateDiscussion(user, category, "Discussion Kinshasa", viewCount: 1, createdAt: DateTime.UtcNow);
+        var older = CreateDiscussion(user, category, "Older Kinshasa thread", viewCount: 1, createdAt: DateTime.UtcNow.AddHours(-2));
         db.Adverts.Add(advert);
-        db.Discussions.Add(discussion);
+        db.Discussions.AddRange(discussion, older);
         await db.SaveChangesAsync();
 
         var openAi = new Mock<IOpenAiService>();
@@ -63,20 +62,21 @@ public class SearchServiceMixedFeedTests
                 It.IsAny<IReadOnlyList<Advert>>(),
                 It.IsAny<IReadOnlyList<Discussion>>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiSearchAnalysis([advert.Id], [discussion.Id], ""));
+            .ReturnsAsync(new AiSearchAnalysis([advert.Id], [discussion.Id, older.Id], ""));
 
         var service = new SearchService(db, openAi.Object, TestDbFactory.CreateMemoryCache(), TestDbFactory.CreateAdvertDtoMapper());
 
         var page1 = await service.SearchAsync(new SearchRequestDto("kinshasa", "all", Page: 1, PageSize: 1));
-        Assert.Single(page1.Items);
-        Assert.Equal("Discussion Kinshasa", page1.Items![0].Discussion?.Title);
-        Assert.True(page1.Pagination.HasMore);
-        Assert.Equal(2, page1.Pagination.TotalItems);
+        Assert.Empty(page1.Adverts);
+        Assert.Single(page1.Discussions);
+        Assert.True(page1.Pagination.HasMoreDiscussions);
+        Assert.Equal(2, page1.Pagination.TotalDiscussions);
 
         var page2 = await service.SearchAsync(new SearchRequestDto("kinshasa", "all", Page: 2, PageSize: 1));
-        Assert.Single(page2.Items);
-        Assert.Equal("Advert", page2.Items![0].Advert?.Title);
-        Assert.False(page2.Pagination.HasMore);
+        Assert.Empty(page2.Adverts);
+        Assert.Single(page2.Discussions);
+        Assert.False(page2.Pagination.HasMoreDiscussions);
+        Assert.DoesNotContain(page2.Discussions, d => d.Id == page1.Discussions[0].Id);
     }
 
     private static Advert CreateAdvert(

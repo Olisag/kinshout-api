@@ -62,7 +62,7 @@ public class SearchServiceDigitalAccompagnementTests
         Assert.True(SearchRelevance.IsAdvertRelevant(genericServiceQuery, relevant));
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_DigitalAccompagnementOffer_ExcludesUnrelatedSpam()
     {
         await using var db = TestDbFactory.Create();

@@ -8,7 +8,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceDemandQueryTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_DemandPhraseMoto_ReturnsSameMotoResultsAsBareQuery()
     {
         await using var db = TestDbFactory.Create();
@@ -64,7 +64,7 @@ public class SearchServiceDemandQueryTests
         Assert.Equal(moto.Id, demand.Adverts[0].Id);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_MisspelledApartmentQuery_MatchesCorrectListings()
     {
         await using var db = TestDbFactory.Create();

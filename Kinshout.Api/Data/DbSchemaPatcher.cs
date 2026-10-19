@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Kinshout.Api.Models;
+using Kinshout.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Data;
@@ -25,10 +26,13 @@ public static class DbSchemaPatcher
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureKinoiserieSchemaAsync(db, connection, sqlServer: true, ct);
+        await CommunitySeed.BackfillMissingDiscussionCommunitiesAsync(db, ct);
         await EnsureSearchFullTextIndexesAsync(db, connection, ct);
         await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: true, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
+        await EnsureDiscussionCommunityRequiredAsync(db, sqlServer: true, ct);
     }
 
     private static async Task ApplySqliteAsync(KinshoutDbContext db, CancellationToken ct)
@@ -82,6 +86,8 @@ public static class DbSchemaPatcher
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureKinoiserieSchemaAsync(db, connection, sqlServer: false, ct);
+        await CommunitySeed.BackfillMissingDiscussionCommunitiesAsync(db, ct);
         await NormalizeExternalDiscussionViewCountsAsync(db, ct);
         if (await ColumnExistsAsync(connection, sqlServer: false, "Adverts", "DetailsJson", ct))
             await EnsureAdvertJsonColumnDefaultsAsync(db, ct);
@@ -139,6 +145,49 @@ public static class DbSchemaPatcher
             await db.Database.ExecuteSqlRawAsync(
                 "CREATE INDEX IX_SavedAdverts_AdvertId ON SavedAdverts (AdvertId)", ct);
         }
+
+        await EnsureDiscussionCommunityRequiredAsync(db, sqlServer: false, ct);
+    }
+
+    /// <summary>
+    /// Rejects discussions without a community at the database level. The column stays nullable
+    /// (a CHECK avoids rebuilding the FK and indexes on it); run after the k/general backfill.
+    /// </summary>
+    private static async Task EnsureDiscussionCommunityRequiredAsync(
+        KinshoutDbContext db,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.check_constraints
+                    WHERE name = N'CK_Discussions_CommunityId_Required'
+                      AND parent_object_id = OBJECT_ID(N'dbo.Discussions'))
+                   AND NOT EXISTS (SELECT 1 FROM dbo.Discussions WHERE CommunityId IS NULL)
+                ALTER TABLE dbo.Discussions WITH CHECK
+                    ADD CONSTRAINT CK_Discussions_CommunityId_Required CHECK (CommunityId IS NOT NULL)
+                """,
+                ct);
+            return;
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER IF NOT EXISTS TR_Discussions_CommunityId_Required_Insert
+            BEFORE INSERT ON Discussions WHEN NEW.CommunityId IS NULL
+            BEGIN SELECT RAISE(ABORT, 'Discussions.CommunityId is required'); END
+            """,
+            ct);
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER IF NOT EXISTS TR_Discussions_CommunityId_Required_Update
+            BEFORE UPDATE OF CommunityId ON Discussions WHEN NEW.CommunityId IS NULL
+            BEGIN SELECT RAISE(ABORT, 'Discussions.CommunityId is required'); END
+            """,
+            ct);
     }
 
     private static async Task EnsureDiscussionEngagementSchemaAsync(
@@ -198,6 +247,12 @@ public static class DbSchemaPatcher
             await db.Database.ExecuteSqlRawAsync(viewCountSql, ct);
         }
 
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Discussions_ViewCount_CreatedAt", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_Discussions_ViewCount_CreatedAt ON Discussions (ViewCount, CreatedAt)", ct);
+        }
+
         if (!await TableExistsAsync(connection, sqlServer, "LikedDiscussions", ct))
         {
             if (sqlServer)
@@ -243,6 +298,64 @@ public static class DbSchemaPatcher
                     SELECT COUNT(*)
                     FROM LikedDiscussions
                     WHERE LikedDiscussions.DiscussionId = Discussions.Id
+                )
+                """, ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "LikeCount", ct))
+        {
+            var replyLikeCountSql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD LikeCount int NOT NULL CONSTRAINT DF_DiscussionReplies_LikeCount DEFAULT 0"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN LikeCount INTEGER NOT NULL DEFAULT 0";
+            await db.Database.ExecuteSqlRawAsync(replyLikeCountSql, ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "LikedReplies", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE LikedReplies (
+                        UserId uniqueidentifier NOT NULL,
+                        ReplyId uniqueidentifier NOT NULL,
+                        LikedAt datetime2 NOT NULL,
+                        CONSTRAINT PK_LikedReplies PRIMARY KEY (UserId, ReplyId),
+                        CONSTRAINT FK_LikedReplies_DiscussionReplies_ReplyId FOREIGN KEY (ReplyId) REFERENCES DiscussionReplies(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_LikedReplies_Users_UserId FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+                    )
+                    """, ct);
+                await db.Database.ExecuteSqlRawAsync(
+                    "CREATE INDEX IX_LikedReplies_ReplyId ON LikedReplies (ReplyId)", ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE LikedReplies (
+                        UserId TEXT NOT NULL,
+                        ReplyId TEXT NOT NULL,
+                        LikedAt TEXT NOT NULL,
+                        PRIMARY KEY (UserId, ReplyId),
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (ReplyId) REFERENCES DiscussionReplies(Id) ON DELETE CASCADE
+                    )
+                    """, ct);
+                await db.Database.ExecuteSqlRawAsync(
+                    "CREATE INDEX IX_LikedReplies_ReplyId ON LikedReplies (ReplyId)", ct);
+            }
+        }
+
+        if (await TableExistsAsync(connection, sqlServer, "LikedReplies", ct)
+            && await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "LikeCount", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE DiscussionReplies
+                SET LikeCount = (
+                    SELECT COUNT(*)
+                    FROM LikedReplies
+                    WHERE LikedReplies.ReplyId = DiscussionReplies.Id
                 )
                 """, ct);
         }
@@ -364,6 +477,455 @@ public static class DbSchemaPatcher
         }
     }
 
+    private static async Task EnsureKinoiserieSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "Users", "PasswordHash", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Users ADD PasswordHash nvarchar(500) NULL"
+                : "ALTER TABLE Users ADD COLUMN PasswordHash TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "Communities", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE Communities (
+                        Id uniqueidentifier NOT NULL,
+                        Slug nvarchar(64) NOT NULL,
+                        Name nvarchar(120) NOT NULL,
+                        Description nvarchar(500) NULL,
+                        CreatedByUserId uniqueidentifier NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        CONSTRAINT PK_Communities PRIMARY KEY (Id),
+                        CONSTRAINT FK_Communities_Users_CreatedByUserId
+                            FOREIGN KEY (CreatedByUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE Communities (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        Slug TEXT NOT NULL,
+                        Name TEXT NOT NULL,
+                        Description TEXT,
+                        CreatedByUserId TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        FOREIGN KEY (CreatedByUserId) REFERENCES Users(Id) ON DELETE RESTRICT
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IX_Communities_Slug ON Communities (Slug)",
+                cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Communities", "Visibility", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Communities ADD Visibility nvarchar(16) NOT NULL CONSTRAINT DF_Communities_Visibility DEFAULT 'public'"
+                : "ALTER TABLE Communities ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'public'";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Communities", "IsActive", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Communities ADD IsActive bit NOT NULL CONSTRAINT DF_Communities_IsActive DEFAULT 1"
+                : "ALTER TABLE Communities ADD COLUMN IsActive INTEGER NOT NULL DEFAULT 1";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "CommunityMembers", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE CommunityMembers (
+                        Id uniqueidentifier NOT NULL,
+                        CommunityId uniqueidentifier NOT NULL,
+                        UserId uniqueidentifier NOT NULL,
+                        Role nvarchar(16) NOT NULL,
+                        Status nvarchar(16) NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        ReviewedAt datetime2 NULL,
+                        ReviewedByUserId uniqueidentifier NULL,
+                        CONSTRAINT PK_CommunityMembers PRIMARY KEY (Id),
+                        CONSTRAINT FK_CommunityMembers_Communities_CommunityId
+                            FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_CommunityMembers_Users_UserId
+                            FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_CommunityMembers_Users_ReviewedByUserId
+                            FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE CommunityMembers (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        CommunityId TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Role TEXT NOT NULL,
+                        Status TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        ReviewedAt TEXT,
+                        ReviewedByUserId TEXT,
+                        FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE SET NULL
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IX_CommunityMembers_CommunityId_UserId ON CommunityMembers (CommunityId, UserId)",
+                cancellationToken: ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_CommunityMembers_CommunityId_Status_CreatedAt ON CommunityMembers (CommunityId, Status, CreatedAt)",
+                cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "CommunityId", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE Discussions ADD CommunityId uniqueidentifier NULL",
+                    cancellationToken: ct);
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    ALTER TABLE Discussions ADD CONSTRAINT FK_Discussions_Communities_CommunityId
+                    FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE NO ACTION
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE Discussions ADD COLUMN CommunityId TEXT NULL REFERENCES Communities(Id)",
+                    cancellationToken: ct);
+            }
+        }
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Discussions_CommunityId_CreatedAt", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_Discussions_CommunityId_CreatedAt ON Discussions (CommunityId, CreatedAt)",
+                cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "ImageUrlsJson", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD ImageUrlsJson nvarchar(max) NOT NULL CONSTRAINT DF_Discussions_ImageUrlsJson DEFAULT '[]'"
+                : "ALTER TABLE Discussions ADD COLUMN ImageUrlsJson TEXT NOT NULL DEFAULT '[]'";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "VideoUrlsJson", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD VideoUrlsJson nvarchar(max) NOT NULL CONSTRAINT DF_Discussions_VideoUrlsJson DEFAULT '[]'"
+                : "ALTER TABLE Discussions ADD COLUMN VideoUrlsJson TEXT NOT NULL DEFAULT '[]'";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "Visibility", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD Visibility nvarchar(16) NOT NULL CONSTRAINT DF_Discussions_Visibility DEFAULT 'public'"
+                : "ALTER TABLE Discussions ADD COLUMN Visibility TEXT NOT NULL DEFAULT 'public'";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "DiscussionParticipants", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE DiscussionParticipants (
+                        Id uniqueidentifier NOT NULL,
+                        DiscussionId uniqueidentifier NOT NULL,
+                        UserId uniqueidentifier NOT NULL,
+                        Status nvarchar(16) NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        ReviewedAt datetime2 NULL,
+                        ReviewedByUserId uniqueidentifier NULL,
+                        CONSTRAINT PK_DiscussionParticipants PRIMARY KEY (Id),
+                        CONSTRAINT FK_DiscussionParticipants_Discussions_DiscussionId
+                            FOREIGN KEY (DiscussionId) REFERENCES Discussions(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_DiscussionParticipants_Users_UserId
+                            FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_DiscussionParticipants_Users_ReviewedByUserId
+                            FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE DiscussionParticipants (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        DiscussionId TEXT NOT NULL,
+                        UserId TEXT NOT NULL,
+                        Status TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        ReviewedAt TEXT,
+                        ReviewedByUserId TEXT,
+                        FOREIGN KEY (DiscussionId) REFERENCES Discussions(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (ReviewedByUserId) REFERENCES Users(Id) ON DELETE SET NULL
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IX_DiscussionParticipants_DiscussionId_UserId ON DiscussionParticipants (DiscussionId, UserId)",
+                cancellationToken: ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_DiscussionParticipants_DiscussionId_Status_CreatedAt ON DiscussionParticipants (DiscussionId, Status, CreatedAt)",
+                cancellationToken: ct);
+        }
+
+        await EnsureVideoAssetsSchemaAsync(db, connection, sqlServer, ct);
+        await EnsureVideoAssetProcessingSchemaAsync(db, connection, sqlServer, ct);
+        await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
+        await EnsureEmailConfirmationSchemaAsync(db, connection, sqlServer, ct);
+        await EnsurePasswordResetSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsurePasswordResetSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        (string Column, string SqlServerType, string SqliteType)[] columns =
+        [
+            ("PasswordResetTokenHash", "nvarchar(64) NULL", "TEXT"),
+            ("PasswordResetSentAt", "datetime2 NULL", "TEXT"),
+            ("SessionsValidAfter", "datetime2 NULL", "TEXT"),
+        ];
+        foreach (var (column, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "Users", column, ct))
+                continue;
+
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE Users ADD {(sqlServer ? "" : "COLUMN ")}{column} {(sqlServer ? sqlServerType : sqliteType)}",
+                cancellationToken: ct);
+        }
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Users_PasswordResetTokenHash", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_Users_PasswordResetTokenHash ON Users (PasswordResetTokenHash)",
+                cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsureEmailConfirmationSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        (string Column, string SqlServerType, string SqliteType)[] columns =
+        [
+            ("EmailConfirmedAt", "datetime2 NULL", "TEXT"),
+            ("EmailConfirmationTokenHash", "nvarchar(64) NULL", "TEXT"),
+            ("EmailConfirmationSentAt", "datetime2 NULL", "TEXT"),
+        ];
+        foreach (var (column, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "Users", column, ct))
+                continue;
+
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE Users ADD {(sqlServer ? "" : "COLUMN ")}{column} {(sqlServer ? sqlServerType : sqliteType)}",
+                cancellationToken: ct);
+        }
+
+        // Accounts from before e-mail confirmation count as confirmed. Every e-mail sign-up since then keeps a
+        // token hash until it is confirmed, so this never confirms one, and is safe to run on every start.
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE Users SET EmailConfirmedAt = CreatedAt WHERE EmailConfirmedAt IS NULL AND EmailConfirmationTokenHash IS NULL",
+            cancellationToken: ct);
+
+        if (!await IndexExistsAsync(connection, sqlServer, "IX_Users_EmailConfirmationTokenHash", ct))
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_Users_EmailConfirmationTokenHash ON Users (EmailConfirmationTokenHash)",
+                cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsureVideoAssetProcessingSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        (string Column, string SqlServerType, string SqliteType)[] columns =
+        [
+            ("Status", $"nvarchar(20) NOT NULL DEFAULT '{VideoAssetStatus.Ready}'", $"TEXT NOT NULL DEFAULT '{VideoAssetStatus.Ready}'"),
+            ("SourceUrl", "nvarchar(500) NULL", "TEXT"),
+            ("TrimStartSeconds", "float NULL", "REAL"),
+            ("TrimEndSeconds", "float NULL", "REAL"),
+            ("DurationSeconds", "float NULL", "REAL"),
+            ("Width", "int NULL", "INTEGER"),
+            ("Height", "int NULL", "INTEGER"),
+            ("ProcessingError", "nvarchar(500) NULL", "TEXT"),
+        ];
+
+        foreach (var (column, sqlServerType, sqliteType) in columns)
+        {
+            if (await ColumnExistsAsync(connection, sqlServer, "VideoAssets", column, ct))
+                continue;
+
+            var type = sqlServer ? sqlServerType : sqliteType;
+            await db.Database.ExecuteSqlRawAsync(
+                $"ALTER TABLE VideoAssets ADD {(sqlServer ? "" : "COLUMN ")}{column} {type}",
+                cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsureVideoAssetsSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (await TableExistsAsync(connection, sqlServer, "VideoAssets", ct))
+            return;
+
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE VideoAssets (
+                    Id uniqueidentifier NOT NULL,
+                    UserId uniqueidentifier NOT NULL,
+                    VideoUrl nvarchar(500) NOT NULL,
+                    PosterUrl nvarchar(500) NULL,
+                    ContentType nvarchar(100) NOT NULL,
+                    ByteSize bigint NOT NULL,
+                    OriginalFileName nvarchar(260) NULL,
+                    CreatedAt datetime2 NOT NULL,
+                    DeletedAt datetime2 NULL,
+                    CONSTRAINT PK_VideoAssets PRIMARY KEY (Id),
+                    CONSTRAINT FK_VideoAssets_Users_UserId
+                        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+                )
+                """,
+                cancellationToken: ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE VideoAssets (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    UserId TEXT NOT NULL,
+                    VideoUrl TEXT NOT NULL,
+                    PosterUrl TEXT,
+                    ContentType TEXT NOT NULL,
+                    ByteSize INTEGER NOT NULL,
+                    OriginalFileName TEXT,
+                    CreatedAt TEXT NOT NULL,
+                    DeletedAt TEXT,
+                    FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+                )
+                """,
+                cancellationToken: ct);
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IX_VideoAssets_UserId_CreatedAt ON VideoAssets (UserId, CreatedAt)",
+            cancellationToken: ct);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IX_VideoAssets_VideoUrl ON VideoAssets (VideoUrl)",
+            cancellationToken: ct);
+    }
+
+    private static async Task EnsureDiscussionReplyAttachmentSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "ImageUrl", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD ImageUrl nvarchar(500) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN ImageUrl TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "VideoUrl", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD VideoUrl nvarchar(500) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN VideoUrl TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "Latitude", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD Latitude float NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN Latitude REAL";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "Longitude", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD Longitude float NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN Longitude REAL";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "PlaceName", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD PlaceName nvarchar(200) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN PlaceName TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "DiscussionReplies", "Address", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE DiscussionReplies ADD Address nvarchar(300) NULL"
+                : "ALTER TABLE DiscussionReplies ADD COLUMN Address TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+    }
+
     private static async Task EnsureImportWatermarkSchemaAsync(
         KinshoutDbContext db,
         DbConnection connection,
@@ -463,7 +1025,7 @@ public static class DbSchemaPatcher
                     INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
                     WHERE dc.parent_object_id = OBJECT_ID(N'dbo.Adverts')
                       AND c.name = N'DetailsJson')
-                ALTER TABLE dbo.Adverts ADD CONSTRAINT DF_Adverts_DetailsJson DEFAULT ('{}') FOR [DetailsJson]
+                ALTER TABLE dbo.Adverts ADD CONSTRAINT DF_Adverts_DetailsJson DEFAULT ('{{}}') FOR [DetailsJson]
                 """,
                 ct);
 
@@ -475,7 +1037,7 @@ public static class DbSchemaPatcher
                     INNER JOIN sys.columns c ON c.default_object_id = dc.object_id
                     WHERE dc.parent_object_id = OBJECT_ID(N'dbo.Adverts')
                       AND c.name = N'ContactJson')
-                ALTER TABLE dbo.Adverts ADD CONSTRAINT DF_Adverts_ContactJson DEFAULT ('{}') FOR [ContactJson]
+                ALTER TABLE dbo.Adverts ADD CONSTRAINT DF_Adverts_ContactJson DEFAULT ('{{}}') FOR [ContactJson]
                 """,
                 ct);
         }

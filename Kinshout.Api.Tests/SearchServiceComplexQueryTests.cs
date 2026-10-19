@@ -7,7 +7,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceComplexQueryTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_ComplexFrenchQuery_UsesAiUnderstandingForRetrieval()
     {
         await using var db = TestDbFactory.Create();

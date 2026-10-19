@@ -8,7 +8,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchRetrievalCapTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_CapsSemanticAdvertRetrievalAt500()
     {
         await using var db = TestDbFactory.Create();
@@ -47,7 +47,7 @@ public class SearchRetrievalCapTests
         Assert.True(result.Pagination.HasMoreAdverts);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_SendsAtMost75CandidatesToOpenAi()
     {
         await using var db = TestDbFactory.Create();

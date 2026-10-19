@@ -8,7 +8,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceOrderingTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_OrdersAdvertsByViewsThenRecency()
     {
         await using var db = TestDbFactory.Create();
@@ -35,7 +35,7 @@ public class SearchServiceOrderingTests
         Assert.Equal(["Popular new appartement", "Popular old appartement", "Recent quiet appartement"], result.Adverts.Select(a => a.Title).ToArray());
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_OrdersAdvertsByRecencyWhenSortRecent()
     {
         await using var db = TestDbFactory.Create();

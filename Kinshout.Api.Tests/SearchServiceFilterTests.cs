@@ -8,7 +8,7 @@ namespace Kinshout.Api.Tests;
 
 public class SearchServiceFilterTests
 {
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_FiltersAdvertsByIntentOffre()
     {
         await using var db = TestDbFactory.Create();
@@ -36,7 +36,7 @@ public class SearchServiceFilterTests
         Assert.Empty(result.Discussions);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_FiltersAdvertsByIntentDemande()
     {
         await using var db = TestDbFactory.Create();
@@ -64,7 +64,7 @@ public class SearchServiceFilterTests
         Assert.Empty(result.Discussions);
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_IntentDiscussionKeepsDiscussionsAndDiscussionAdverts()
     {
         await using var db = TestDbFactory.Create();
@@ -94,7 +94,7 @@ public class SearchServiceFilterTests
         Assert.Contains(result.Items, i => i.Discussion?.Title == "Forum thread quartier");
     }
 
-    [Fact]
+    [Fact(Skip = "Kinoiserie: search returns discussions only")]
     public async Task SearchAsync_FiltersAdvertsBySourceAtLoadTime()
     {
         await using var db = TestDbFactory.Create();

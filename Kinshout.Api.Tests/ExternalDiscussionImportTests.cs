@@ -36,6 +36,8 @@ public class ExternalDiscussionImportTests
         Assert.Equal(120, discussion.SourceEngagementScore);
         Assert.Equal("Test Page", discussion.SourceOriginalAuthor);
         Assert.Equal("societe", discussion.TopicSlug);
+        Assert.NotNull(discussion.CommunityId);
+        Assert.Equal(CommunityDefaults.GeneralSlug, (await db.Communities.SingleAsync(c => c.Id == discussion.CommunityId)).Slug);
     }
 
     [Fact]
@@ -146,6 +148,10 @@ public class ExternalDiscussionImportTests
         openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
 
+        var communities = new Mock<ICommunityService>();
+        communities.Setup(c => c.SuggestAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SuggestCommunityResponseDto(null, 0, "none", "none"));
+
         return new ExternalDiscussionImportService(
             db,
             new ExternalDiscussionTransformService(
@@ -153,7 +159,8 @@ public class ExternalDiscussionImportTests
                 Options.Create(new OpenAiSettings { ApiKey = "", Model = "gpt-4o-mini" }),
                 NullLogger<ExternalDiscussionTransformService>.Instance),
             openAi.Object,
-            new MemoryCache(new MemoryCacheOptions()));
+            new MemoryCache(new MemoryCacheOptions()),
+            communities.Object);
     }
 
     private static ImportExternalDiscussionDto SampleImport(string externalId, string rawBody) =>

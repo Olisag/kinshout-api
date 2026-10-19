@@ -36,6 +36,42 @@ internal static class TestDbFactory
 
     public static IMemoryCache CreateMemoryCache() => new MemoryCache(new MemoryCacheOptions());
 
+    public static ICommunityService CreatePermissiveCommunityService()
+    {
+        var mock = new Mock<ICommunityService>();
+        mock.Setup(x => x.EnsureCanAccessAsync(It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureCanPostAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureJoinedAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureApprovedMemberAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return mock.Object;
+    }
+
+    public static IDiscussionParticipationService CreatePermissiveDiscussionParticipationService()
+    {
+        var mock = new Mock<IDiscussionParticipationService>();
+        mock.Setup(x => x.EnsureCanViewAsync(It.IsAny<Discussion>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.EnsureCanParticipateAsync(It.IsAny<Discussion>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mock.Setup(x => x.SeedAuthorParticipantAsync(It.IsAny<Discussion>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        return mock.Object;
+    }
+
+    public static IVideoService CreatePermissiveVideoService()
+    {
+        var mock = new Mock<IVideoService>();
+        mock.Setup(x => x.EnsureAssetsForStorageUrlsAsync(
+                It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, VideoAsset>(StringComparer.OrdinalIgnoreCase));
+        return mock.Object;
+    }
+
     public static IAdvertDtoMapper CreateAdvertDtoMapper(string baseUrl = "https://api.test") =>
         new AdvertDtoMapper(new UploadUrlResolver(
             Options.Create(new UploadStorageSettings { PublicBaseUrl = baseUrl }),
@@ -64,6 +100,34 @@ internal static class TestDbFactory
         db.Categories.Add(category);
         await db.SaveChangesAsync();
         return (user, category);
+    }
+
+    public static async Task<Community> SeedCommunityAsync(
+        KinshoutDbContext db,
+        User creator,
+        string slug = "general",
+        string? name = null)
+    {
+        var community = new Community
+        {
+            Slug = slug,
+            Name = name ?? slug,
+            Description = "Test community",
+            Visibility = CommunityVisibilities.Public,
+            IsActive = true,
+            CreatedByUserId = creator.Id,
+            CreatedByUser = creator,
+        };
+        db.Communities.Add(community);
+        db.CommunityMembers.Add(new CommunityMember
+        {
+            Community = community,
+            UserId = creator.Id,
+            Role = CommunityMemberRoles.Creator,
+            Status = CommunityMemberStatuses.Approved,
+        });
+        await db.SaveChangesAsync();
+        return community;
     }
 
     public static AiAdvertAnalysis SampleAnalysis(string slug = "immobilier") =>

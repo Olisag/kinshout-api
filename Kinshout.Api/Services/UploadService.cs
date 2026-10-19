@@ -5,6 +5,7 @@ namespace Kinshout.Api.Services;
 public interface IUploadService
 {
     Task<IReadOnlyList<string>> SaveImagesAsync(Guid userId, IFormFileCollection files, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> SaveVideosAsync(Guid userId, IFormFileCollection files, CancellationToken ct = default);
     Task<string> SaveAvatarAsync(Guid userId, IFormFile file, CancellationToken ct = default);
     Task<string> SaveResumeAsync(Guid userId, IFormFile file, CancellationToken ct = default);
 }
@@ -16,13 +17,20 @@ public class UploadService(
     ILogger<UploadService> logger) : IUploadService
 {
     private const long MaxImageBytes = 5 * 1024 * 1024;
+    private const long MaxVideoBytes = 50 * 1024 * 1024;
     private const long MaxAvatarBytes = 2 * 1024 * 1024;
     private const long MaxResumeBytes = 10 * 1024 * 1024;
     private const int MaxImages = 10;
+    private const int MaxVideos = 5;
 
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".webp",
+    };
+
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".webm", ".mov",
     };
 
     private static readonly HashSet<string> ResumeExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -74,6 +82,36 @@ public class UploadService(
                 await storage.SaveNamedAsync("images", userId, display, displayName, ct);
             }
 
+            urls.Add(url);
+        }
+
+        return urls;
+    }
+
+    public async Task<IReadOnlyList<string>> SaveVideosAsync(
+        Guid userId,
+        IFormFileCollection files,
+        CancellationToken ct = default)
+    {
+        if (files.Count == 0)
+            throw new ArgumentException("Aucune vidéo reçue.");
+
+        if (files.Count > MaxVideos)
+            throw new ArgumentException($"Maximum {MaxVideos} vidéos par discussion.");
+
+        var urls = new List<string>();
+        foreach (var file in files)
+        {
+            await using var buffer = new MemoryStream();
+            await file.CopyToAsync(buffer, ct);
+            ValidateSize(buffer.Length, MaxVideoBytes);
+
+            buffer.Position = 0;
+            var extension = ValidateExtension(file.FileName, VideoExtensions);
+            var fileId = Guid.NewGuid().ToString("N");
+            var fileName = $"{fileId}{extension.ToLowerInvariant()}";
+            var url = await storage.SaveNamedAsync("videos", userId, buffer, fileName, ct);
+            logger.LogInformation("Stored video upload {Url} for user {UserId}", url, userId);
             urls.Add(url);
         }
 
