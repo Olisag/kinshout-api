@@ -54,7 +54,14 @@ public class FacebookOAuthSettings
 public class CorsSettings
 {
     public const string SectionName = "Cors";
-    public string[] AllowedOrigins { get; set; } = ["https://kinshout.vercel.app", "http://localhost:5173"];
+    public string[] AllowedOrigins { get; set; } =
+    [
+        "https://kinoiserie.com",
+        "https://www.kinoiserie.com",
+        "https://kinshout.vercel.app",
+        "https://kinoiserie.vercel.app",
+        "http://localhost:5173",
+    ];
 }
 
 public class ClientAuthSettings
@@ -83,5 +90,5 @@ public class EmailSettings
     /// </summary>
     public string AcsEndpoint { get; set; } = string.Empty;
     /// <summary>Base URL for links in notification emails (e.g. https://app.example.com).</summary>
-    public string WebBaseUrl { get; set; } = "http://localhost:5173";
+    public string WebBaseUrl { get; set; } = "https://kinoiserie.com";
 }
