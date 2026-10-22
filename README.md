@@ -128,6 +128,7 @@ See `api-client.js` — calls `ensureClientAuth()` automatically before each req
 | POST | `/api/auth/google` | ✓ | — | User sign-in (Google) |
 | POST | `/api/auth/apple` | ✓ | — | User sign-in (Apple) |
 | GET | `/api/auth/me` | ✓ | ✓ | Current user profile |
+| DELETE | `/api/auth/me` | ✓ | ✓ | Suppress account and delete all user data |
 
 ### Adverts
 | Method | Path | Auth | Description |

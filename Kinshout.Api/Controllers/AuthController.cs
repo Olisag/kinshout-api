@@ -11,7 +11,11 @@ namespace Kinshout.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 [Produces("application/json")]
-public class AuthController(IAuthService auth, IClientAuthService clientAuth, IUploadService uploads) : ControllerBase
+public class AuthController(
+    IAuthService auth,
+    IClientAuthService clientAuth,
+    IUploadService uploads,
+    IAccountSuppressionService accountSuppression) : ControllerBase
 {
     /// <summary>
     /// Authorize a registered frontend app (layer 1).
@@ -299,6 +303,35 @@ public class AuthController(IAuthService auth, IClientAuthService clientAuth, IU
         var userId = GetUserId();
         var profile = await auth.GetProfileAsync(userId, ct);
         return profile is null ? NotFound() : Ok(profile);
+    }
+
+    /// <summary>
+    /// Permanently suppress (delete) the signed-in account and all associated user data:
+    /// profile, logins, adverts, discussions, replies, likes, saved items, video uploads,
+    /// memberships, and empty communities they created. Irreversible.
+    /// Requires both client token and user JWT.
+    /// </summary>
+    [HttpDelete("me")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SuppressMe(CancellationToken ct)
+    {
+        try
+        {
+            await accountSuppression.SuppressAsync(GetUserId(), ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
     }
 
     /// <summary>
