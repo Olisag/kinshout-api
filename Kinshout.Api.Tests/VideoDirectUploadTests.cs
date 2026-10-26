@@ -111,7 +111,7 @@ public class VideoDirectUploadTests : IDisposable
                     job.PosterUrl.EndsWith("_poster.jpg") &&
                     job.TrimStartSeconds == 30 &&
                     job.TrimEndSeconds == 150 &&
-                    job.MaxDurationSeconds == 120),
+                    job.MaxDurationSeconds == 150),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -130,7 +130,7 @@ public class VideoDirectUploadTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, 125)]
+    [InlineData(0, 160)]
     [InlineData(50, 40)]
     [InlineData(-1, 10)]
     public async Task Complete_RejectsInvalidTrimRange(double start, double end)

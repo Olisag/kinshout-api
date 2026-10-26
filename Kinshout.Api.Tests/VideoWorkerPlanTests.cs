@@ -5,10 +5,10 @@ namespace Kinshout.Api.Tests;
 public class VideoWorkerPlanTests
 {
     [Theory]
-    [InlineData(null, null, 300, 0, 120)]   // untrimmed long video keeps its first two minutes
+    [InlineData(null, null, 300, 0, 150)]   // untrimmed long video keeps its first 2:30
     [InlineData(null, null, 45, 0, 45)]     // short video is kept whole
-    [InlineData(30.0, 150.0, 300, 30, 120)] // user selection
-    [InlineData(30.0, 200.0, 300, 30, 120)] // selection longer than allowed is capped
+    [InlineData(30.0, 150.0, 300, 30, 120)] // user selection under the limit
+    [InlineData(30.0, 200.0, 300, 30, 150)] // selection longer than allowed is capped
     [InlineData(250.0, 400.0, 300, 250, 50)] // selection past the end stops at the end
     [InlineData(-5.0, 20.0, 300, 0, 20)]
     public void TrimWindow_StaysInsideTheVideoAndTheLimit(
@@ -202,7 +202,7 @@ public class VideoWorkerPlanTests
         new(60, 720, 1280, HasAudio: true, "h264", "yuv420p", FrameRate: 30, BitRate: 2_100_000, "aac");
 
     private static VideoJob Job(double? start, double? end) =>
-        new(Guid.NewGuid(), "/uploads/videos/u/a_source.mp4", "/uploads/videos/u/a.mp4", "/uploads/videos/u/a_poster.jpg", start, end, 120);
+        new(Guid.NewGuid(), "/uploads/videos/u/a_source.mp4", "/uploads/videos/u/a.mp4", "/uploads/videos/u/a_poster.jpg", start, end, 150);
 
     private static string ArgumentAfter(IReadOnlyList<string> arguments, string name) =>
         arguments[arguments.ToList().IndexOf(name) + 1];

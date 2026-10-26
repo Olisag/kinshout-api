@@ -18,5 +18,5 @@ public class VideoProcessingSettings
 
     public long MaxSourceBytes { get; set; } = 500L * 1024 * 1024;
 
-    public double MaxDurationSeconds { get; set; } = 120;
+    public double MaxDurationSeconds { get; set; } = 150;
 }

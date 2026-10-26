@@ -2,7 +2,7 @@ namespace Kinshout.Api.Models;
 
 /// <summary>
 /// First-class uploaded video with a poster for feed previews.
-/// Direct uploads land as a source file that the video worker trims to at most two minutes and
+/// Direct uploads land as a source file that the video worker trims to at most 2 minutes 30 seconds and
 /// re-encodes to 720p; legacy uploads are stored as-is and streamed with HTTP range requests.
 /// </summary>
 public class VideoAsset
