@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace Kinshout.Api.Controllers;
 
 /// <summary>
-/// Videos: direct upload to storage, server-side trim (two minutes max) and 720p re-encode,
+/// Videos: direct upload to storage, server-side trim (2:30 max) and 720p re-encode,
 /// cheap poster preview for feeds, range-streamed playback, owner delete.
 /// </summary>
 [ApiController]
@@ -53,7 +53,7 @@ public class VideosController(
     }
 
     /// <summary>
-    /// Finish a direct upload: optional trim range (seconds, two minutes max) and poster image.
+    /// Finish a direct upload: optional trim range (seconds, 2:30 max) and poster image.
     /// Poll <c>GET /api/videos/{id}</c> until <c>status</c> is <c>ready</c> or <c>failed</c>.
     /// </summary>
     [HttpPost("{id:guid}/complete")]

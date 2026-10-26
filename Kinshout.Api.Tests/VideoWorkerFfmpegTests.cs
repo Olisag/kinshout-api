@@ -21,12 +21,12 @@ public class VideoWorkerFfmpegTests : IDisposable
         var source = Path.Combine(_directory, "source.mp4");
         var output = Path.Combine(_directory, "output.mp4");
         var poster = Path.Combine(_directory, "poster.jpg");
-        // 150 s landscape 1920x1080 with audio, then flagged as shot in portrait like phone videos.
+        // 200 s landscape 1920x1080 with audio, then flagged as shot in portrait like phone videos.
         await RunAsync(
             "ffmpeg",
             "-hide_banner", "-y",
-            "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30:duration=150",
-            "-f", "lavfi", "-i", "sine=frequency=440:duration=150",
+            "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30:duration=200",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=200",
             "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
             landscape);
         await RunAsync(
@@ -39,7 +39,7 @@ public class VideoWorkerFfmpegTests : IDisposable
 
         var ffmpeg = new FfmpegRunner("ffmpeg", "ffprobe");
         var sourceInfo = await ffmpeg.ProbeAsync(source, CancellationToken.None);
-        var job = new VideoJob(Guid.NewGuid(), "", "", "", TrimStartSeconds: 10, TrimEndSeconds: null, 120);
+        var job = new VideoJob(Guid.NewGuid(), "", "", "", TrimStartSeconds: 10, TrimEndSeconds: null, 150);
         var window = VideoEncodingPlan.GetTrimWindow(job, sourceInfo.DurationSeconds);
 
         await ffmpeg.RunFfmpegAsync(
@@ -52,7 +52,7 @@ public class VideoWorkerFfmpegTests : IDisposable
 
         Assert.Equal(1080, sourceInfo.Width);
         Assert.Equal(1920, sourceInfo.Height);
-        Assert.InRange(outputInfo.DurationSeconds, 119.5, 120.5);
+        Assert.InRange(outputInfo.DurationSeconds, 149.5, 150.5);
         Assert.Equal(720, outputInfo.Width);
         Assert.Equal(1280, outputInfo.Height);
         Assert.True(outputInfo.HasAudio);
@@ -80,7 +80,7 @@ public class VideoWorkerFfmpegTests : IDisposable
 
         var ffmpeg = new FfmpegRunner("ffmpeg", "ffprobe");
         var sourceInfo = await ffmpeg.ProbeAsync(source, CancellationToken.None);
-        var job = new VideoJob(Guid.NewGuid(), "", "", "", TrimStartSeconds: null, TrimEndSeconds: null, 120);
+        var job = new VideoJob(Guid.NewGuid(), "", "", "", TrimStartSeconds: null, TrimEndSeconds: null, 150);
         var window = VideoEncodingPlan.GetTrimWindow(job, sourceInfo.DurationSeconds);
 
         Assert.True(VideoEncodingPlan.CanCopy(sourceInfo, window));

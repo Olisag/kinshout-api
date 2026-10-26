@@ -44,8 +44,8 @@ public interface IVideoService
 
 /// <summary>
 /// Video pipeline: clients upload the source straight to storage, the video worker trims it to at
-/// most two minutes and re-encodes it to 720p with a poster, and viewers get immutable long-cache
-/// files with HTTP range support. Legacy multipart uploads are stored as-is.
+/// most 2 minutes 30 seconds and re-encodes it to 720p with a poster, and viewers get immutable
+/// long-cache files with HTTP range support. Legacy multipart uploads are stored as-is.
 /// Legacy videos without posters get a cheap generated placeholder on first preview.
 /// </summary>
 public class VideoService(
@@ -58,7 +58,7 @@ public class VideoService(
 {
     public const long MaxVideoBytes = 50 * 1024 * 1024;
     public const long MaxPosterBytes = 512 * 1024;
-    // Keyframe snapping and container rounding can push an exact two-minute selection slightly over.
+    // Keyframe snapping and container rounding can push an exact 2:30 selection slightly over.
     private const double TrimToleranceSeconds = 1;
     private static readonly TimeSpan UploadUrlLifetime = TimeSpan.FromHours(2);
 

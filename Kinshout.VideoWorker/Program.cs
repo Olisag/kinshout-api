@@ -28,7 +28,7 @@ var processor = new VideoJobProcessor(
 
 for (var processed = 0; processed < maxJobs; processed++)
 {
-    // Long enough for a two-minute 4K source on a small container; hidden from other executions meanwhile.
+    // Long enough for a 2:30 4K source on a small container; hidden from other executions meanwhile.
     QueueMessage? message = (await queue.ReceiveMessageAsync(TimeSpan.FromMinutes(20))).Value;
     if (message is null)
         break;
