@@ -9,8 +9,11 @@ namespace Kinshout.Api.Services;
 /// </summary>
 public static partial class DiscussionMultimedia
 {
-    /// <summary>Source engagement score above which a text-only viral post may stay.</summary>
-    public const int AbsoluteHitEngagementScore = 2500;
+    /// <summary>
+    /// Source engagement above which a text-only post may stay (popular X/FB trends).
+    /// Tuned for X-style scores (likes + 2*replies + 3*reposts), not YouTube view counts.
+    /// </summary>
+    public const int AbsoluteHitEngagementScore = 120;
 
     /// <summary>On-platform likes that also qualify a text-only post as a hit.</summary>
     public const int AbsoluteHitLikeCount = 40;
@@ -29,9 +32,9 @@ public static partial class DiscussionMultimedia
         if (videos.Count > 0)
             return true;
 
-        if (HasConcreteYouTubeUrl(discussion.SourceExternalUrl)
-            || HasConcreteYouTubeUrl(discussion.Body)
-            || HasConcreteYouTubeUrl(discussion.SourceRawBody))
+        if (HasConcreteEmbeddableVideoUrl(discussion.SourceExternalUrl)
+            || HasConcreteEmbeddableVideoUrl(discussion.Body)
+            || HasConcreteEmbeddableVideoUrl(discussion.SourceRawBody))
         {
             return true;
         }
@@ -83,9 +86,9 @@ public static partial class DiscussionMultimedia
         if (images.Count > 0)
             return false;
 
-        if (HasConcreteYouTubeUrl(discussion.SourceExternalUrl)
-            || HasConcreteYouTubeUrl(discussion.Body)
-            || HasConcreteYouTubeUrl(discussion.SourceRawBody))
+        if (HasConcreteEmbeddableVideoUrl(discussion.SourceExternalUrl)
+            || HasConcreteEmbeddableVideoUrl(discussion.Body)
+            || HasConcreteEmbeddableVideoUrl(discussion.SourceRawBody))
         {
             return false;
         }
@@ -103,13 +106,16 @@ public static partial class DiscussionMultimedia
         if (imageUrls is { Count: > 0 } || videoUrls is { Count: > 0 })
             return true;
 
-        return HasConcreteYouTubeUrl(externalUrl) || HasConcreteYouTubeUrl(body);
+        return HasConcreteEmbeddableVideoUrl(externalUrl) || HasConcreteEmbeddableVideoUrl(body);
     }
 
     public static bool IsAbsoluteHitEngagement(int? engagementScore) =>
         engagementScore.GetValueOrDefault() >= AbsoluteHitEngagementScore;
 
-    public static bool HasConcreteYouTubeUrl(string? text)
+    public static bool HasConcreteYouTubeUrl(string? text) =>
+        HasConcreteEmbeddableVideoUrl(text);
+
+    public static bool HasConcreteEmbeddableVideoUrl(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return false;
@@ -117,11 +123,32 @@ public static partial class DiscussionMultimedia
         foreach (Match match in UrlRegex.Matches(text))
         {
             var url = match.Value.TrimEnd(')', ']', '.', ',', ';', '"', '\'');
-            if (TryGetYouTubeVideoId(url, out _))
+            if (TryGetYouTubeVideoId(url, out _) || TryGetTikTokVideoId(url, out _))
                 return true;
         }
 
         return false;
+    }
+
+    public static bool TryGetTikTokVideoId(string url, out string videoId)
+    {
+        videoId = string.Empty;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        if (host is not ("tiktok.com" or "vm.tiktok.com" or "m.tiktok.com"))
+        {
+            if (!host.EndsWith(".tiktok.com", StringComparison.Ordinal))
+                return false;
+        }
+
+        var match = Regex.Match(uri.AbsolutePath, @"/video/(\d+)", RegexOptions.IgnoreCase);
+        if (!match.Success)
+            return false;
+
+        videoId = match.Groups[1].Value;
+        return videoId.Length >= 5;
     }
 
     public static bool TryGetYouTubeVideoId(string url, out string videoId)

@@ -123,9 +123,15 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var body = text.Trim();
         var (images, videos) = ExtractMedia(item, body);
 
-        // Visual-first: require photo/video URLs or an embeddable visual link.
-        // filter:media alone is not enough — without URLs the post lands as text-only on the site.
-        if (images.Count == 0 && videos.Count == 0 && !ContainsVisualLink(body))
+        var likes = ReadInt(item, "likeCount") ?? ReadInt(item, "likes") ?? 0;
+        var replies = ReadInt(item, "replyCount") ?? ReadInt(item, "replies") ?? 0;
+        var retweets = ReadInt(item, "retweetCount") ?? ReadInt(item, "retweets") ?? 0;
+        var score = likes + replies * 2 + retweets * 3;
+
+        var hasVisual = images.Count > 0 || videos.Count > 0 || ContainsVisualLink(body);
+        // Visual-first by default; popular text-only trends still qualify.
+        var isPopularTrend = score >= Math.Max(minEngagement * 4, 120);
+        if (!hasVisual && !isPopularTrend)
             return null;
 
         if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
@@ -137,10 +143,6 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body))
             return null;
 
-        var likes = ReadInt(item, "likeCount") ?? ReadInt(item, "likes") ?? 0;
-        var replies = ReadInt(item, "replyCount") ?? ReadInt(item, "replies") ?? 0;
-        var retweets = ReadInt(item, "retweetCount") ?? ReadInt(item, "retweets") ?? 0;
-        var score = likes + replies * 2 + retweets * 3;
         if (score < minEngagement)
             return null;
 
