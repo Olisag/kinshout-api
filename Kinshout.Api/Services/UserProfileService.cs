@@ -56,11 +56,14 @@ public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadU
 
         var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
 
-        var query = db.Adverts
-            .AsNoTracking()
-            .Include(a => a.Category)
-            .Include(a => a.User)
-            .Where(a => a.UserId == userId && a.IsPublished)
+        var query = UserBlockFilter.WhereAuthorVisibleTo(
+                db.Adverts
+                    .AsNoTracking()
+                    .Include(a => a.Category)
+                    .Include(a => a.User)
+                    .Where(a => a.UserId == userId && a.IsPublished),
+                db,
+                viewerUserId)
             .OrderByDescending(a => a.CreatedAt);
 
         var total = await query.CountAsync(ct);

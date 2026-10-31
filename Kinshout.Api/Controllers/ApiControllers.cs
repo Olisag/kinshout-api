@@ -652,6 +652,10 @@ public class DiscussionsController(
             var item = await discussions.GetByIdAsync(id, page, pageSize, TryGetUserId(), ct);
             return item is null ? NotFound() : Ok(item);
         }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
         catch (DiscussionAccessDeniedException ex)
         {
             return StatusCode(StatusCodes.Status403Forbidden, ex.ToResponse());

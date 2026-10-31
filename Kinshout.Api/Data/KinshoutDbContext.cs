@@ -17,6 +17,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<CommunityMember> CommunityMembers => Set<CommunityMember>();
     public DbSet<DiscussionParticipant> DiscussionParticipants => Set<DiscussionParticipant>();
     public DbSet<VideoAsset> VideoAssets => Set<VideoAsset>();
+    public DbSet<UserReport> UserReports => Set<UserReport>();
+    public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
     public DbSet<SearchQueryStat> SearchQueryStats => Set<SearchQueryStat>();
     public DbSet<SavedAdvert> SavedAdverts => Set<SavedAdvert>();
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
@@ -192,6 +194,32 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.SourceUrl).HasMaxLength(500);
             e.Property(x => x.ProcessingError).HasMaxLength(500);
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserReport>(e =>
+        {
+            e.HasIndex(x => new { x.CommunityId, x.Status, x.CreatedAt });
+            e.HasIndex(x => x.ReportedUserId);
+            e.Property(x => x.Reason).HasMaxLength(500);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.HasOne(x => x.Community).WithMany().HasForeignKey(x => x.CommunityId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ReporterUser).WithMany().HasForeignKey(x => x.ReporterUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ReportedUser).WithMany().HasForeignKey(x => x.ReportedUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ResolvedByUser).WithMany().HasForeignKey(x => x.ResolvedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<UserBlock>(e =>
+        {
+            e.HasIndex(x => new { x.BlockerUserId, x.BlockedUserId }).IsUnique();
+            e.HasIndex(x => x.BlockedUserId);
+            e.HasOne(x => x.BlockerUser).WithMany().HasForeignKey(x => x.BlockerUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.BlockedUser).WithMany().HasForeignKey(x => x.BlockedUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ImportWatermark>(e =>

@@ -715,6 +715,118 @@ public static class DbSchemaPatcher
         await EnsureDiscussionReplyAttachmentSchemaAsync(db, connection, sqlServer, ct);
         await EnsureEmailConfirmationSchemaAsync(db, connection, sqlServer, ct);
         await EnsurePasswordResetSchemaAsync(db, connection, sqlServer, ct);
+        await EnsureUserReportsAndBlocksSchemaAsync(db, connection, sqlServer, ct);
+    }
+
+    private static async Task EnsureUserReportsAndBlocksSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(connection, sqlServer, "UserReports", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE UserReports (
+                        Id uniqueidentifier NOT NULL,
+                        CommunityId uniqueidentifier NOT NULL,
+                        ReporterUserId uniqueidentifier NOT NULL,
+                        ReportedUserId uniqueidentifier NOT NULL,
+                        Reason nvarchar(500) NULL,
+                        Status nvarchar(16) NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        ResolvedAt datetime2 NULL,
+                        ResolvedByUserId uniqueidentifier NULL,
+                        CONSTRAINT PK_UserReports PRIMARY KEY (Id),
+                        CONSTRAINT FK_UserReports_Communities_CommunityId
+                            FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_UserReports_Users_ReporterUserId
+                            FOREIGN KEY (ReporterUserId) REFERENCES Users(Id) ON DELETE NO ACTION,
+                        CONSTRAINT FK_UserReports_Users_ReportedUserId
+                            FOREIGN KEY (ReportedUserId) REFERENCES Users(Id) ON DELETE NO ACTION,
+                        CONSTRAINT FK_UserReports_Users_ResolvedByUserId
+                            FOREIGN KEY (ResolvedByUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE UserReports (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        CommunityId TEXT NOT NULL,
+                        ReporterUserId TEXT NOT NULL,
+                        ReportedUserId TEXT NOT NULL,
+                        Reason TEXT,
+                        Status TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        ResolvedAt TEXT,
+                        ResolvedByUserId TEXT,
+                        FOREIGN KEY (CommunityId) REFERENCES Communities(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (ReporterUserId) REFERENCES Users(Id) ON DELETE RESTRICT,
+                        FOREIGN KEY (ReportedUserId) REFERENCES Users(Id) ON DELETE RESTRICT,
+                        FOREIGN KEY (ResolvedByUserId) REFERENCES Users(Id) ON DELETE SET NULL
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_UserReports_CommunityId_Status_CreatedAt ON UserReports (CommunityId, Status, CreatedAt)",
+                cancellationToken: ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_UserReports_ReportedUserId ON UserReports (ReportedUserId)",
+                cancellationToken: ct);
+        }
+
+        if (!await TableExistsAsync(connection, sqlServer, "UserBlocks", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE UserBlocks (
+                        Id uniqueidentifier NOT NULL,
+                        BlockerUserId uniqueidentifier NOT NULL,
+                        BlockedUserId uniqueidentifier NOT NULL,
+                        CreatedAt datetime2 NOT NULL,
+                        CONSTRAINT PK_UserBlocks PRIMARY KEY (Id),
+                        CONSTRAINT FK_UserBlocks_Users_BlockerUserId
+                            FOREIGN KEY (BlockerUserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_UserBlocks_Users_BlockedUserId
+                            FOREIGN KEY (BlockedUserId) REFERENCES Users(Id) ON DELETE NO ACTION
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE UserBlocks (
+                        Id TEXT NOT NULL PRIMARY KEY,
+                        BlockerUserId TEXT NOT NULL,
+                        BlockedUserId TEXT NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        FOREIGN KEY (BlockerUserId) REFERENCES Users(Id) ON DELETE CASCADE,
+                        FOREIGN KEY (BlockedUserId) REFERENCES Users(Id) ON DELETE RESTRICT
+                    )
+                    """,
+                    cancellationToken: ct);
+            }
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IX_UserBlocks_BlockerUserId_BlockedUserId ON UserBlocks (BlockerUserId, BlockedUserId)",
+                cancellationToken: ct);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IX_UserBlocks_BlockedUserId ON UserBlocks (BlockedUserId)",
+                cancellationToken: ct);
+        }
     }
 
     private static async Task EnsurePasswordResetSchemaAsync(

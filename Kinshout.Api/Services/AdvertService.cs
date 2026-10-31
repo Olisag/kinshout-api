@@ -190,6 +190,7 @@ public class AdvertService(
         var sourceFilter = AdvertSourceMapper.NormalizeListFilter(source);
 
         var query = db.Adverts.AsNoTracking().Include(a => a.Category).Include(a => a.User).Where(a => a.IsPublished);
+        query = UserBlockFilter.WhereAuthorVisibleTo(query, db, viewerUserId);
         if (categoryId.HasValue)
             query = query.Where(a => a.CategoryId == categoryId.Value);
 

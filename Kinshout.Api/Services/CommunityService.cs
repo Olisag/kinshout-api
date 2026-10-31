@@ -24,6 +24,12 @@ public interface ICommunityService
     Task InviteMemberAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task ApproveMemberAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task RejectMemberAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
+    Task<UserReportDto> ReportUserAsync(
+        Guid reporterUserId,
+        string slugOrRoute,
+        ReportCommunityUserRequestDto request,
+        CancellationToken ct = default);
+    Task BlockMemberAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task AddModeratorAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task RemoveModeratorAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task LeaveAsync(Guid userId, string slugOrRoute, CancellationToken ct = default);
@@ -64,7 +70,8 @@ public interface ICommunityService
 public class CommunityService(
     KinshoutDbContext db,
     IOpenAiService openAi,
-    ICommunityJoinNotifier joinNotifier) : ICommunityService
+    ICommunityJoinNotifier joinNotifier,
+    ICommunityReportNotifier reportNotifier) : ICommunityService
 {
     private const double MinSuggestionConfidence = 0.35;
 
@@ -284,6 +291,9 @@ public class CommunityService(
         var existing = await db.CommunityMembers
             .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == userId, ct);
 
+        if (existing?.Status == CommunityMemberStatuses.Banned)
+            throw new UnauthorizedAccessException("Vous êtes bloqué de cette communauté.");
+
         if (existing?.Status == CommunityMemberStatuses.Approved)
             return;
 
@@ -329,6 +339,9 @@ public class CommunityService(
 
         var existing = await db.CommunityMembers
             .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == userId, ct);
+
+        if (existing?.Status == CommunityMemberStatuses.Banned)
+            throw new UnauthorizedAccessException("Vous êtes bloqué de cette communauté.");
 
         if (existing?.Status == CommunityMemberStatuses.Approved)
             return;
@@ -411,6 +424,9 @@ public class CommunityService(
             .FirstOrDefaultAsync(m => m.CommunityId == community.Id && m.UserId == targetUserId, ct)
             ?? throw new KeyNotFoundException("Demande d'adhésion introuvable.");
 
+        if (membership.Status == CommunityMemberStatuses.Banned)
+            throw new InvalidOperationException("Cet utilisateur est bloqué de la communauté.");
+
         if (membership.Status == CommunityMemberStatuses.Approved)
             return;
 
@@ -421,6 +437,139 @@ public class CommunityService(
 
         var member = await db.Users.AsNoTracking().FirstAsync(u => u.Id == targetUserId, ct);
         await joinNotifier.NotifyJoinApprovedAsync(community, member, ct);
+    }
+
+    public async Task<UserReportDto> ReportUserAsync(
+        Guid reporterUserId,
+        string slugOrRoute,
+        ReportCommunityUserRequestDto request,
+        CancellationToken ct = default)
+    {
+        var community = await RequireCommunityAsync(slugOrRoute, ct);
+        if (request.UserId == Guid.Empty)
+            throw new ArgumentException("Utilisateur à signaler requis.");
+
+        if (request.UserId == reporterUserId)
+            throw new InvalidOperationException("Vous ne pouvez pas vous signaler vous-même.");
+
+        if (request.UserId == community.CreatedByUserId)
+            throw new InvalidOperationException("Impossible de signaler le créateur de la communauté.");
+
+        var reporterMembership = await FindMembershipAsync(community.Id, reporterUserId, ct);
+        if (!CommunityAccessHelper.IsApprovedMember(community, reporterMembership, reporterUserId))
+            throw new UnauthorizedAccessException("Vous devez être membre pour signaler un utilisateur.");
+
+        var reported = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == request.UserId, ct)
+            ?? throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        var reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
+        if (reason is { Length: > 500 })
+            throw new ArgumentException("Le motif ne peut pas dépasser 500 caractères.");
+
+        var recentDuplicate = await db.UserReports.AnyAsync(
+            r => r.CommunityId == community.Id
+                && r.ReporterUserId == reporterUserId
+                && r.ReportedUserId == request.UserId
+                && r.Status == UserReportStatuses.Open
+                && r.CreatedAt > DateTime.UtcNow.AddHours(-24),
+            ct);
+        if (recentDuplicate)
+            throw new InvalidOperationException("Vous avez déjà signalé cet utilisateur récemment.");
+
+        var report = new UserReport
+        {
+            CommunityId = community.Id,
+            ReporterUserId = reporterUserId,
+            ReportedUserId = request.UserId,
+            Reason = reason,
+            Status = UserReportStatuses.Open,
+        };
+        db.UserReports.Add(report);
+        await db.SaveChangesAsync(ct);
+
+        var reporter = await db.Users.AsNoTracking().FirstAsync(u => u.Id == reporterUserId, ct);
+        await reportNotifier.NotifyUserReportedAsync(community, reporter, reported, report, ct);
+
+        return new UserReportDto(
+            report.Id,
+            community.Id,
+            CommunitySlugHelper.ToRouteSlug(community.Slug),
+            reporterUserId,
+            reported.Id,
+            reported.DisplayName,
+            report.Reason,
+            report.Status,
+            report.CreatedAt);
+    }
+
+    public async Task BlockMemberAsync(
+        Guid actorUserId,
+        string slugOrRoute,
+        Guid targetUserId,
+        CancellationToken ct = default)
+    {
+        var community = await RequireCommunityAsync(slugOrRoute, ct);
+        var actorMembership = await FindMembershipAsync(community.Id, actorUserId, ct);
+        if (!CommunityAccessHelper.CanModerate(community, actorMembership, actorUserId))
+            throw new UnauthorizedAccessException("Seuls le créateur ou un modérateur peuvent bloquer un membre.");
+
+        if (targetUserId == community.CreatedByUserId)
+            throw new InvalidOperationException("Impossible de bloquer le créateur de la communauté.");
+
+        if (targetUserId == actorUserId)
+            throw new InvalidOperationException("Vous ne pouvez pas vous bloquer vous-même.");
+
+        if (!await db.Users.AnyAsync(u => u.Id == targetUserId, ct))
+            throw new KeyNotFoundException("Utilisateur introuvable.");
+
+        var membership = await db.CommunityMembers
+            .FirstOrDefaultAsync(m => m.CommunityId == community.Id && m.UserId == targetUserId, ct);
+
+        if (membership is null)
+        {
+            membership = new CommunityMember
+            {
+                CommunityId = community.Id,
+                UserId = targetUserId,
+                Role = CommunityMemberRoles.Member,
+                Status = CommunityMemberStatuses.Banned,
+                ReviewedAt = DateTime.UtcNow,
+                ReviewedByUserId = actorUserId,
+            };
+            db.CommunityMembers.Add(membership);
+        }
+        else
+        {
+            if (membership.Role is CommunityMemberRoles.Creator)
+                throw new InvalidOperationException("Impossible de bloquer le créateur de la communauté.");
+
+            if (membership.Role == CommunityMemberRoles.Moderator
+                && community.CreatedByUserId != actorUserId
+                && actorMembership?.Role != CommunityMemberRoles.Creator)
+            {
+                throw new UnauthorizedAccessException("Seul le créateur peut bloquer un modérateur.");
+            }
+
+            membership.Role = CommunityMemberRoles.Member;
+            membership.Status = CommunityMemberStatuses.Banned;
+            membership.ReviewedAt = DateTime.UtcNow;
+            membership.ReviewedByUserId = actorUserId;
+        }
+
+        var openReports = await db.UserReports
+            .Where(r =>
+                r.CommunityId == community.Id
+                && r.ReportedUserId == targetUserId
+                && r.Status == UserReportStatuses.Open)
+            .ToListAsync(ct);
+        foreach (var report in openReports)
+        {
+            report.Status = UserReportStatuses.Resolved;
+            report.ResolvedAt = DateTime.UtcNow;
+            report.ResolvedByUserId = actorUserId;
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task RejectMemberAsync(
@@ -688,6 +837,9 @@ public class CommunityService(
             ?? throw new KeyNotFoundException("Communauté introuvable.");
 
         var membership = await FindMembershipAsync(communityId, userId, ct);
+        if (membership?.Status == CommunityMemberStatuses.Banned)
+            throw new UnauthorizedAccessException("Vous êtes bloqué de cette communauté.");
+
         if (!CommunityAccessHelper.CanPost(community, membership, userId))
         {
             if (!community.IsActive)

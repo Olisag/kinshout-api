@@ -96,6 +96,20 @@ public class SearchService(
                 .Where(discussionById.ContainsKey)
                 .Select(id => discussionById[id]),
             sort);
+        if (viewerUserId is Guid searchViewer)
+        {
+            var blockedAuthorIds = await db.UserBlocks
+                .AsNoTracking()
+                .Where(b => b.BlockerUserId == searchViewer || b.BlockedUserId == searchViewer)
+                .Select(b => b.BlockerUserId == searchViewer ? b.BlockedUserId : b.BlockerUserId)
+                .ToListAsync(ct);
+            if (blockedAuthorIds.Count > 0)
+            {
+                var blocked = blockedAuthorIds.ToHashSet();
+                matchedAdverts = matchedAdverts.Where(a => !blocked.Contains(a.UserId)).ToList();
+                matchedDiscussions = matchedDiscussions.Where(d => !blocked.Contains(d.UserId)).ToList();
+            }
+        }
         var savedIds = await AdvertService.LoadSavedAdvertIdsAsync(
             db,
             viewerUserId,

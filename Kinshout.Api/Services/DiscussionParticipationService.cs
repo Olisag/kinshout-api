@@ -183,6 +183,10 @@ public class DiscussionParticipationService(
     /// </summary>
     public async Task EnsureCanViewAsync(Discussion discussion, Guid? viewerUserId, CancellationToken ct = default)
     {
+        if (viewerUserId is Guid viewer
+            && await UserBlockFilter.AreMutuallyBlockedAsync(db, viewer, discussion.UserId, ct))
+            throw new KeyNotFoundException("Discussion introuvable.");
+
         var (community, membership) = await LoadCommunityAccessAsync(discussion, viewerUserId, ct);
         var isApprovedMember = community is not null
             && CommunityAccessHelper.CanViewPrivateDiscussions(community, membership, viewerUserId);
@@ -204,6 +208,9 @@ public class DiscussionParticipationService(
 
     public async Task EnsureCanParticipateAsync(Discussion discussion, Guid userId, CancellationToken ct = default)
     {
+        if (await UserBlockFilter.AreMutuallyBlockedAsync(db, userId, discussion.UserId, ct))
+            throw new UnauthorizedAccessException("Vous ne pouvez pas participer à cette discussion.");
+
         var (community, membership) = await LoadCommunityAccessAsync(discussion, userId, ct);
         var communityRequired = community is not null
             && !CommunityAccessHelper.CanViewDiscussions(community, membership, userId);

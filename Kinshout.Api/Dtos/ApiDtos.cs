@@ -463,6 +463,24 @@ public record CommunityMemberDto(
 
 public record InviteCommunityMemberRequestDto(Guid UserId);
 
+public record ReportCommunityUserRequestDto(Guid UserId, string? Reason = null);
+
+public record UserReportDto(
+    Guid Id,
+    Guid CommunityId,
+    string CommunitySlug,
+    Guid ReporterUserId,
+    Guid ReportedUserId,
+    string ReportedDisplayName,
+    string? Reason,
+    string Status,
+    DateTime CreatedAt);
+
+public record UserBlockDto(
+    Guid BlockedUserId,
+    string DisplayName,
+    DateTime CreatedAt);
+
 public record SuggestCommunityRequestDto(string Title, string Body);
 
 public record SuggestCommunityResponseDto(

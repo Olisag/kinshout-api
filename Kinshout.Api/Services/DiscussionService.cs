@@ -282,8 +282,17 @@ public class DiscussionService(
         var repliesQuery = db.DiscussionReplies
             .AsNoTracking()
             .Include(r => r.User)
-            .Where(r => r.DiscussionId == id)
-            .OrderBy(r => r.CreatedAt);
+            .Where(r => r.DiscussionId == id);
+
+        if (viewerUserId is Guid replyViewer)
+        {
+            repliesQuery = repliesQuery.Where(r =>
+                !db.UserBlocks.Any(b =>
+                    (b.BlockerUserId == replyViewer && b.BlockedUserId == r.UserId)
+                    || (b.BlockerUserId == r.UserId && b.BlockedUserId == replyViewer)));
+        }
+
+        repliesQuery = repliesQuery.OrderBy(r => r.CreatedAt);
 
         var total = await repliesQuery.CountAsync(ct);
         var replies = await repliesQuery
