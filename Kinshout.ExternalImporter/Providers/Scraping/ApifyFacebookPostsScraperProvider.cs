@@ -15,61 +15,84 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             settings.ApifyActorId = DefaultActorId;
 
         var client = new ApifyClient(http, settings);
-        var input = BuildInput();
-        using var doc = await client.RunActorAndGetDatasetAsync(input, ct);
-
+        var queries = ResolveQueries();
         var discussions = new List<SourceFeedDiscussion>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-        {
-            Console.WriteLine("  Apify Facebook posts: unexpected dataset format.");
-            return DiscussionFetchResult.From(discussions, seenIds);
-        }
-
-        var rawCount = doc.RootElement.GetArrayLength();
-        var filteredOut = 0;
+        var keptIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 20;
         var minEngagement = ResolveMinEngagement();
         var minPostedAt = ResolveMinPostedAt();
+        var rawCount = 0;
+        var filteredOut = 0;
 
-        foreach (var item in doc.RootElement.EnumerateArray())
+        foreach (var query in queries)
         {
-            var rawId = ReadString(item, "postId") ?? ReadString(item, "id");
-            if (!string.IsNullOrWhiteSpace(rawId))
-                seenIds.Add(rawId);
+            if (discussions.Count >= maxItems)
+                break;
 
-            try
+            using var doc = await client.RunActorAndGetDatasetAsync(BuildInput(query), ct);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
-                var mapped = MapPost(item, minEngagement, minPostedAt);
-                if (mapped is not null)
-                    discussions.Add(mapped);
-                else
-                    filteredOut++;
+                Console.WriteLine($"  Apify Facebook posts: unexpected dataset for query '{query}'.");
+                continue;
             }
-            catch (Exception ex)
+
+            rawCount += doc.RootElement.GetArrayLength();
+            foreach (var item in doc.RootElement.EnumerateArray())
             {
-                filteredOut++;
-                Console.WriteLine($"  Apify Facebook post parse skipped: {ex.Message}");
+                if (discussions.Count >= maxItems)
+                    break;
+
+                var rawId = ReadString(item, "postId") ?? ReadString(item, "id");
+                if (!string.IsNullOrWhiteSpace(rawId))
+                    seenIds.Add(rawId);
+
+                try
+                {
+                    var mapped = MapPost(item, minEngagement, minPostedAt);
+                    if (mapped is null)
+                    {
+                        filteredOut++;
+                        continue;
+                    }
+
+                    if (!keptIds.Add(mapped.ExternalId ?? mapped.ExternalUrl ?? Guid.NewGuid().ToString("N")))
+                        continue;
+
+                    discussions.Add(mapped);
+                }
+                catch (Exception ex)
+                {
+                    filteredOut++;
+                    Console.WriteLine($"  Apify Facebook post parse skipped: {ex.Message}");
+                }
             }
         }
 
         if (rawCount > 0)
         {
             Console.WriteLine(
-                $"  Apify Facebook posts: kept {discussions.Count}/{rawCount} Kinshasa topics ({filteredOut} filtered out).");
+                $"  Apify Facebook posts: kept {discussions.Count}/{rawCount} visual Kinshasa topics ({filteredOut} filtered out).");
         }
 
-        var deduped = discussions
-            .GroupBy(d => d.ExternalId ?? d.ExternalUrl, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
-
-        return DiscussionFetchResult.From(deduped, seenIds);
+        return DiscussionFetchResult.From(discussions, seenIds);
     }
 
-    private object BuildInput()
+    private List<string> ResolveQueries()
     {
-        var query = settings.SearchQueries.FirstOrDefault(q => !string.IsNullOrWhiteSpace(q)) ?? "Kinshasa";
-        var count = settings.ResultsLimit > 0 ? settings.ResultsLimit : 50;
+        var queries = settings.SearchQueries
+            .Where(q => !string.IsNullOrWhiteSpace(q))
+            .Select(q => q.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (queries.Count == 0)
+            queries.Add("Kinshasa");
+        return queries;
+    }
+
+    private object BuildInput(string query)
+    {
+        var count = Math.Max(5, Math.Min(15, settings.ResultsLimit > 0 ? settings.ResultsLimit : 12));
         var end = DateTime.UtcNow.Date;
         var start = ResolveMinPostedAt().Date;
 
@@ -90,6 +113,11 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         var url = ReadString(item, "url") ?? ReadString(item, "postUrl");
         var text = ReadString(item, "postText") ?? ReadString(item, "text") ?? ReadString(item, "message");
         if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(text))
+            return null;
+
+        var (images, videos) = ExtractMedia(item);
+        // Visual-first feed: skip text-only Facebook posts.
+        if (images.Count == 0 && videos.Count == 0)
             return null;
 
         var author = item.TryGetProperty("author", out var authorNode)
@@ -130,7 +158,46 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             PublishedAt = postedAt,
             EngagementScore = score,
             Status = "active",
+            ImageUrls = images,
+            VideoUrls = videos,
         };
+    }
+
+    private static (List<string> Images, List<string> Videos) ExtractMedia(JsonElement item)
+    {
+        var images = new List<string>();
+        var videos = new List<string>();
+
+        if (item.TryGetProperty("attachments", out var attachments) && attachments.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var attachment in attachments.EnumerateArray())
+            {
+                var type = (ReadString(attachment, "type") ?? string.Empty).ToLowerInvariant();
+                var mediaUrl = ReadString(attachment, "url")
+                    ?? ReadString(attachment, "imageUrl")
+                    ?? ReadString(attachment, "photoUrl")
+                    ?? ReadString(attachment, "videoUrl");
+                if (string.IsNullOrWhiteSpace(mediaUrl))
+                    continue;
+
+                if (type.Contains("video", StringComparison.Ordinal))
+                    videos.Add(mediaUrl);
+                else
+                    images.Add(mediaUrl);
+            }
+        }
+
+        var singleImage = ReadString(item, "imageUrl") ?? ReadString(item, "photoUrl");
+        if (!string.IsNullOrWhiteSpace(singleImage))
+            images.Add(singleImage);
+
+        var singleVideo = ReadString(item, "videoUrl");
+        if (!string.IsNullOrWhiteSpace(singleVideo))
+            videos.Add(singleVideo);
+
+        return (
+            images.Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList(),
+            videos.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList());
     }
 
     private static string BuildTitle(string text)
@@ -175,6 +242,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
     private DateTime ResolveMinPostedAt() =>
         settings.SincePublishedAt?.ToUniversalTime()
         ?? DateTime.UtcNow.AddDays(-ResolveMaxAgeDays());
+
     private int ResolveMinEngagement() => settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 20;
 
     private static string? ReadString(JsonElement element, string name) =>

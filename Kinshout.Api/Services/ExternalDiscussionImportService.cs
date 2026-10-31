@@ -38,7 +38,9 @@ public class ExternalDiscussionImportService(
         if (discussions.Count == 0)
             throw new ArgumentException("Aucune discussion à importer.");
 
-        var importUser = await ImportSeed.EnsureImportUserAsync(db, ct);
+        await ImportSeed.EnsureImportUserAsync(db, ct);
+        await TopicCommunitySeed.EnsureTopicCommunitiesAsync(db, ct);
+        var hosts = await ImportHostSeed.EnsureHostsAsync(db, ct);
 
         var created = 0;
         var updated = 0;
@@ -49,7 +51,7 @@ public class ExternalDiscussionImportService(
         {
             try
             {
-                var outcome = await UpsertAsync(item, importUser, ct);
+                var outcome = await UpsertAsync(item, hosts, ct);
                 await db.SaveChangesAsync(ct);
                 switch (outcome)
                 {
@@ -245,7 +247,7 @@ public class ExternalDiscussionImportService(
 
     private async Task<UpsertOutcome> UpsertAsync(
         ImportExternalDiscussionDto item,
-        User importUser,
+        IReadOnlyList<User> hosts,
         CancellationToken ct)
     {
         var provider = DiscussionSourceProvider.Normalize(item.Source.Provider);
@@ -290,6 +292,7 @@ public class ExternalDiscussionImportService(
         var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
         var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
         var communityId = await ResolveImportCommunityIdAsync(transformed.Title, transformed.Body, ct);
+        var host = ImportHostSeed.PickHost(hosts, transformed.Title, transformed.Body);
 
         var now = DateTime.UtcNow;
         var importedAt = item.Source.ImportedAt ?? now;
@@ -298,7 +301,7 @@ public class ExternalDiscussionImportService(
         var mapped = MapFields(
             item,
             provider,
-            importUser.Id,
+            host.Id,
             topicCategory.Id,
             topicCategory.Slug,
             communityId,
@@ -312,15 +315,19 @@ public class ExternalDiscussionImportService(
         if (existing is null)
         {
             db.Discussions.Add(mapped);
+            AddStarterComments(mapped, hosts, host, transformed.Title, transformed.Body);
             return UpsertOutcome.Created;
         }
 
         existing.Title = mapped.Title;
         existing.Body = mapped.Body;
         existing.SourceRawBody = rawBody;
+        existing.ImageUrlsJson = mapped.ImageUrlsJson;
+        existing.VideoUrlsJson = mapped.VideoUrlsJson;
         existing.CategoryId = mapped.CategoryId;
         existing.TopicSlug = mapped.TopicSlug;
         existing.CommunityId ??= mapped.CommunityId;
+        // Keep the original host author on updates; only refresh content/source metadata.
         existing.SourceProviderName = mapped.SourceProviderName;
         existing.SourceExternalUrl = mapped.SourceExternalUrl;
         existing.SourceImportedAt = existing.SourceImportedAt ?? importedAt;
@@ -334,8 +341,44 @@ public class ExternalDiscussionImportService(
         return UpsertOutcome.Updated;
     }
 
+    private void AddStarterComments(
+        Discussion discussion,
+        IReadOnlyList<User> hosts,
+        User author,
+        string title,
+        string body)
+    {
+        var starters = ImportHostSeed.BuildStarterComments(hosts, author, title, body);
+        if (starters.Count == 0)
+            return;
+
+        var createdAt = discussion.CreatedAt.AddMinutes(2);
+        foreach (var (host, commentBody) in starters)
+        {
+            db.DiscussionReplies.Add(new DiscussionReply
+            {
+                Discussion = discussion,
+                UserId = host.Id,
+                Body = commentBody,
+                CreatedAt = createdAt,
+            });
+            createdAt = createdAt.AddMinutes(3);
+            discussion.ReplyCount++;
+        }
+    }
+
     private async Task<Guid> ResolveImportCommunityIdAsync(string title, string body, CancellationToken ct)
     {
+        var inferredSlug = TopicCommunitySeed.InferSlug(title, body);
+        if (!string.IsNullOrWhiteSpace(inferredSlug))
+        {
+            var bySlug = await db.Communities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Slug == inferredSlug && c.IsActive, ct);
+            if (bySlug is not null)
+                return bySlug.Id;
+        }
+
         try
         {
             var suggestion = await communities.SuggestAsync(title, body, ct);
@@ -378,6 +421,8 @@ public class ExternalDiscussionImportService(
             Title = title.Trim(),
             Body = body.Trim(),
             SourceRawBody = rawBody,
+            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.ImageUrls)),
+            VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.VideoUrls)),
             CreatedAt = createdAt,
             UpdatedAt = importedAt,
             ReplyCount = 0,
@@ -396,6 +441,21 @@ public class ExternalDiscussionImportService(
             SourceEngagementScore = engagement > 0 ? engagement : null,
             ExternalPublishedAt = publishedAt,
         };
+    }
+
+    private static List<string> SanitizeExternalMediaUrls(IReadOnlyList<string>? urls)
+    {
+        if (urls is null || urls.Count == 0)
+            return [];
+
+        return urls
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Where(u => Uri.TryCreate(u, UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(DiscussionMediaHelper.MaxImages)
+            .ToList();
     }
 
     private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)

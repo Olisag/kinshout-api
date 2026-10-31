@@ -29,7 +29,9 @@ public static class DiscussionMapper
             OriginalAuthor: Clean(feed.OriginalAuthor),
             EngagementScore: feed.EngagementScore,
             Status: Clean(feed.Status) ?? "active",
-            PublishedAt: feed.PublishedAt);
+            PublishedAt: feed.PublishedAt,
+            ImageUrls: CleanUrls(feed.ImageUrls),
+            VideoUrls: CleanUrls(feed.VideoUrls));
     }
 
     public static ImportExternalDiscussionDto ToRemovalDto(
@@ -60,4 +62,20 @@ public static class DiscussionMapper
 
     private static string? Clean(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static IReadOnlyList<string>? CleanUrls(IReadOnlyList<string>? urls)
+    {
+        if (urls is null || urls.Count == 0)
+            return null;
+
+        var cleaned = urls
+            .Select(Clean)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .ToList();
+
+        return cleaned.Count == 0 ? null : cleaned;
+    }
 }

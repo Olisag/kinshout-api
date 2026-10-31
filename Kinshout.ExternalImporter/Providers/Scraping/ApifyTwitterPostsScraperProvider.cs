@@ -121,6 +121,11 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         author ??= ReadString(item, "username");
         var title = BuildTitle(text);
         var body = text.Trim();
+        var (images, videos) = ExtractMedia(item, body);
+
+        // Visual-first: keep tweets with media/YouTube; drop plain text.
+        if (images.Count == 0 && videos.Count == 0 && !ContainsVisualLink(body))
+            return null;
 
         if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
             return null;
@@ -152,7 +157,63 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             PublishedAt = postedAt,
             EngagementScore = score,
             Status = "active",
+            ImageUrls = images,
+            VideoUrls = videos,
         };
+    }
+
+    private static bool ContainsVisualLink(string text)
+    {
+        var lower = text.ToLowerInvariant();
+        return lower.Contains("youtube.com/", StringComparison.Ordinal)
+            || lower.Contains("youtu.be/", StringComparison.Ordinal)
+            || lower.Contains("tiktok.com/", StringComparison.Ordinal)
+            || lower.Contains("instagram.com/", StringComparison.Ordinal)
+            || lower.Contains("fb.watch/", StringComparison.Ordinal)
+            || lower.Contains("twimg.com/", StringComparison.Ordinal);
+    }
+
+    private static (List<string> Images, List<string> Videos) ExtractMedia(JsonElement item, string text)
+    {
+        var images = new List<string>();
+        var videos = new List<string>();
+
+        if (item.TryGetProperty("entities", out var entities) && entities.ValueKind == JsonValueKind.Object)
+        {
+            if (entities.TryGetProperty("media", out var media) && media.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var m in media.EnumerateArray())
+                {
+                    var type = (ReadString(m, "type") ?? string.Empty).ToLowerInvariant();
+                    var mediaUrl = ReadString(m, "media_url_https")
+                        ?? ReadString(m, "mediaUrl")
+                        ?? ReadString(m, "url");
+                    if (string.IsNullOrWhiteSpace(mediaUrl))
+                        continue;
+                    if (type.Contains("video", StringComparison.Ordinal))
+                        videos.Add(mediaUrl);
+                    else
+                        images.Add(mediaUrl);
+                }
+            }
+        }
+
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                     text,
+                     "https?://[^\\s<>\"'`\\)\\]]+",
+                     System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            var link = match.Value.TrimEnd(')', ']', '.', ',', ';');
+            if (link.Contains("twimg.com/", StringComparison.OrdinalIgnoreCase)
+                || link.Contains("pbs.twimg.com/", StringComparison.OrdinalIgnoreCase))
+            {
+                images.Add(link);
+            }
+        }
+
+        return (
+            images.Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList(),
+            videos.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList());
     }
 
     private static string BuildTitle(string text)
