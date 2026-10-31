@@ -229,6 +229,32 @@ public class CommunitiesController(ICommunityService communities) : ControllerBa
         }
     }
 
+    /// <summary>List members banned from this community (moderators only).</summary>
+    [HttpGet("{slug}/members/banned")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(PagedResultDto<CommunityMemberDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResultDto<CommunityMemberDto>>> ListBannedMembers(
+        string slug,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            return Ok(await communities.ListBannedMembersAsync(GetUserId(), slug, page, pageSize, ct));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Communauté introuvable." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+    }
+
     /// <summary>
     /// Approve a pending community join request. Any one creator or moderator approval suffices.
     /// </summary>
@@ -305,6 +331,34 @@ public class CommunitiesController(ICommunityService communities) : ControllerBa
         try
         {
             await communities.BlockMemberAsync(GetUserId(), slug, userId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>Moderator: lift a community ban so the user may join again.</summary>
+    [HttpDelete("{slug}/members/{userId:guid}/block")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UnblockMember(string slug, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await communities.UnblockMemberAsync(GetUserId(), slug, userId, ct);
             return NoContent();
         }
         catch (KeyNotFoundException ex)
