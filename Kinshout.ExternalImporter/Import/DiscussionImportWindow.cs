@@ -10,16 +10,10 @@ internal static class DiscussionImportWindow
         DateTime nowUtc,
         int maxDiscussionAgeDays)
     {
-        var floor = nowUtc.AddDays(-Math.Max(1, maxDiscussionAgeDays));
-        if (lastRunByProvider.TryGetValue(provider, out var lastRun))
-        {
-            // API returns UTC timestamps; treat Unspecified as UTC so local offset does not push "since" into the future.
-            var since = lastRun.Kind == DateTimeKind.Unspecified
-                ? DateTime.SpecifyKind(lastRun, DateTimeKind.Utc)
-                : lastRun.ToUniversalTime();
-            return since < floor ? floor : since;
-        }
-
-        return floor;
+        // Always use the configured lookback. Recent empty runs must not shrink the window to minutes
+        // (skipExisting already prevents duplicates). lastRunByProvider remains useful for monitoring only.
+        _ = provider;
+        _ = lastRunByProvider;
+        return nowUtc.AddDays(-Math.Max(1, maxDiscussionAgeDays));
     }
 }
