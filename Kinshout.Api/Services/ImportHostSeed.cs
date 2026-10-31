@@ -15,13 +15,27 @@ public static class ImportHostSeed
     public static readonly HostPersona[] Hosts =
     [
         new(
+            "host.musique@kinshout.system",
+            "Kino Musique · Animateur",
+            [
+                "fally", "ipupa", "ferre", "wenge", "jb mpiana", "werra", "werras", "koffi", "olomide",
+                "innoss", "rumba", "ndombolo", "concert", "clip", "musique", "chanson", "artiste",
+            ]),
+        new(
+            "host.mode@kinshout.system",
+            "Kino Mode · Animateur",
+            [
+                "american in paris", "sapologie", "sapeur", "la sape", "mode", "fashion", "look",
+                "défilé", "defile", "style",
+            ]),
+        new(
             "host.sport@kinshout.system",
             "Kino Sport · Animateur",
             ["léopard", "leopard", "football", "foot", "sport", "match", "coupe du monde", "tp mazembe", "vclub"]),
         new(
             "host.culture@kinshout.system",
             "Kino Culture · Animateur",
-            ["musique", "concert", "youtube", "clip", "film", "festival", "rumba", "culture", "artiste"]),
+            ["film", "humour", "festival", "cinéma", "cinema", "spectacle", "culture"]),
         new(
             "host.ville@kinshout.system",
             "Kinshasa Quotidien · Animateur",
@@ -77,7 +91,6 @@ public static class ImportHostSeed
                 return hosts[i];
         }
 
-        // Stable fallback so the same topic cluster doesn't always land on index 0.
         var hash = Math.Abs(string.GetHashCode(blob, StringComparison.Ordinal));
         return hosts[hash % hosts.Count];
     }
@@ -100,7 +113,7 @@ public static class ImportHostSeed
         var ln = StarterLn[(seed / 3) % StarterLn.Length];
         var en = StarterEn[(seed / 7) % StarterEn.Length];
 
-        var comments = new List<(User, string)> { (first, (seed % 2 == 0) ? fr : ln) };
+        var comments = new List<(User, string)> { (first, seed % 2 == 0 ? fr : ln) };
         if (second is not null && seed % 3 != 0)
             comments.Add((second, seed % 2 == 0 ? en : fr));
 

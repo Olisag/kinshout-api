@@ -322,6 +322,8 @@ public class ExternalDiscussionImportService(
         existing.Title = mapped.Title;
         existing.Body = mapped.Body;
         existing.SourceRawBody = rawBody;
+        existing.ImageUrlsJson = mapped.ImageUrlsJson;
+        existing.VideoUrlsJson = mapped.VideoUrlsJson;
         existing.CategoryId = mapped.CategoryId;
         existing.TopicSlug = mapped.TopicSlug;
         existing.CommunityId ??= mapped.CommunityId;
@@ -367,6 +369,16 @@ public class ExternalDiscussionImportService(
 
     private async Task<Guid> ResolveImportCommunityIdAsync(string title, string body, CancellationToken ct)
     {
+        var inferredSlug = TopicCommunitySeed.InferSlug(title, body);
+        if (!string.IsNullOrWhiteSpace(inferredSlug))
+        {
+            var bySlug = await db.Communities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Slug == inferredSlug && c.IsActive, ct);
+            if (bySlug is not null)
+                return bySlug.Id;
+        }
+
         try
         {
             var suggestion = await communities.SuggestAsync(title, body, ct);
@@ -409,6 +421,8 @@ public class ExternalDiscussionImportService(
             Title = title.Trim(),
             Body = body.Trim(),
             SourceRawBody = rawBody,
+            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.ImageUrls)),
+            VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.VideoUrls)),
             CreatedAt = createdAt,
             UpdatedAt = importedAt,
             ReplyCount = 0,
@@ -427,6 +441,21 @@ public class ExternalDiscussionImportService(
             SourceEngagementScore = engagement > 0 ? engagement : null,
             ExternalPublishedAt = publishedAt,
         };
+    }
+
+    private static List<string> SanitizeExternalMediaUrls(IReadOnlyList<string>? urls)
+    {
+        if (urls is null || urls.Count == 0)
+            return [];
+
+        return urls
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u.Trim())
+            .Where(u => Uri.TryCreate(u, UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(DiscussionMediaHelper.MaxImages)
+            .ToList();
     }
 
     private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)

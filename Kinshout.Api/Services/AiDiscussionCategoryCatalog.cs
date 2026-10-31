@@ -15,6 +15,8 @@ public static class AiDiscussionCategoryCatalog
         "education",
         "tech",
         "economie",
+        "musique",
+        "mode",
         "culture",
         "sante",
         "securite",
@@ -44,7 +46,9 @@ public static class AiDiscussionCategoryCatalog
             "education" => ("education", "Éducation & examens", "🎓"),
             "tech" => ("tech", "Tech & internet", "📡"),
             "economie" => ("economie", "Économie & business", "💼"),
-            "culture" => ("culture", "Culture & loisirs", "🎭"),
+            "musique" => ("musique", "Musique congolaise", "🎵"),
+            "mode" => ("mode", "Mode & sapologie", "👗"),
+            "culture" => ("culture", "Culture & divertissement", "🎭"),
             "sante" => ("sante", "Santé", "🏥"),
             "securite" => ("securite", "Sécurité & justice", "🛡️"),
             "transport" => ("transport", "Transport & mobilité", "🚌"),
@@ -188,7 +192,16 @@ public static class AiDiscussionCategoryCatalog
         if (ContainsAny(key, "dollar", "economie", "business", "entreprise", "marche", "dette"))
             return "economie";
 
-        if (ContainsAny(key, "musique", "concert", "film", "culture", "art", "festival"))
+        if (ContainsAny(key,
+                "fally", "ipupa", "ferre", "wenge", "werra", "koffi", "olomide", "innoss",
+                "musique", "rumba", "ndombolo", "concert", "clip", "chanson"))
+            return "musique";
+
+        if (ContainsAny(key,
+                "sapologie", "sapeur", "fashion", "mode", "american in paris", "defile", "look"))
+            return "mode";
+
+        if (ContainsAny(key, "film", "culture", "art", "festival", "humour", "cinema"))
             return "culture";
 
         if (ContainsAny(key, "sante", "hopital", "medical", "maladie", "docteur"))

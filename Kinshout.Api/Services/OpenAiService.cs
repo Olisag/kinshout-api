@@ -539,7 +539,16 @@ public partial class OpenAiService(
         ["education"] = ["exetat", "examen", "école", "université", "étudiant", "diplôme", "lukunga"],
         ["tech"] = ["starlink", "internet", "tech", "iphone", "application", "réseau", "wifi"],
         ["economie"] = ["dollar", "économie", "business", "entreprise", "marché", "dette", "investissement"],
-        ["culture"] = ["musique", "concert", "film", "culture", "art", "festival", "artiste"],
+        ["musique"] =
+        [
+            "fally", "ipupa", "ferre gola", "wenge", "jb mpiana", "werrason", "koffi", "olomidé",
+            "innoss", "musique", "rumba", "concert", "clip", "chanson", "artiste",
+        ],
+        ["mode"] =
+        [
+            "sapologie", "sapeur", "la sape", "mode", "fashion", "american in paris", "look", "défilé",
+        ],
+        ["culture"] = ["film", "humour", "festival", "cinéma", "culture", "art", "spectacle"],
         ["sante"] = ["santé", "hôpital", "médical", "maladie", "docteur", "covid"],
         ["securite"] = ["police", "sécurité", "vol", "criminalité", "justice", "altercation", "agression"],
         ["transport"] = ["traffic", "embouteillage", "route", "transport", "motuka", "bus", "taxi", "boulevard"],

@@ -27,4 +27,13 @@ public sealed class SourceFeedDiscussion
 
     [JsonPropertyName("status")]
     public string? Status { get; set; }
+
+    [JsonPropertyName("imageUrls")]
+    public List<string> ImageUrls { get; set; } = [];
+
+    [JsonPropertyName("videoUrls")]
+    public List<string> VideoUrls { get; set; } = [];
+
+    [JsonIgnore]
+    public bool HasVisualMedia => ImageUrls.Count > 0 || VideoUrls.Count > 0;
 }

@@ -50,20 +50,6 @@ public record EmailRegisterRequestDto(string Email, string Password, string? Dis
 
 public record EmailLoginRequestDto(string Email, string Password);
 
-/// <summary>The account waits for the user to open the link sent to <paramref name="Email"/>.</summary>
-public record EmailConfirmationPendingDto(string Email, bool ConfirmationRequired = true);
-
-public record ConfirmEmailRequestDto(string? Token);
-
-public record ResendConfirmationRequestDto(string? Email);
-
-public record ForgotPasswordRequestDto(string? Email);
-
-/// <summary>Sent whether or not <paramref name="Email"/> has an account.</summary>
-public record PasswordResetRequestedDto(string Email);
-
-public record ResetPasswordRequestDto(string? Token, string? Password);
-
 public record FacebookLoginRequestDto(string AccessToken);
 
 public record ClientAuthRequestDto(string ClientId, string? ClientSecret);
@@ -258,7 +244,9 @@ public record ImportExternalDiscussionDto(
     string? OriginalAuthor = null,
     int? EngagementScore = null,
     string Status = "active",
-    DateTime? PublishedAt = null);
+    DateTime? PublishedAt = null,
+    IReadOnlyList<string>? ImageUrls = null,
+    IReadOnlyList<string>? VideoUrls = null);
 
 public record ImportExternalDiscussionsRequestDto(IReadOnlyList<ImportExternalDiscussionDto> Discussions);
 
@@ -296,15 +284,12 @@ public record CategoryDto(
 /// <summary>
 /// Discussion media item. For videos in feeds, <see cref="Url"/> prefers the cheap poster
 /// (<c>previewUrl</c>) when available; use <see cref="PlayUrl"/> for playback.
-/// <see cref="Status"/> is set only while a video is not playable yet (<c>processing</c>) or
-/// could not be processed (<c>failed</c>); posts are published before processing ends.
 /// </summary>
 public record DiscussionMediaDto(
     string Type,
     string Url,
     string? PreviewUrl = null,
-    string? PlayUrl = null,
-    string? Status = null);
+    string? PlayUrl = null);
 
 public record DiscussionDto(
     Guid Id,
@@ -322,10 +307,7 @@ public record DiscussionDto(
     DiscussionSourceDto? Source = null,
     string? CommunitySlug = null,
     IReadOnlyList<DiscussionMediaDto>? Media = null,
-    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
-    Guid? AuthorId = null,
-    // Only set by the signed-in user's own list: they wrote it or moderate its community.
-    bool CanManage = false);
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false);
 
 /// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
 public record DiscussionSourceDto(
@@ -362,9 +344,7 @@ public record DiscussionDetailDto(
     bool CanAccess = false,
     bool CanParticipate = false,
     [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
-    DiscussionJoinPromptDto? JoinPrompt = null,
-    // The viewer wrote the discussion or moderates its community: they may edit or delete it.
-    bool CanManage = false);
+    DiscussionJoinPromptDto? JoinPrompt = null);
 
 public record DiscussionParticipantDto(
     Guid UserId,
@@ -577,26 +557,7 @@ public record VideoDto(
     long ByteSize,
     string? OriginalFileName,
     DateTime CreatedAt,
-    Guid OwnerId,
-    string Status = "ready",
-    double? DurationSeconds = null,
-    int? Width = null,
-    int? Height = null,
-    string? Error = null);
-
-/// <summary>Start a direct upload: the client then PUTs the file to <c>UploadUrl</c> in blocks.</summary>
-public record CreateVideoUploadRequestDto(string FileName, string? ContentType, long ByteSize);
-
-public record VideoUploadDto(Guid Id, string UploadUrl, DateTime ExpiresAt, VideoDto Video);
-
-/// <summary>Sent by the video worker once a job finished, successfully or not.</summary>
-public record VideoProcessingResultDto(
-    bool Succeeded,
-    long? ByteSize = null,
-    double? DurationSeconds = null,
-    int? Width = null,
-    int? Height = null,
-    string? Error = null);
+    Guid OwnerId);
 
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,
