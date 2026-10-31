@@ -307,7 +307,10 @@ public class DiscussionService(
             normalizedPageSize,
             total);
 
-        var images = DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson);
+        var images = DiscussionMultimedia.FilterAttachedImagesForEmbed(
+            DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson),
+            d.SourceExternalUrl,
+            d.Body);
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
         var (viewerStatus, canAccess, canParticipate, isCommunityMember, joinPrompt, canManage) =
             await GetViewerAccessAsync(d, viewerUserId, ct);
@@ -881,7 +884,10 @@ public class DiscussionService(
         bool isCommunityMember = false,
         bool canManage = false)
     {
-        var images = DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson);
+        var images = DiscussionMultimedia.FilterAttachedImagesForEmbed(
+            DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson),
+            d.SourceExternalUrl,
+            d.Body);
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
         return new DiscussionDto(
             d.Id,

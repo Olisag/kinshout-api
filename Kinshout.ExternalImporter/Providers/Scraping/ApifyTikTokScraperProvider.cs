@@ -177,10 +177,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         if (postedAt is { } published && published.ToUniversalTime() < minPostedAt)
             return null;
 
-        var cover = ReadString(item, "coverUrl")
-            ?? ReadNestedString(item, "videoMeta", "coverUrl")
-            ?? ReadNestedString(item, "covers", "default");
-
+        // Do not attach TikTok cover/poster images — the feed embeds the video URL only.
         return new SourceFeedDiscussion
         {
             ExternalId = externalId,
@@ -191,7 +188,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             PublishedAt = postedAt,
             EngagementScore = score,
             Status = "active",
-            ImageUrls = string.IsNullOrWhiteSpace(cover) ? [] : [cover],
+            ImageUrls = [],
         };
     }
 

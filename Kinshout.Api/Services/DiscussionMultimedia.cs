@@ -109,6 +109,37 @@ public static partial class DiscussionMultimedia
         return HasConcreteEmbeddableVideoUrl(externalUrl) || HasConcreteEmbeddableVideoUrl(body);
     }
 
+    /// <summary>
+    /// TikTok posts are shown via embed — drop cover/poster images so one post is not poster + video.
+    /// </summary>
+    public static List<string> FilterAttachedImagesForEmbed(
+        IReadOnlyList<string> imageUrls,
+        string? externalUrl,
+        string? body)
+    {
+        if (imageUrls.Count == 0)
+            return [];
+
+        var hasTikTok = TryGetTikTokVideoId(externalUrl ?? string.Empty, out _)
+            || HasTikTokUrlInText(body);
+        return hasTikTok ? [] : imageUrls.ToList();
+    }
+
+    private static bool HasTikTokUrlInText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        foreach (Match match in UrlRegex.Matches(text))
+        {
+            var url = match.Value.TrimEnd(')', ']', '.', ',', ';', '"', '\'');
+            if (TryGetTikTokVideoId(url, out _))
+                return true;
+        }
+
+        return false;
+    }
+
     public static bool IsAbsoluteHitEngagement(int? engagementScore) =>
         engagementScore.GetValueOrDefault() >= AbsoluteHitEngagementScore;
 
