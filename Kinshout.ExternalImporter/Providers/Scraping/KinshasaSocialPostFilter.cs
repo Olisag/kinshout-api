@@ -25,14 +25,17 @@ internal static class KinshasaSocialPostFilter
             return true;
         }
 
-        // Congolese music / fashion culture is Kinshasa-relevant even when the post omits the city name.
-        if (LooksLikeCongoleseMusicOrFashion(blob))
+        // Congolese culture topics stay relevant even when the post omits the city name.
+        if (LooksLikeCongoleseCultureTopic(blob))
             return true;
 
         return false;
     }
 
-    public static bool LooksLikeCongoleseMusicOrFashion(string blob)
+    public static bool LooksLikeCongoleseMusicOrFashion(string blob) =>
+        LooksLikeCongoleseCultureTopic(blob);
+
+    public static bool LooksLikeCongoleseCultureTopic(string blob)
     {
         var lower = blob.ToLowerInvariant();
         return ContainsAny(
@@ -58,7 +61,40 @@ internal static class KinshasaSocialPostFilter
             "américain à paris",
             "americain a paris",
             "mode kinshasa",
-            "mode congolaise");
+            "mode congolaise",
+            // Pastors / churches / gospel
+            "pasteur",
+            "évêque",
+            "eveque",
+            "église",
+            "eglise",
+            "réveil",
+            "reveil",
+            "culte",
+            "gospel",
+            "chorale",
+            "témoignage",
+            "temoignage",
+            // Comedians / humour
+            "humoriste",
+            "comédien",
+            "comedien",
+            "sketch",
+            "stand up",
+            "stand-up",
+            // Influencers
+            "influenceur",
+            "influenceuse",
+            "tiktok kin",
+            "tiktoker",
+            "créateur de contenu",
+            "createur de contenu",
+            // Insolite / viral visuals
+            "insolite",
+            "viral",
+            "phénomène",
+            "phenomene",
+            "scandale");
     }
 
     private static bool ContainsAny(string blob, params string[] needles) =>

@@ -287,6 +287,12 @@ public record RetransformExternalDiscussionsResponseDto(
     int Failed,
     int Remaining);
 
+public record PurgeTextOnlyDiscussionsResponseDto(
+    int Scanned,
+    int Deleted,
+    int KeptVisual,
+    int KeptHits);
+
 public record CategoryDto(
     Guid Id,
     string Slug,

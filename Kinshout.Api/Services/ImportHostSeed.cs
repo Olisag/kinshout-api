@@ -33,9 +33,27 @@ public static class ImportHostSeed
             "Kino Sport · Animateur",
             ["léopard", "leopard", "football", "foot", "sport", "match", "coupe du monde", "tp mazembe", "vclub"]),
         new(
+            "host.foi@kinshout.system",
+            "Kino Foi · Animateur",
+            [
+                "pasteur", "évêque", "eveque", "église", "eglise", "réveil", "reveil", "culte", "gospel",
+                "chorale", "témoignage", "temoignage", "prophète", "prophete",
+            ]),
+        new(
+            "host.humour@kinshout.system",
+            "Kino Humour · Animateur",
+            ["humoriste", "comédien", "comedien", "sketch", "stand up", "stand-up", "blague", "rire"]),
+        new(
+            "host.influence@kinshout.system",
+            "Kino Influence · Animateur",
+            [
+                "influenceur", "influenceuse", "tiktok", "tiktoker", "créateur de contenu",
+                "createur de contenu", "instagrammeur", "instagrammeuse", "viral", "buzz",
+            ]),
+        new(
             "host.culture@kinshout.system",
             "Kino Culture · Animateur",
-            ["film", "humour", "festival", "cinéma", "cinema", "spectacle", "culture"]),
+            ["film", "festival", "cinéma", "cinema", "spectacle", "culture", "insolite"]),
         new(
             "host.ville@kinshout.system",
             "Kinshasa Quotidien · Animateur",

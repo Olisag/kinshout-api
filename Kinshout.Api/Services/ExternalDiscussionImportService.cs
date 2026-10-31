@@ -22,6 +22,14 @@ public interface IExternalDiscussionImportService
         bool force = false,
         int limit = 0,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Delete discussions that have no photo/video/YouTube media, unless they are absolute hits.
+    /// </summary>
+    Task<PurgeTextOnlyDiscussionsResponseDto> PurgeTextOnlyAsync(
+        int limit = 500,
+        bool dryRun = false,
+        CancellationToken ct = default);
 }
 
 public class ExternalDiscussionImportService(
@@ -243,6 +251,65 @@ public class ExternalDiscussionImportService(
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task<PurgeTextOnlyDiscussionsResponseDto> PurgeTextOnlyAsync(
+        int limit = 500,
+        bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        var take = Math.Clamp(limit, 1, 2000);
+        // Prefer imported social posts first (the noisy text-only wave), then any leftover text-only.
+        var candidates = await db.Discussions
+            .OrderByDescending(d => d.SourceProvider != null)
+            .ThenByDescending(d => d.CreatedAt)
+            .Take(take * 3)
+            .ToListAsync(ct);
+
+        var scanned = 0;
+        var deleted = 0;
+        var keptVisual = 0;
+        var keptHits = 0;
+        var toRemove = new List<Discussion>();
+
+        foreach (var discussion in candidates)
+        {
+            if (toRemove.Count >= take)
+                break;
+
+            scanned++;
+            if (DiscussionMultimedia.HasVisualMedia(discussion))
+            {
+                keptVisual++;
+                continue;
+            }
+
+            if (DiscussionMultimedia.IsAbsoluteHit(discussion))
+            {
+                keptHits++;
+                continue;
+            }
+
+            toRemove.Add(discussion);
+        }
+
+        if (dryRun)
+        {
+            return new PurgeTextOnlyDiscussionsResponseDto(
+                scanned,
+                toRemove.Count,
+                keptVisual,
+                keptHits);
+        }
+
+        if (toRemove.Count > 0)
+        {
+            db.Discussions.RemoveRange(toRemove);
+            await db.SaveChangesAsync(ct);
+            deleted = toRemove.Count;
+        }
+
+        return new PurgeTextOnlyDiscussionsResponseDto(scanned, deleted, keptVisual, keptHits);
+    }
+
     private enum UpsertOutcome { Created, Updated, Unchanged, Skipped }
 
     private async Task<UpsertOutcome> UpsertAsync(
@@ -279,6 +346,35 @@ public class ExternalDiscussionImportService(
 
         var rawBody = item.Body.Trim();
         var engagement = item.EngagementScore;
+
+        // Visual-first: skip text-only / unplayable-hotlink-only imports unless absolute hits.
+        var playableVideos = (item.VideoUrls ?? [])
+            .Where(url => !string.IsNullOrWhiteSpace(url)
+                && !DiscussionMultimedia.IsUnplayableHotlinkedVideo(url))
+            .ToList();
+        var hasVisual = DiscussionMultimedia.ImportItemHasVisualMedia(
+            item.ImageUrls,
+            playableVideos,
+            rawBody,
+            item.Source.ExternalUrl);
+        // Prefer YouTube embeds over Facebook CDN mp4 hotlinks that 403 in the browser.
+        if (!hasVisual
+            && (item.VideoUrls?.Count ?? 0) > 0
+            && DiscussionMultimedia.HasConcreteYouTubeUrl(rawBody))
+        {
+            hasVisual = true;
+        }
+
+        if (!hasVisual && !DiscussionMultimedia.IsAbsoluteHitEngagement(engagement))
+        {
+            if (existing is not null)
+            {
+                db.Discussions.Remove(existing);
+                return UpsertOutcome.Updated;
+            }
+
+            return UpsertOutcome.Skipped;
+        }
 
         if (existing is not null
             && DiscussionSourceMapper.IsSameContent(existing, rawBody, engagement)

@@ -123,12 +123,9 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var body = text.Trim();
         var (images, videos) = ExtractMedia(item, body);
 
-        // Visual-first: keep media/YouTube links. If the search query already forces filter:media,
-        // trust Twitter's media filter even when the scraper omits attachment URLs.
-        var queryForcesMedia = settings.SearchQueries.Any(q =>
-            !string.IsNullOrWhiteSpace(q)
-            && q.Contains("filter:media", StringComparison.OrdinalIgnoreCase));
-        if (images.Count == 0 && videos.Count == 0 && !ContainsVisualLink(body) && !queryForcesMedia)
+        // Visual-first: require photo/video URLs or an embeddable visual link.
+        // filter:media alone is not enough — without URLs the post lands as text-only on the site.
+        if (images.Count == 0 && videos.Count == 0 && !ContainsVisualLink(body))
             return null;
 
         if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))

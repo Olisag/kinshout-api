@@ -175,6 +175,23 @@ public class ImportsController(
         return Ok(await discussionImports.RetransformAllAsync(force, limit, ct));
     }
 
+    /// <summary>
+    /// Delete text-only discussions (no photo/video/YouTube), unless they are absolute hits.
+    /// </summary>
+    [HttpPost("discussions/purge-text-only")]
+    [ProducesResponseType(typeof(PurgeTextOnlyDiscussionsResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PurgeTextOnlyDiscussionsResponseDto>> PurgeTextOnlyDiscussions(
+        [FromQuery] int limit = 500,
+        [FromQuery] bool dryRun = false,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Ok(await discussionImports.PurgeTextOnlyAsync(limit, dryRun, ct));
+    }
+
     private bool IsAuthorized()
     {
         var configured = importOptions.Value.SecretKey;
