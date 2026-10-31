@@ -477,7 +477,7 @@ public class DiscussionParticipationServiceTests
     }
 
     private static CommunityService CreateCommunityService(KinshoutDbContext db) =>
-        new(db, Mock.Of<IOpenAiService>(), Mock.Of<ICommunityJoinNotifier>());
+        new(db, Mock.Of<IOpenAiService>(), Mock.Of<ICommunityJoinNotifier>(), Mock.Of<ICommunityReportNotifier>());
 
     private static DiscussionParticipationService CreateService(
         KinshoutDbContext db,

@@ -59,7 +59,7 @@ public class DiscussionServiceMutationTests
         var openAi = new Mock<IOpenAiService>();
         openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
-        var communities = new CommunityService(db, openAi.Object, Mock.Of<ICommunityJoinNotifier>());
+        var communities = new CommunityService(db, openAi.Object, Mock.Of<ICommunityJoinNotifier>(), Mock.Of<ICommunityReportNotifier>());
 
         var service = CreateService(db, openAi.Object, communities);
         var created = await service.CreateAsync(
@@ -634,7 +634,7 @@ public class DiscussionServiceMutationTests
         var openAi = new Mock<IOpenAiService>();
         openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(TestDbFactory.SampleDiscussionAnalysis());
-        var communities = new CommunityService(db, openAi.Object, Mock.Of<ICommunityJoinNotifier>());
+        var communities = new CommunityService(db, openAi.Object, Mock.Of<ICommunityJoinNotifier>(), Mock.Of<ICommunityReportNotifier>());
         return CreateService(db, openAi.Object, communities);
     }
 }
