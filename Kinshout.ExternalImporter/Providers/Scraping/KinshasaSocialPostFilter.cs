@@ -17,13 +17,52 @@ internal static class KinshasaSocialPostFilter
             || blob.Contains("République démocratique", StringComparison.OrdinalIgnoreCase)
             || blob.Contains(" RDC", StringComparison.OrdinalIgnoreCase)
             || blob.Contains("RDC:", StringComparison.OrdinalIgnoreCase)
-            || blob.Contains("#RDC", StringComparison.OrdinalIgnoreCase))
+            || blob.Contains("#RDC", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("Congo", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("Congolais", StringComparison.OrdinalIgnoreCase)
+            || blob.Contains("Congolaise", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
+        // Congolese music / fashion culture is Kinshasa-relevant even when the post omits the city name.
+        if (LooksLikeCongoleseMusicOrFashion(blob))
+            return true;
+
         return false;
     }
+
+    public static bool LooksLikeCongoleseMusicOrFashion(string blob)
+    {
+        var lower = blob.ToLowerInvariant();
+        return ContainsAny(
+            lower,
+            "fally",
+            "ipupa",
+            "ferre gola",
+            "ferrê gola",
+            "wenge",
+            "jb mpiana",
+            "werrason",
+            "werra ",
+            "koffi olomide",
+            "koffi olomidé",
+            "innoss",
+            "innos'b",
+            "rumba congolaise",
+            "ndombolo",
+            "sapologie",
+            "sapeur",
+            "la sape",
+            "american in paris",
+            "américain à paris",
+            "americain a paris",
+            "mode kinshasa",
+            "mode congolaise");
+    }
+
+    private static bool ContainsAny(string blob, params string[] needles) =>
+        needles.Any(n => blob.Contains(n, StringComparison.Ordinal));
 
     public static bool LooksLikeSpamOrAd(string? title, string? body)
     {
@@ -68,9 +107,6 @@ internal static class KinshasaSocialPostFilter
             "coup d'état",
             "coup d'etat");
     }
-
-    private static bool ContainsAny(string blob, params string[] needles) =>
-        needles.Any(n => blob.Contains(n, StringComparison.Ordinal));
 
     private static bool IsRepublicOfCongoNotDrc(string? location)
     {

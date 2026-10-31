@@ -50,6 +50,20 @@ public record EmailRegisterRequestDto(string Email, string Password, string? Dis
 
 public record EmailLoginRequestDto(string Email, string Password);
 
+/// <summary>The account waits for the user to open the link sent to <paramref name="Email"/>.</summary>
+public record EmailConfirmationPendingDto(string Email, bool ConfirmationRequired = true);
+
+public record ConfirmEmailRequestDto(string? Token);
+
+public record ResendConfirmationRequestDto(string? Email);
+
+public record ForgotPasswordRequestDto(string? Email);
+
+/// <summary>Sent whether or not <paramref name="Email"/> has an account.</summary>
+public record PasswordResetRequestedDto(string Email);
+
+public record ResetPasswordRequestDto(string? Token, string? Password);
+
 public record FacebookLoginRequestDto(string AccessToken);
 
 public record ClientAuthRequestDto(string ClientId, string? ClientSecret);
