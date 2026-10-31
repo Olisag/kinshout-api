@@ -130,9 +130,17 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
             .Where(p => !string.IsNullOrWhiteSpace(p.Provider))
             .ToDictionary(
                 p => p.Provider.Trim(),
-                p => p.LastRunAtUtc.ToUniversalTime(),
+                p => AsUtc(p.LastRunAtUtc),
                 StringComparer.OrdinalIgnoreCase);
     }
+
+    private static DateTime AsUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        };
 
     public async Task RecordDiscussionImportRunAsync(string provider, DateTime runAtUtc, CancellationToken ct)
     {
