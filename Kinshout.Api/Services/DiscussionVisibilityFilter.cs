@@ -27,7 +27,7 @@ public static class DiscussionVisibilityFilter
         if (viewerUserId is null)
             return WherePubliclyVisible(query);
 
-        return query.Where(d =>
+        var visible = query.Where(d =>
             (d.Community == null
                 || d.Community.Visibility == CommunityVisibilities.Public
                 || db.CommunityMembers.Any(m =>
@@ -52,5 +52,7 @@ public static class DiscussionVisibilityFilter
                     && d.Community.CreatedByUserId == viewerUserId
                     && !db.CommunityMembers.Any(m =>
                         m.CommunityId == d.CommunityId && m.UserId == viewerUserId))));
+
+        return UserBlockFilter.WhereAuthorVisibleTo(visible, db, viewerUserId);
     }
 }

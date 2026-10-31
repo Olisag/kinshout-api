@@ -258,6 +258,69 @@ public class CommunitiesController(ICommunityService communities) : ControllerBa
         }
     }
 
+    /// <summary>Report a community member. Moderators receive an email with a block link.</summary>
+    [HttpPost("{slug}/reports")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(typeof(UserReportDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserReportDto>> ReportUser(
+        string slug,
+        [FromBody] ReportCommunityUserRequestDto request,
+        CancellationToken ct)
+    {
+        try
+        {
+            var report = await communities.ReportUserAsync(GetUserId(), slug, request, ct);
+            return Created($"/api/communities/{slug}/reports/{report.Id}", report);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>Moderator: ban a user from this community (cannot rejoin or post).</summary>
+    [HttpPost("{slug}/members/{userId:guid}/block")]
+    [Authorize(Policy = AuthConstants.UserPolicy)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> BlockMember(string slug, Guid userId, CancellationToken ct)
+    {
+        try
+        {
+            await communities.BlockMemberAsync(GetUserId(), slug, userId, ct);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     [HttpPost("{slug}/members/{userId:guid}/reject")]
     [Authorize(Policy = AuthConstants.UserPolicy)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

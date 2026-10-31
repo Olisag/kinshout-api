@@ -30,6 +30,8 @@ public static class CommunityMemberStatuses
     public const string Pending = "pending";
     public const string Approved = "approved";
     public const string Rejected = "rejected";
+    /// <summary>Community-level ban by a moderator; user cannot rejoin or post.</summary>
+    public const string Banned = "banned";
 }
 
 public static class CommunityVisibilities

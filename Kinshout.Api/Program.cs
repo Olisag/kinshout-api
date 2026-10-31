@@ -94,6 +94,8 @@ builder.Services.AddScoped<IEmailService>(sp =>
 builder.Services.AddScoped<IAuthEmailSender, AuthEmailSender>();
 builder.Services.AddScoped<IUserSessionValidator, UserSessionValidator>();
 builder.Services.AddScoped<ICommunityJoinNotifier, CommunityJoinNotifier>();
+builder.Services.AddScoped<ICommunityReportNotifier, CommunityReportNotifier>();
+builder.Services.AddScoped<IUserBlockService, UserBlockService>();
 builder.Services.AddScoped<IDiscussionParticipationService, DiscussionParticipationService>();
 builder.Services.AddScoped<IDiscussionJoinNotifier, DiscussionJoinNotifier>();
 builder.Services.AddHttpContextAccessor();

@@ -9,6 +9,9 @@ public static class CommunityAccessHelper
         if (userId is null)
             return false;
 
+        if (membership?.Status == CommunityMemberStatuses.Banned)
+            return false;
+
         if (community.Slug == CommunityDefaults.GeneralSlug)
             return true;
 
