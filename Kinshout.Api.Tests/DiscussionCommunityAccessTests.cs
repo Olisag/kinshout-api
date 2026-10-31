@@ -243,7 +243,7 @@ public class DiscussionCommunityAccessTests
         moderation.Setup(m => m.EnsureTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var communities = new CommunityService(db, Mock.Of<IOpenAiService>(), Mock.Of<ICommunityJoinNotifier>());
+        var communities = new CommunityService(db, Mock.Of<IOpenAiService>(), Mock.Of<ICommunityJoinNotifier>(), Mock.Of<ICommunityReportNotifier>());
         var participation = new DiscussionParticipationService(db, communities, Mock.Of<IDiscussionJoinNotifier>());
 
         return new DiscussionService(

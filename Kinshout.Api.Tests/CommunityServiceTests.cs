@@ -574,6 +574,6 @@ public class CommunityServiceTests
                 Task.FromResult(OpenAiService.FallbackCommunityAnalysis(text, communities)));
 
         notifier ??= new Mock<ICommunityJoinNotifier>();
-        return new CommunityService(db, openAi.Object, notifier.Object);
+        return new CommunityService(db, openAi.Object, notifier.Object, Mock.Of<ICommunityReportNotifier>());
     }
 }
