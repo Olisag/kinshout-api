@@ -298,12 +298,15 @@ public record CategoryDto(
 /// <summary>
 /// Discussion media item. For videos in feeds, <see cref="Url"/> prefers the cheap poster
 /// (<c>previewUrl</c>) when available; use <see cref="PlayUrl"/> for playback.
+/// <see cref="Status"/> is set only while a video is not playable yet (<c>processing</c>) or
+/// could not be processed (<c>failed</c>); posts are published before processing ends.
 /// </summary>
 public record DiscussionMediaDto(
     string Type,
     string Url,
     string? PreviewUrl = null,
-    string? PlayUrl = null);
+    string? PlayUrl = null,
+    string? Status = null);
 
 public record DiscussionDto(
     Guid Id,
@@ -321,7 +324,10 @@ public record DiscussionDto(
     DiscussionSourceDto? Source = null,
     string? CommunitySlug = null,
     IReadOnlyList<DiscussionMediaDto>? Media = null,
-    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false);
+    [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
+    Guid? AuthorId = null,
+    // Only set by the signed-in user's own list: they wrote it or moderate its community.
+    bool CanManage = false);
 
 /// <summary>External discussion provenance — present when <see cref="DiscussionDto.IsExternal"/> is true.</summary>
 public record DiscussionSourceDto(
@@ -358,7 +364,9 @@ public record DiscussionDetailDto(
     bool CanAccess = false,
     bool CanParticipate = false,
     [property: JsonPropertyName("isCommunityMember")] bool IsCommunityMember = false,
-    DiscussionJoinPromptDto? JoinPrompt = null);
+    DiscussionJoinPromptDto? JoinPrompt = null,
+    // The viewer wrote the discussion or moderates its community: they may edit or delete it.
+    bool CanManage = false);
 
 public record DiscussionParticipantDto(
     Guid UserId,
@@ -571,7 +579,26 @@ public record VideoDto(
     long ByteSize,
     string? OriginalFileName,
     DateTime CreatedAt,
-    Guid OwnerId);
+    Guid OwnerId,
+    string Status = "ready",
+    double? DurationSeconds = null,
+    int? Width = null,
+    int? Height = null,
+    string? Error = null);
+
+/// <summary>Start a direct upload: the client then PUTs the file to <c>UploadUrl</c> in blocks.</summary>
+public record CreateVideoUploadRequestDto(string FileName, string? ContentType, long ByteSize);
+
+public record VideoUploadDto(Guid Id, string UploadUrl, DateTime ExpiresAt, VideoDto Video);
+
+/// <summary>Sent by the video worker once a job finished, successfully or not.</summary>
+public record VideoProcessingResultDto(
+    bool Succeeded,
+    long? ByteSize = null,
+    double? DurationSeconds = null,
+    int? Width = null,
+    int? Height = null,
+    string? Error = null);
 
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,
