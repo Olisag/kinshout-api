@@ -30,13 +30,14 @@ public class CommunityReportNotifier(
         CancellationToken ct = default)
     {
         var route = CommunitySlugHelper.ToRouteSlug(community.Slug);
+        var slug = CommunitySlugHelper.Normalize(community.Slug);
         var recipients = await LoadModeratorRecipientsAsync(community, ct);
         var reasonLine = string.IsNullOrWhiteSpace(report.Reason)
             ? "Aucun motif précisé."
             : $"Motif : {report.Reason.Trim()}";
 
         var blockUrl =
-            $"{emailOptions.Value.WebBaseUrl.TrimEnd('/')}/{route}/members?action=block&userId={reported.Id}";
+            $"{emailOptions.Value.WebBaseUrl.TrimEnd('/')}/mod/{slug}/approved-users?action=block&userId={reported.Id}";
 
         var subject = $"Signalement — {route}";
         var body =
