@@ -5,6 +5,7 @@ public static class DiscussionSourceProvider
     public const string Kinshout = "kinshout";
     public const string Facebook = "facebook";
     public const string Twitter = "twitter";
+    public const string YouTube = "youtube";
     public const string Other = "other";
 
     public static readonly IReadOnlySet<string> KnownProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -12,6 +13,7 @@ public static class DiscussionSourceProvider
         Kinshout,
         Facebook,
         Twitter,
+        YouTube,
         Other,
     };
 
@@ -24,6 +26,7 @@ public static class DiscussionSourceProvider
         return normalized switch
         {
             "x" or "twitter_x" => Twitter,
+            "yt" or "youtube_com" => YouTube,
             _ => KnownProviders.Contains(normalized) ? normalized : Other,
         };
     }
@@ -33,6 +36,7 @@ public static class DiscussionSourceProvider
         {
             Facebook => "Facebook",
             Twitter => "X",
+            YouTube => "YouTube",
             Other => "Autre source",
             _ => "Kinshout",
         };

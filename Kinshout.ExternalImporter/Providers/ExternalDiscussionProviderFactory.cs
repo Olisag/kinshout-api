@@ -10,6 +10,7 @@ public static class ExternalDiscussionProviderFactory
         {
             "apify-facebook-posts-scraper" or "facebook-posts-scraper" => new ApifyFacebookPostsScraperProvider(http, settings),
             "apify-twitter-posts-scraper" or "apify-x-posts-scraper" or "twitter-posts-scraper" or "x-posts-scraper" => new ApifyTwitterPostsScraperProvider(http, settings),
+            "apify-youtube-scraper" or "youtube-scraper" or "youtube" => new ApifyYouTubeScraperProvider(http, settings),
             _ => throw new InvalidOperationException($"Unsupported discussion provider type '{settings.Type}' for provider '{settings.Name}'."),
         };
 }
