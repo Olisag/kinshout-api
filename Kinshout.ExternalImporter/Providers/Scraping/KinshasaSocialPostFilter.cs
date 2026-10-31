@@ -36,6 +36,42 @@ internal static class KinshasaSocialPostFilter
             || blob.Contains("crypto investment");
     }
 
+    /// <summary>
+    /// Soft politics / conflict filter for the curated Kinshasa social feed.
+    /// Keeps day-to-day city life, sport, culture, education.
+    /// </summary>
+    public static bool LooksLikePoliticsOrConflict(string? title, string? body)
+    {
+        var blob = $"{title} {body}".ToLowerInvariant();
+        return ContainsAny(
+            blob,
+            "fayulu",
+            "kabund",
+            "mukebayi",
+            "kamerhe",
+            "katumbi",
+            "tshisekedi",
+            "fcc ",
+            "udps",
+            "m23",
+            "rebelle",
+            "rebelles",
+            "gouvernement",
+            "président",
+            "president",
+            "élection",
+            "election",
+            "politique",
+            "parlement",
+            "assemblée nationale",
+            "assemblee nationale",
+            "coup d'état",
+            "coup d'etat");
+    }
+
+    private static bool ContainsAny(string blob, params string[] needles) =>
+        needles.Any(n => blob.Contains(n, StringComparison.Ordinal));
+
     private static bool IsRepublicOfCongoNotDrc(string? location)
     {
         if (string.IsNullOrWhiteSpace(location))

@@ -33,7 +33,10 @@ public partial class ExternalDiscussionTransformService(
     {
         var raw = rawText.Trim();
         if (string.IsNullOrWhiteSpace(raw))
-            return new ExternalDiscussionTransformResult("Sujet Kinshasa", "Qu'en pensez-vous ?", true);
+            return new ExternalDiscussionTransformResult(
+                "Sujet Kinshasa",
+                "Discussion partagée depuis une source externe.",
+                true);
 
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
             return FallbackTransform(raw);
@@ -46,15 +49,16 @@ public partial class ExternalDiscussionTransformService(
             Réponds UNIQUEMENT en JSON:
             {
               "title": "libellé court du sujet (max 70 caractères, PAS de point d'interrogation, pas d'emoji ni hashtag)",
-              "body": "2 à 3 phrases de contexte neutre en français, puis UNE seule question pertinente en dernière phrase (se termine par ?)"
+              "body": "2 à 4 phrases en français (contexte, réaction ou résumé). Une question ouverte est OPTIONNELLE — ne l'ajoute que si elle apporte vraiment quelque chose."
             }
 
             Règles:
             - title = le sujet seulement (ex: "Retour des Léopards à Kinshasa", "Résultats EXETAT 2026 — Kinshasa Lukunga")
-            - body = contexte factuel tiré du texte + une question ouverte pour lancer la discussion
+            - body = contexte factuel tiré du texte; ton vivant, style discussion Kinshasa/RDC
+            - Ne termine PAS toujours par une question; variez (résumé, constat, réaction). Question seulement parfois.
             - Ne pas inventer de faits absents du texte source
-            - Ton neutre, français clair, public Kinshasa/RDC
             - Pas de emojis, hashtags, ni MAJUSCULES agressives dans title/body
+            - Si le texte source contient une URL YouTube (youtube.com/watch, youtu.be, shorts), conserve-la telle quelle sur sa propre ligne à la fin du body
 
             Auteur source: {{author}}
             Plateforme: {{platform}}
@@ -86,7 +90,7 @@ public partial class ExternalDiscussionTransformService(
     {
         var cleaned = CleanRawText(raw);
         var title = BuildFallbackTitle(cleaned);
-        var body = BuildFallbackBody(cleaned);
+        var body = BuildFallbackBody(raw);
         return new ExternalDiscussionTransformResult(title, body, true);
     }
 
@@ -128,12 +132,12 @@ public partial class ExternalDiscussionTransformService(
     private static string CleanBody(string? body, string rawFallback)
     {
         if (string.IsNullOrWhiteSpace(body))
-            return BuildFallbackBody(CleanRawText(rawFallback));
+            return BuildFallbackBody(rawFallback);
 
         var value = body.Trim();
-        if (!value.EndsWith('?'))
-            value += " Qu'en pensez-vous ?";
-        return value.Length <= 1200 ? value : value[..1197] + "...";
+        // Preserve YouTube URLs from the raw source when the model dropped them.
+        value = EnsureYouTubeUrlPreserved(value, rawFallback);
+        return value.Length <= 1200 ? value : TruncatePreservingUrl(value, 1200);
     }
 
     private static string BuildFallbackTitle(string cleaned)
@@ -146,34 +150,138 @@ public partial class ExternalDiscussionTransformService(
         return string.IsNullOrWhiteSpace(sentence) ? "Sujet Kinshasa" : sentence;
     }
 
-    private static string BuildFallbackBody(string cleaned)
+    private static string BuildFallbackBody(string raw)
     {
+        var youtubeUrl = ExtractYouTubeUrl(raw);
+        var cleaned = CleanRawText(raw);
         var sentences = SplitSentences(cleaned).Take(3).ToList();
         var context = string.Join(" ", sentences).Trim();
         if (context.Length > 400)
             context = context[..397] + "...";
 
-        var question = BuildFallbackQuestion(cleaned.ToLowerInvariant());
-        return string.IsNullOrWhiteSpace(context)
-            ? question
-            : $"{context}\n\n{question}";
+        if (string.IsNullOrWhiteSpace(context))
+            context = "Discussion partagée depuis une source externe.";
+
+        return string.IsNullOrWhiteSpace(youtubeUrl)
+            ? context
+            : $"{context}\n\n{youtubeUrl}";
     }
 
-    private static string BuildFallbackQuestion(string lower)
+    private static string EnsureYouTubeUrlPreserved(string body, string rawFallback)
     {
-        if (lower.Contains("exetat", StringComparison.Ordinal) || lower.Contains("examen d'état", StringComparison.Ordinal))
-            return "Les conditions d'examen à Kinshasa vous semblent-elles équitables cette année ?";
-        if (lower.Contains("léopard", StringComparison.Ordinal) || lower.Contains("football", StringComparison.Ordinal) || lower.Contains("coupe du monde", StringComparison.Ordinal))
-            return "Comment accueillez-vous la fin de ce parcours en Coupe du Monde ?";
-        if (lower.Contains("police", StringComparison.Ordinal) || lower.Contains("sécurité", StringComparison.Ordinal))
-            return "Comment améliorer la sécurité au quotidien dans votre quartier ?";
-        if (lower.Contains("fayulu", StringComparison.Ordinal) || lower.Contains("opposition", StringComparison.Ordinal) || lower.Contains("politique", StringComparison.Ordinal))
-            return "Qu'attendez-vous concrètement de cette initiative pour Kinshasa ?";
-        if (lower.Contains("dette", StringComparison.Ordinal) || lower.Contains("altercation", StringComparison.Ordinal))
-            return "Comment éviter que ce genre de conflit finisse en violence dans nos quartiers ?";
-        if (lower.Contains("kinshasa", StringComparison.Ordinal))
-            return "Qu'en pensez-vous, vous qui vivez à Kinshasa ?";
-        return "Qu'en pensez-vous ?";
+        if (ExtractYouTubeUrl(body) is not null)
+            return body;
+
+        var youtubeUrl = ExtractYouTubeUrl(rawFallback);
+        if (youtubeUrl is null)
+            return body;
+
+        return $"{body.TrimEnd()}\n\n{youtubeUrl}";
+    }
+
+    private static string? ExtractYouTubeUrl(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        foreach (Match match in UrlRegex().Matches(text))
+        {
+            var url = match.Value.TrimEnd(')', ']', '.', ',', ';', '"', '\'');
+            if (IsYouTubeVideoUrl(url))
+                return NormalizeYouTubeUrl(url);
+        }
+
+        return null;
+    }
+
+    private static bool IsYouTubeVideoUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        if (host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+            return uri.AbsolutePath.Length > 1;
+
+        if (!host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase)
+            && !host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var path = uri.AbsolutePath;
+        if (path.StartsWith("/watch", StringComparison.OrdinalIgnoreCase)
+            && uri.Query.Contains("v=", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (path.StartsWith("/shorts/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/embed/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/live/", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private static string NormalizeYouTubeUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return url;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        if (host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+        {
+            var id = uri.AbsolutePath.Trim('/');
+            return string.IsNullOrWhiteSpace(id) ? url : $"https://www.youtube.com/watch?v={id}";
+        }
+
+        if (uri.AbsolutePath.StartsWith("/shorts/", StringComparison.OrdinalIgnoreCase)
+            || uri.AbsolutePath.StartsWith("/embed/", StringComparison.OrdinalIgnoreCase)
+            || uri.AbsolutePath.StartsWith("/live/", StringComparison.OrdinalIgnoreCase))
+        {
+            var id = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1);
+            return string.IsNullOrWhiteSpace(id) ? url : $"https://www.youtube.com/watch?v={id}";
+        }
+
+        var videoId = ExtractQueryValue(uri.Query, "v");
+        return string.IsNullOrWhiteSpace(videoId)
+            ? url
+            : $"https://www.youtube.com/watch?v={videoId}";
+    }
+
+    private static string? ExtractQueryValue(string query, string key)
+    {
+        if (string.IsNullOrEmpty(query))
+            return null;
+
+        var trimmed = query.StartsWith('?') ? query[1..] : query;
+        foreach (var part in trimmed.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = part.Split('=', 2);
+            if (pair.Length == 2
+                && pair[0].Equals(key, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(pair[1]))
+            {
+                return Uri.UnescapeDataString(pair[1]);
+            }
+        }
+
+        return null;
+    }
+
+    private static string TruncatePreservingUrl(string value, int maxLength)
+    {
+        if (value.Length <= maxLength)
+            return value;
+
+        var youtubeUrl = ExtractYouTubeUrl(value);
+        if (youtubeUrl is null)
+            return value[..(maxLength - 3)] + "...";
+
+        var budget = maxLength - youtubeUrl.Length - 5;
+        if (budget < 40)
+            return youtubeUrl;
+
+        var withoutUrl = UrlRegex().Replace(value, "").Trim();
+        if (withoutUrl.Length > budget)
+            withoutUrl = withoutUrl[..(budget - 3)] + "...";
+        return $"{withoutUrl}\n\n{youtubeUrl}";
     }
 
     private static string CleanRawText(string text)

@@ -31,13 +31,16 @@ public class ExternalDiscussionImportTests
         Assert.True(discussion.IsExternal);
         Assert.Equal(raw, discussion.SourceRawBody);
         Assert.DoesNotContain("?", discussion.Title);
-        Assert.True(discussion.Body.TrimEnd().EndsWith('?'));
+        Assert.False(discussion.Body.TrimEnd().EndsWith('?'));
         Assert.Equal(0, discussion.ViewCount);
         Assert.Equal(120, discussion.SourceEngagementScore);
         Assert.Equal("Test Page", discussion.SourceOriginalAuthor);
         Assert.Equal("societe", discussion.TopicSlug);
         Assert.NotNull(discussion.CommunityId);
         Assert.Equal(CommunityDefaults.GeneralSlug, (await db.Communities.SingleAsync(c => c.Id == discussion.CommunityId)).Slug);
+        Assert.Contains("· Animateur", (await db.Users.SingleAsync(u => u.Id == discussion.UserId)).DisplayName);
+        Assert.True(discussion.ReplyCount >= 1);
+        Assert.NotEmpty(await db.DiscussionReplies.Where(r => r.DiscussionId == discussion.Id).ToListAsync());
     }
 
     [Fact]
@@ -137,7 +140,7 @@ public class ExternalDiscussionImportTests
         var discussion = await db.Discussions.SingleAsync();
         Assert.NotNull(discussion.SourceRawBody);
         Assert.DoesNotContain("#", discussion.Title);
-        Assert.True(discussion.Body.TrimEnd().EndsWith('?'));
+        Assert.False(discussion.Body.TrimEnd().EndsWith('?'));
         Assert.Equal("Sports Page", discussion.SourceOriginalAuthor);
         Assert.Equal(50, discussion.SourceEngagementScore);
     }

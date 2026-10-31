@@ -38,7 +38,9 @@ public class ExternalDiscussionImportService(
         if (discussions.Count == 0)
             throw new ArgumentException("Aucune discussion à importer.");
 
-        var importUser = await ImportSeed.EnsureImportUserAsync(db, ct);
+        await ImportSeed.EnsureImportUserAsync(db, ct);
+        await TopicCommunitySeed.EnsureTopicCommunitiesAsync(db, ct);
+        var hosts = await ImportHostSeed.EnsureHostsAsync(db, ct);
 
         var created = 0;
         var updated = 0;
@@ -49,7 +51,7 @@ public class ExternalDiscussionImportService(
         {
             try
             {
-                var outcome = await UpsertAsync(item, importUser, ct);
+                var outcome = await UpsertAsync(item, hosts, ct);
                 await db.SaveChangesAsync(ct);
                 switch (outcome)
                 {
@@ -245,7 +247,7 @@ public class ExternalDiscussionImportService(
 
     private async Task<UpsertOutcome> UpsertAsync(
         ImportExternalDiscussionDto item,
-        User importUser,
+        IReadOnlyList<User> hosts,
         CancellationToken ct)
     {
         var provider = DiscussionSourceProvider.Normalize(item.Source.Provider);
@@ -290,6 +292,7 @@ public class ExternalDiscussionImportService(
         var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
         var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
         var communityId = await ResolveImportCommunityIdAsync(transformed.Title, transformed.Body, ct);
+        var host = ImportHostSeed.PickHost(hosts, transformed.Title, transformed.Body);
 
         var now = DateTime.UtcNow;
         var importedAt = item.Source.ImportedAt ?? now;
@@ -298,7 +301,7 @@ public class ExternalDiscussionImportService(
         var mapped = MapFields(
             item,
             provider,
-            importUser.Id,
+            host.Id,
             topicCategory.Id,
             topicCategory.Slug,
             communityId,
@@ -312,6 +315,7 @@ public class ExternalDiscussionImportService(
         if (existing is null)
         {
             db.Discussions.Add(mapped);
+            AddStarterComments(mapped, hosts, host, transformed.Title, transformed.Body);
             return UpsertOutcome.Created;
         }
 
@@ -321,6 +325,7 @@ public class ExternalDiscussionImportService(
         existing.CategoryId = mapped.CategoryId;
         existing.TopicSlug = mapped.TopicSlug;
         existing.CommunityId ??= mapped.CommunityId;
+        // Keep the original host author on updates; only refresh content/source metadata.
         existing.SourceProviderName = mapped.SourceProviderName;
         existing.SourceExternalUrl = mapped.SourceExternalUrl;
         existing.SourceImportedAt = existing.SourceImportedAt ?? importedAt;
@@ -332,6 +337,32 @@ public class ExternalDiscussionImportService(
         existing.UpdatedAt = now;
 
         return UpsertOutcome.Updated;
+    }
+
+    private void AddStarterComments(
+        Discussion discussion,
+        IReadOnlyList<User> hosts,
+        User author,
+        string title,
+        string body)
+    {
+        var starters = ImportHostSeed.BuildStarterComments(hosts, author, title, body);
+        if (starters.Count == 0)
+            return;
+
+        var createdAt = discussion.CreatedAt.AddMinutes(2);
+        foreach (var (host, commentBody) in starters)
+        {
+            db.DiscussionReplies.Add(new DiscussionReply
+            {
+                Discussion = discussion,
+                UserId = host.Id,
+                Body = commentBody,
+                CreatedAt = createdAt,
+            });
+            createdAt = createdAt.AddMinutes(3);
+            discussion.ReplyCount++;
+        }
     }
 
     private async Task<Guid> ResolveImportCommunityIdAsync(string title, string body, CancellationToken ct)
