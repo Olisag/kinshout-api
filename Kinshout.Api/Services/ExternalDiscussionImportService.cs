@@ -514,8 +514,7 @@ public class ExternalDiscussionImportService(
             Title = title.Trim(),
             Body = body.Trim(),
             SourceRawBody = rawBody,
-            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(
-                SanitizeExternalImageUrls(item.ImageUrls, item.Source.ExternalUrl, rawBody)),
+            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.ImageUrls)),
             VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.VideoUrls)),
             CreatedAt = createdAt,
             UpdatedAt = importedAt,
@@ -551,15 +550,6 @@ public class ExternalDiscussionImportService(
             .Take(DiscussionMediaHelper.MaxImages)
             .ToList();
     }
-
-    private static List<string> SanitizeExternalImageUrls(
-        IReadOnlyList<string>? urls,
-        string? externalUrl,
-        string? body) =>
-        DiscussionMultimedia.FilterAttachedImagesForEmbed(
-            SanitizeExternalMediaUrls(urls),
-            externalUrl,
-            body);
 
     private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)
     {
