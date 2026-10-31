@@ -276,15 +276,12 @@ public class ExternalDiscussionImportService(
                 break;
 
             scanned++;
-            if (DiscussionMultimedia.HasVisualMedia(discussion))
+            if (DiscussionMultimedia.ShouldKeepOnVisualFeed(discussion))
             {
-                keptVisual++;
-                continue;
-            }
-
-            if (DiscussionMultimedia.IsAbsoluteHit(discussion))
-            {
-                keptHits++;
+                if (DiscussionMultimedia.HasVisualMedia(discussion))
+                    keptVisual++;
+                else
+                    keptHits++;
                 continue;
             }
 

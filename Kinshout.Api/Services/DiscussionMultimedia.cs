@@ -56,15 +56,43 @@ public static partial class DiscussionMultimedia
 
         return url.Contains(".mp4", StringComparison.OrdinalIgnoreCase)
             || url.Contains(".mov", StringComparison.OrdinalIgnoreCase)
-            || url.Contains(".webm", StringComparison.OrdinalIgnoreCase);
+            || url.Contains(".webm", StringComparison.OrdinalIgnoreCase)
+            || url.Contains("/v/t2/", StringComparison.OrdinalIgnoreCase)
+            || url.Contains("video", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsAbsoluteHit(Discussion discussion) =>
         (discussion.SourceEngagementScore ?? 0) >= AbsoluteHitEngagementScore
         || discussion.LikeCount >= AbsoluteHitLikeCount;
 
-    public static bool ShouldKeepOnVisualFeed(Discussion discussion) =>
-        HasVisualMedia(discussion) || IsAbsoluteHit(discussion);
+    public static bool ShouldKeepOnVisualFeed(Discussion discussion)
+    {
+        if (HasVisualMedia(discussion))
+            return true;
+
+        // Absolute-hit exception is for true text virals only — not broken FB CDN videos.
+        if (HasOnlyUnplayableHotlinkedVideo(discussion))
+            return false;
+
+        return IsAbsoluteHit(discussion);
+    }
+
+    public static bool HasOnlyUnplayableHotlinkedVideo(Discussion discussion)
+    {
+        var images = DiscussionMediaHelper.ParseUrlList(discussion.ImageUrlsJson);
+        if (images.Count > 0)
+            return false;
+
+        if (HasConcreteYouTubeUrl(discussion.SourceExternalUrl)
+            || HasConcreteYouTubeUrl(discussion.Body)
+            || HasConcreteYouTubeUrl(discussion.SourceRawBody))
+        {
+            return false;
+        }
+
+        var videos = DiscussionMediaHelper.ParseUrlList(discussion.VideoUrlsJson);
+        return videos.Count > 0 && videos.All(IsUnplayableHotlinkedVideo);
+    }
 
     public static bool ImportItemHasVisualMedia(
         IReadOnlyList<string>? imageUrls,
