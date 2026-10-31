@@ -106,6 +106,9 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, body))
             return null;
 
+        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body))
+            return null;
+
         var likes = ReadInt(item, "reactionsCount") ?? ReadInt(item, "likesCount") ?? 0;
         var comments = ReadInt(item, "commentsCount") ?? 0;
         var shares = ReadInt(item, "sharesCount") ?? 0;
