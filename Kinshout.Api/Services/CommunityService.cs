@@ -30,6 +30,7 @@ public interface ICommunityService
         ReportCommunityUserRequestDto request,
         CancellationToken ct = default);
     Task BlockMemberAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
+    Task UnblockMemberAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task AddModeratorAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task RemoveModeratorAsync(Guid actorUserId, string slugOrRoute, Guid targetUserId, CancellationToken ct = default);
     Task LeaveAsync(Guid userId, string slugOrRoute, CancellationToken ct = default);
@@ -46,6 +47,12 @@ public interface ICommunityService
         int pageSize = PagingHelper.DefaultPageSize,
         CancellationToken ct = default);
     Task<PagedResultDto<CommunityMemberDto>> ListPendingMembersAsync(
+        Guid actorUserId,
+        string slugOrRoute,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default);
+    Task<PagedResultDto<CommunityMemberDto>> ListBannedMembersAsync(
         Guid actorUserId,
         string slugOrRoute,
         int page = 1,
@@ -572,6 +579,28 @@ public class CommunityService(
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task UnblockMemberAsync(
+        Guid actorUserId,
+        string slugOrRoute,
+        Guid targetUserId,
+        CancellationToken ct = default)
+    {
+        var community = await RequireCommunityAsync(slugOrRoute, ct);
+        var actorMembership = await FindMembershipAsync(community.Id, actorUserId, ct);
+        if (!CommunityAccessHelper.CanModerate(community, actorMembership, actorUserId))
+            throw new UnauthorizedAccessException("Seuls le créateur ou un modérateur peuvent débloquer un membre.");
+
+        var membership = await db.CommunityMembers
+            .FirstOrDefaultAsync(m => m.CommunityId == community.Id && m.UserId == targetUserId, ct)
+            ?? throw new KeyNotFoundException("Membre introuvable.");
+
+        if (membership.Status != CommunityMemberStatuses.Banned)
+            throw new InvalidOperationException("Cet utilisateur n'est pas bloqué de cette communauté.");
+
+        db.CommunityMembers.Remove(membership);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task RejectMemberAsync(
         Guid actorUserId,
         string slugOrRoute,
@@ -762,6 +791,43 @@ public class CommunityService(
                 m.Role,
                 m.Status,
                 m.CreatedAt))
+            .ToList();
+
+        return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
+    }
+
+    public async Task<PagedResultDto<CommunityMemberDto>> ListBannedMembersAsync(
+        Guid actorUserId,
+        string slugOrRoute,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken ct = default)
+    {
+        var community = await RequireCommunityAsync(slugOrRoute, ct);
+        var actorMembership = await FindMembershipAsync(community.Id, actorUserId, ct);
+        if (!CommunityAccessHelper.CanModerate(community, actorMembership, actorUserId))
+            throw new UnauthorizedAccessException("Seuls le créateur ou un modérateur peuvent voir les membres bloqués.");
+
+        var (normalizedPage, normalizedPageSize) = PagingHelper.Normalize(page, pageSize);
+        var query = db.CommunityMembers
+            .AsNoTracking()
+            .Include(m => m.User)
+            .Where(m => m.CommunityId == community.Id && m.Status == CommunityMemberStatuses.Banned)
+            .OrderByDescending(m => m.ReviewedAt ?? m.CreatedAt);
+
+        var total = await query.CountAsync(ct);
+        var rows = await query
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(ct);
+
+        var items = rows
+            .Select(m => new CommunityMemberDto(
+                m.UserId,
+                m.User.DisplayName,
+                m.Role,
+                m.Status,
+                m.ReviewedAt ?? m.CreatedAt))
             .ToList();
 
         return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);

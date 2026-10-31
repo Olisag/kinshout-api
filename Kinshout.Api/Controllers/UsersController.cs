@@ -26,7 +26,7 @@ public class UsersController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PublicUserProfileDto>> GetProfile(Guid id, CancellationToken ct)
     {
-        var profile = await profiles.GetPublicProfileAsync(id, ct);
+        var profile = await profiles.GetPublicProfileAsync(id, ControllerUserHelper.TryGetUserId(HttpContext), ct);
         return profile is null ? NotFound() : Ok(profile);
     }
 

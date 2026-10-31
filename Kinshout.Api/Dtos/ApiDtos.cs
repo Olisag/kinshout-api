@@ -30,7 +30,8 @@ public record PublicUserProfileDto(
     string DisplayName,
     string? AvatarUrl,
     string MemberSince,
-    int PublishedAdvertCount
+    int PublishedAdvertCount,
+    bool IsBlockedByMe = false
 );
 
 public record ProfileVisibilityDto(bool IsPublic);

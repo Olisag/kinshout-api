@@ -7,7 +7,10 @@ namespace Kinshout.Api.Services;
 
 public interface IUserProfileService
 {
-    Task<PublicUserProfileDto?> GetPublicProfileAsync(Guid userId, CancellationToken ct = default);
+    Task<PublicUserProfileDto?> GetPublicProfileAsync(
+        Guid userId,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default);
     Task<PagedResultDto<AdvertDto>> ListPublicAdvertsAsync(
         Guid userId,
         int page = 1,
@@ -18,7 +21,10 @@ public interface IUserProfileService
 
 public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadUrls, IAdvertDtoMapper advertDtos) : IUserProfileService
 {
-    public async Task<PublicUserProfileDto?> GetPublicProfileAsync(Guid userId, CancellationToken ct = default)
+    public async Task<PublicUserProfileDto?> GetPublicProfileAsync(
+        Guid userId,
+        Guid? viewerUserId = null,
+        CancellationToken ct = default)
     {
         var row = await db.Users
             .AsNoTracking()
@@ -30,16 +36,31 @@ public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadU
             })
             .FirstOrDefaultAsync(ct);
 
-        return row is null ? null : ToPublicProfile(row.User, row.PublishedCount);
+        if (row is null)
+            return null;
+
+        var isBlockedByMe = false;
+        if (viewerUserId is { } viewerId && viewerId != userId)
+        {
+            isBlockedByMe = await db.UserBlocks.AsNoTracking().AnyAsync(
+                b => b.BlockerUserId == viewerId && b.BlockedUserId == userId,
+                ct);
+        }
+
+        return ToPublicProfile(row.User, row.PublishedCount, isBlockedByMe);
     }
 
-    private PublicUserProfileDto ToPublicProfile(User user, int publishedAdvertCount) =>
+    private PublicUserProfileDto ToPublicProfile(
+        User user,
+        int publishedAdvertCount,
+        bool isBlockedByMe) =>
         new(
             user.Id,
             user.DisplayName,
             uploadUrls.ToPublicUrl(user.AvatarUrl),
             $"Membre depuis {user.CreatedAt:MMM yyyy}",
-            publishedAdvertCount);
+            publishedAdvertCount,
+            isBlockedByMe);
 
     public async Task<PagedResultDto<AdvertDto>> ListPublicAdvertsAsync(
         Guid userId,
