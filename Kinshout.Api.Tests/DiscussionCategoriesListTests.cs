@@ -21,7 +21,8 @@ public class DiscussionCategoriesListTests
             cache,
             Mock.Of<IDiscussionService>(),
             Mock.Of<ILikedDiscussionService>(),
-            backfill ?? Mock.Of<IDiscussionTopicBackfillScheduler>());
+            backfill ?? Mock.Of<IDiscussionTopicBackfillScheduler>(),
+            Mock.Of<IUnavailableSourceService>());
 
     [Fact]
     public async Task ListCategories_ReturnsOnlyDiscussionTopicsWithDiscussions()
