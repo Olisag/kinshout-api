@@ -20,7 +20,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var keptIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
-        var perQuery = 6;
+        var perQuery = 4;
         var minEngagement = ResolveMinEngagement();
         var minPostedAt = ResolveMinPostedAt();
         var rawCount = 0;

@@ -23,14 +23,14 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
             settings.ApifyActorId = DefaultActorId;
 
-        var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 16;
+        var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
         var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 2000;
         var client = new ApifyClient(http, settings);
         using var doc = await client.RunActorAndGetDatasetAsync(new
         {
             searchQueries = queries,
             hashtags = queries.Select(query => query.Replace(" ", "", StringComparison.Ordinal)).ToList(),
-            resultsPerPage = limit,
+            resultsPerPage = Math.Max(limit, queries.Count * 5),
             shouldDownloadVideos = false,
             shouldDownloadCovers = false,
         }, ct);
