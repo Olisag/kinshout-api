@@ -36,7 +36,7 @@ public partial class ExternalDiscussionTransformService(
             return new ExternalDiscussionTransformResult("Sujet Kinshasa", "Qu'en pensez-vous ?", true);
 
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
-            return FallbackTransform(raw);
+            return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
         var author = string.IsNullOrWhiteSpace(originalAuthor) ? "inconnu" : originalAuthor.Trim();
         var platform = string.IsNullOrWhiteSpace(platformName) ? "réseau social" : platformName.Trim();
@@ -53,6 +53,7 @@ public partial class ExternalDiscussionTransformService(
             - title = le sujet seulement (ex: "Retour des Léopards à Kinshasa", "Résultats EXETAT 2026 — Kinshasa Lukunga")
             - body = contexte factuel tiré du texte + une question ouverte pour lancer la discussion
             - Ne pas inventer de faits absents du texte source
+            - Si le texte commence par « Titre: », ce titre est le sujet réel (événement, date, culte, chanson). Nomme-le dans title et dans body. N'utilise pas un pied de page répété (partenariat, contacts, dons, abonnement) comme titre
             - Ton neutre, français clair, public Kinshasa/RDC
             - Pas de emojis, hashtags, ni MAJUSCULES agressives dans title/body
 
@@ -71,20 +72,21 @@ public partial class ExternalDiscussionTransformService(
             var title = CleanTitle(root.TryGetProperty("title", out var t) ? t.GetString() : null, raw);
             var body = CleanBody(root.TryGetProperty("body", out var b) ? b.GetString() : null, raw);
             if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
-                return FallbackTransform(raw);
+                return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
-            return new ExternalDiscussionTransformResult(title, body, false);
+            return DiscussionSourceText.ApplyTitle(new ExternalDiscussionTransformResult(title, body, false), raw);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "External discussion AI transform failed; using fallback.");
-            return FallbackTransform(raw);
+            return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
         }
     }
 
     internal static ExternalDiscussionTransformResult FallbackTransform(string raw)
     {
-        var cleaned = CleanRawText(raw);
+        var prose = DiscussionSourceText.WithoutMarkedTitle(raw);
+        var cleaned = CleanRawText(prose);
         var title = BuildFallbackTitle(cleaned);
         var body = BuildFallbackBody(cleaned);
         return new ExternalDiscussionTransformResult(title, body, true);
@@ -128,7 +130,7 @@ public partial class ExternalDiscussionTransformService(
     private static string CleanBody(string? body, string rawFallback)
     {
         if (string.IsNullOrWhiteSpace(body))
-            return BuildFallbackBody(CleanRawText(rawFallback));
+            return BuildFallbackBody(CleanRawText(DiscussionSourceText.WithoutMarkedTitle(rawFallback)));
 
         var value = body.Trim();
         if (!value.EndsWith('?'))

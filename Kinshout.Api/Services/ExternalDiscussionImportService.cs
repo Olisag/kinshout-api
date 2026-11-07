@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
 using Kinshout.Api.Models;
@@ -22,6 +24,10 @@ public interface IExternalDiscussionImportService
         bool force = false,
         int limit = 0,
         CancellationToken ct = default);
+
+    Task<RepairDuplicateTitlesResponseDto> RepairDuplicateTitlesAsync(
+        int limit = 20,
+        CancellationToken ct = default);
 }
 
 public class ExternalDiscussionImportService(
@@ -29,7 +35,8 @@ public class ExternalDiscussionImportService(
     IExternalDiscussionTransformService transform,
     IOpenAiService openAi,
     IMemoryCache cache,
-    ICommunityService communities) : IExternalDiscussionImportService
+    ICommunityService communities,
+    IHttpClientFactory httpClientFactory) : IExternalDiscussionImportService
 {
     public async Task<ImportExternalDiscussionsResponseDto> ImportAsync(
         IReadOnlyList<ImportExternalDiscussionDto> discussions,
@@ -137,6 +144,103 @@ public class ExternalDiscussionImportService(
 
         var remaining = await CountRemainingRetransformsAsync(ct);
         return new RetransformExternalDiscussionsResponseDto(transformed, unchanged, skipped, failed, remaining);
+    }
+
+    public async Task<RepairDuplicateTitlesResponseDto> RepairDuplicateTitlesAsync(
+        int limit = 20,
+        CancellationToken ct = default)
+    {
+        if (limit <= 0)
+            limit = 20;
+        if (limit > 40)
+            limit = 40;
+
+        var rows = await db.Discussions
+            .Where(d => d.SourceProvider != null
+                && d.SourceProvider != DiscussionSourceProvider.Kinshout
+                && d.SourceExternalUrl != null)
+            .ToListAsync(ct);
+
+        var candidates = rows
+            .GroupBy(d => d.Title.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .SelectMany(group => group)
+            .Where(d => SourceUnavailable.TryYouTubeWatchUrl(d.SourceExternalUrl, out _))
+            .ToList();
+
+        var rewritten = 0;
+        var unchanged = 0;
+        var failed = 0;
+        var processed = 0;
+
+        foreach (var discussion in candidates)
+        {
+            if (processed >= limit)
+                break;
+
+            processed++;
+            try
+            {
+                var sourceTitle = await ReadYouTubeTitleAsync(discussion.SourceExternalUrl, ct);
+                if (string.IsNullOrWhiteSpace(sourceTitle))
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                var formatted = DiscussionSourceText.FormatSourceTitle(sourceTitle);
+                if (string.Equals(formatted, discussion.Title.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                var raw = discussion.SourceRawBody?.Trim() ?? discussion.Body.Trim();
+                var result = await transform.TransformAsync(
+                    DiscussionSourceText.ForTransform(sourceTitle, raw),
+                    discussion.SourceOriginalAuthor,
+                    discussion.SourceProviderName ?? DiscussionSourceProvider.DisplayName(discussion.SourceProvider!),
+                    ct);
+
+                discussion.Title = result.Title;
+                discussion.Body = result.Body;
+                discussion.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+                rewritten++;
+            }
+            catch
+            {
+                failed++;
+            }
+        }
+
+        var remaining = candidates.Count - processed;
+        return new RepairDuplicateTitlesResponseDto(rewritten, unchanged, failed, remaining < 0 ? 0 : remaining);
+    }
+
+    private async Task<string?> ReadYouTubeTitleAsync(string? externalUrl, CancellationToken ct)
+    {
+        if (!SourceUnavailable.TryYouTubeWatchUrl(externalUrl, out var watchUrl))
+            return null;
+
+        try
+        {
+            var client = httpClientFactory.CreateClient("SourceAvailability");
+            var url = "https://www.youtube.com/oembed?format=json&url=" + Uri.EscapeDataString(watchUrl);
+            using var response = await client.GetAsync(url, ct);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            using var doc = JsonDocument.Parse(json);
+            var title = doc.RootElement.TryGetProperty("title", out var node) ? node.GetString() : null;
+            title = WebUtility.HtmlDecode(title)?.Trim();
+            return string.IsNullOrWhiteSpace(title) ? null : title;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task<int> CountRemainingRetransformsAsync(CancellationToken ct)
@@ -299,7 +403,11 @@ public class ExternalDiscussionImportService(
         }
 
         var platformName = item.Source.ProviderName ?? DiscussionSourceProvider.DisplayName(provider);
-        var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
+        var transformed = await transform.TransformAsync(
+            DiscussionSourceText.ForTransform(item.Title, rawBody),
+            item.OriginalAuthor,
+            platformName,
+            ct);
         var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
         var communityId = await ResolveImportCommunityIdAsync(item, transformed.Title, transformed.Body, ct);
         var host = ImportHostSeed.PickHost(hosts, transformed.Title, transformed.Body);

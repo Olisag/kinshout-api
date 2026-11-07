@@ -40,6 +40,39 @@ public class ExternalDiscussionTransformServiceTests
         Assert.True(result.UsedFallback);
     }
 
+    [Fact]
+    public async Task TransformAsync_UsesEachVideoTitleWhenTheDescriptionIsShared()
+    {
+        const string body = "Devenez partenaire de Moise Mbiye Ministries. Contactez le secretariat.";
+        var titles = new[]
+        {
+            "BIENVENUE À NOTRE CULTE D'INTERCESSION MONDIALE/ JEUDI 05.11.2026/ AVEC LE PASTEUR JOSE KABENGELE",
+            "CULTE DES MIRACLES & DELIVRANCE/MERCREDI 04 NOV 2026/SESSION DU SOIR.",
+            "CULTE DE DELIVRANCE ET MIRACLE/MERCREDI 04.11.2026/VACATION MATIN.",
+            "BIENVENUE À NOTRE TROISIEME CULTE DOMICAL /DIMANCHE 01.11.2026/ AVEC LE PASTEUR MOISE MBIYE",
+        };
+
+        var results = new List<string>();
+        foreach (var title in titles)
+        {
+            var result = await CreateService().TransformAsync($"Titre: {title}\n\n{body}", "Moise Mbiye Officiel", "YouTube");
+            Assert.DoesNotContain("partenariat", result.Title, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("?", result.Title);
+            Assert.True(result.Title.Length <= 90);
+            results.Add(result.Title);
+        }
+
+        Assert.Contains("intercession", results[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("05.11.2026", results[0], StringComparison.Ordinal);
+        Assert.Contains("miracles", results[1], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("soir", results[1], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("04.11.2026", results[2], StringComparison.Ordinal);
+        Assert.Contains("matin", results[2], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("domical", results[3], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("01.11.2026", results[3], StringComparison.Ordinal);
+        Assert.Equal(4, results.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
     private static ExternalDiscussionTransformService CreateService() =>
         new(
             new TestHttpClientFactory(),

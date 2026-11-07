@@ -178,6 +178,23 @@ public class ImportsController(
         return Ok(await discussionImports.RetransformAllAsync(force, limit, ct));
     }
 
+    /// <summary>
+    /// Give each copied headline its own video title. Reads the public YouTube title,
+    /// then rewrites only posts that share a headline.
+    /// </summary>
+    [HttpPost("discussions/repair-duplicate-titles")]
+    [ProducesResponseType(typeof(RepairDuplicateTitlesResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<RepairDuplicateTitlesResponseDto>> RepairDuplicateTitles(
+        [FromQuery] int limit = 20,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Ok(await discussionImports.RepairDuplicateTitlesAsync(limit, ct));
+    }
+
     /// <summary>YouTube ids from the last 72 hours, capped at 40, for the hourly stats job.</summary>
     [HttpGet("youtube-metrics/targets")]
     [ProducesResponseType(typeof(YouTubeMetricTargetsDto), StatusCodes.Status200OK)]

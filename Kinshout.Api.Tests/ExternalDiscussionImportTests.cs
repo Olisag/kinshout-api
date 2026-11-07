@@ -1,3 +1,6 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
 using Kinshout.Api.Configuration;
 using Kinshout.Api.Data;
 using Kinshout.Api.Dtos;
@@ -142,7 +145,52 @@ public class ExternalDiscussionImportTests
         Assert.Equal(50, discussion.SourceEngagementScore);
     }
 
-    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db)
+    [Fact]
+    public async Task ImportAsync_KeepsEachVideoTitleWhenTheDescriptionIsTheSame()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        const string body = "Devenez partenaire de Moise Mbiye Ministries. Contactez le secretariat pour les details.";
+
+        await service.ImportAsync([
+            YouTubeImport("yt-soir", "6jAedCwFNu0", "CULTE DES MIRACLES & DELIVRANCE/MERCREDI 04 NOV 2026/SESSION DU SOIR.", body),
+            YouTubeImport("yt-matin", "AH5w4QlDeY4", "CULTE DE DELIVRANCE ET MIRACLE/MERCREDI 04.11.2026/VACATION MATIN.", body),
+        ]);
+
+        var titles = await db.Discussions.Select(d => d.Title).ToListAsync();
+        Assert.Equal(2, titles.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Contains(titles, title => title.Contains("miracles", StringComparison.OrdinalIgnoreCase) && title.Contains("soir", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(titles, title => title.Contains("04.11.2026", StringComparison.Ordinal) && title.Contains("matin", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(titles, title => title.Contains("partenariat", StringComparison.OrdinalIgnoreCase));
+        Assert.All(await db.Discussions.ToListAsync(), discussion => Assert.Equal(body, discussion.SourceRawBody));
+    }
+
+    [Fact]
+    public async Task RepairDuplicateTitlesAsync_RewritesCopiedHeadlinesFromYouTube()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        const string copied = "Partenariat avec Moïse Mbiye Ministries";
+        const string body = "Devenez partenaire de Moise Mbiye Ministries. Contactez le secretariat.";
+        db.Discussions.AddRange(
+            StoredYouTube(user.Id, category.Id, "6jAedCwFNu0", copied, body),
+            StoredYouTube(user.Id, category.Id, "AH5w4QlDeY4", copied, body));
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db, new YouTubeTitleClientFactory(new YouTubeTitleHandler()));
+        var result = await service.RepairDuplicateTitlesAsync();
+
+        Assert.Equal(2, result.Rewritten);
+        var titles = await db.Discussions.Select(d => d.Title).ToListAsync();
+        Assert.Equal(2, titles.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.DoesNotContain(titles, title => title.Contains("partenariat", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db) =>
+        CreateService(db, new TestHttpClientFactory());
+
+    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db, IHttpClientFactory httpClientFactory)
     {
         var openAi = new Mock<IOpenAiService>();
         openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
@@ -155,13 +203,45 @@ public class ExternalDiscussionImportTests
         return new ExternalDiscussionImportService(
             db,
             new ExternalDiscussionTransformService(
-                new TestHttpClientFactory(),
+                httpClientFactory,
                 Options.Create(new OpenAiSettings { ApiKey = "", Model = "gpt-4o-mini" }),
                 NullLogger<ExternalDiscussionTransformService>.Instance),
             openAi.Object,
             new MemoryCache(new MemoryCacheOptions()),
-            communities.Object);
+            communities.Object,
+            httpClientFactory);
     }
+
+    private static ImportExternalDiscussionDto YouTubeImport(string externalId, string videoId, string title, string rawBody)
+    {
+        var watchUrl = $"https://www.youtube.com/watch?v={videoId}";
+        return SampleImport(externalId, rawBody) with
+        {
+            Title = title,
+            VideoUrls = [watchUrl],
+            Source = SampleImport(externalId, rawBody).Source with
+            {
+                Provider = DiscussionSourceProvider.YouTube,
+                ProviderName = "YouTube",
+                ExternalUrl = watchUrl,
+            },
+        };
+    }
+
+    private static Discussion StoredYouTube(Guid userId, Guid categoryId, string videoId, string title, string body) =>
+        new()
+        {
+            UserId = userId,
+            CategoryId = categoryId,
+            Title = title,
+            Body = body,
+            SourceRawBody = body,
+            SourceProvider = DiscussionSourceProvider.YouTube,
+            SourceProviderName = "YouTube",
+            SourceExternalId = videoId,
+            SourceExternalUrl = $"https://www.youtube.com/watch?v={videoId}",
+            SourceOriginalAuthor = "Moise Mbiye Officiel",
+        };
 
     private static ImportExternalDiscussionDto SampleImport(string externalId, string rawBody) =>
         new(
@@ -173,7 +253,7 @@ public class ExternalDiscussionImportTests
                 ImportedAt: DateTime.UtcNow,
                 LastSeenAt: DateTime.UtcNow,
                 FirstSeenAt: DateTime.UtcNow),
-            Title: "ignored scraper title",
+            Title: rawBody,
             Body: rawBody,
             OriginalAuthor: "Test Page",
             EngagementScore: 120,
@@ -183,5 +263,26 @@ public class ExternalDiscussionImportTests
     private sealed class TestHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new();
+    }
+
+    private sealed class YouTubeTitleHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var url = request.RequestUri?.ToString() ?? "";
+            var title = url.Contains("6jAedCwFNu0", StringComparison.Ordinal)
+                ? "CULTE DES MIRACLES & DELIVRANCE/MERCREDI 04 NOV 2026/SESSION DU SOIR."
+                : "CULTE DE DELIVRANCE ET MIRACLE/MERCREDI 04.11.2026/VACATION MATIN.";
+            var json = JsonSerializer.Serialize(new { title });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    private sealed class YouTubeTitleClientFactory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 }
