@@ -1,0 +1,37 @@
+# Hourly views/likes for the top YouTube clips imported in the last 72 hours (max 40).
+name: External discussion importer (prod, YouTube stats)
+
+on:
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: external-discussion-importer-prod-youtube-stats
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: Kinshout.ExternalImporter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.x"
+
+      - name: Refresh YouTube stats (prod)
+        env:
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: dotnet run -- --youtube-stats

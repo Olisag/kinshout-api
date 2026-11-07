@@ -43,6 +43,7 @@ public static partial class SettingsLoader
 
         foreach (var provider in settings.DiscussionProviders)
         {
+            provider.ApiKey = Expand(provider.ApiKey);
             provider.ApifyToken = Expand(provider.ApifyToken);
             provider.ApifyActorId = Expand(provider.ApifyActorId);
             provider.RecentUrl = Expand(provider.RecentUrl);

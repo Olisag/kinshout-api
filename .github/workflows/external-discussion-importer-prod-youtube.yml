@@ -1,0 +1,38 @@
+# YouTube Data API reconciliation every 6 hours. Apify YouTube stays off.
+name: External discussion importer (prod, YouTube reconcile)
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: external-discussion-importer-prod-youtube
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: Kinshout.ExternalImporter
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.x"
+
+      - name: Reconcile YouTube uploads (prod)
+        env:
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+          KINSHOUT_IMPORTER_BATCH_SIZE: 25
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: dotnet run -- --once --discussions --providers youtube

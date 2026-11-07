@@ -373,6 +373,13 @@ public class ExternalDiscussionImportService(
             return UpsertOutcome.Skipped;
         }
 
+        var mediaKey = MediaCanonicalKey.From(item.Source.ExternalUrl, item.VideoUrls);
+        if (existing is null && mediaKey is not null
+            && await db.Discussions.AnyAsync(d => d.CanonicalMediaKey == mediaKey, ct))
+        {
+            return UpsertOutcome.Skipped;
+        }
+
         if (existing is not null
             && DiscussionSourceMapper.IsSameContent(existing, rawBody, engagement)
             && existing.SourceLastSeenAt >= (item.Source.LastSeenAt ?? DateTime.UtcNow).AddMinutes(-1))
@@ -384,7 +391,7 @@ public class ExternalDiscussionImportService(
         var platformName = item.Source.ProviderName ?? DiscussionSourceProvider.DisplayName(provider);
         var transformed = await transform.TransformAsync(rawBody, item.OriginalAuthor, platformName, ct);
         var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
-        var communityId = await ResolveImportCommunityIdAsync(transformed.Title, transformed.Body, ct);
+        var communityId = await ResolveImportCommunityIdAsync(item.CommunitySlug, transformed.Title, transformed.Body, ct);
         var host = ImportHostSeed.PickHost(hosts, transformed.Title, transformed.Body);
 
         var now = DateTime.UtcNow;
@@ -423,6 +430,7 @@ public class ExternalDiscussionImportService(
         // Keep the original host author on updates; only refresh content/source metadata.
         existing.SourceProviderName = mapped.SourceProviderName;
         existing.SourceExternalUrl = mapped.SourceExternalUrl;
+        existing.CanonicalMediaKey ??= mapped.CanonicalMediaKey;
         existing.SourceImportedAt = existing.SourceImportedAt ?? importedAt;
         existing.SourceLastSeenAt = lastSeenAt;
         existing.SourceFirstSeenAt = existing.SourceFirstSeenAt ?? firstSeenAt;
@@ -460,8 +468,22 @@ public class ExternalDiscussionImportService(
         }
     }
 
-    private async Task<Guid> ResolveImportCommunityIdAsync(string title, string body, CancellationToken ct)
+    private async Task<Guid> ResolveImportCommunityIdAsync(
+        string? requestedSlug,
+        string title,
+        string body,
+        CancellationToken ct)
     {
+        if (!string.IsNullOrWhiteSpace(requestedSlug))
+        {
+            var normalized = requestedSlug.Trim().ToLowerInvariant();
+            var requested = await db.Communities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Slug == normalized && c.IsActive, ct);
+            if (requested is not null)
+                return requested.Id;
+        }
+
         var inferredSlug = TopicCommunitySeed.InferSlug(title, body);
         if (!string.IsNullOrWhiteSpace(inferredSlug))
         {
@@ -527,6 +549,7 @@ public class ExternalDiscussionImportService(
                 : item.Source.ProviderName.Trim(),
             SourceExternalId = item.Source.ExternalId.Trim(),
             SourceExternalUrl = item.Source.ExternalUrl.Trim(),
+            CanonicalMediaKey = MediaCanonicalKey.From(item.Source.ExternalUrl, item.VideoUrls),
             SourceImportedAt = importedAt,
             SourceLastSeenAt = lastSeenAt,
             SourceFirstSeenAt = firstSeenAt,

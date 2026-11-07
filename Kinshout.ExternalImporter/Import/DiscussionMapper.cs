@@ -14,6 +14,8 @@ public static class DiscussionMapper
             return null;
 
         var externalId = Clean(feed.ExternalId) ?? StableId(externalUrl);
+        var communitySlug = Clean(feed.CommunitySlug)
+            ?? SourceRegistry.MatchAuthor(feed.OriginalAuthor)?.CommunitySlug;
 
         return new ImportExternalDiscussionDto(
             Source: new ImportExternalDiscussionSourceDto(
@@ -31,7 +33,8 @@ public static class DiscussionMapper
             Status: Clean(feed.Status) ?? "active",
             PublishedAt: feed.PublishedAt,
             ImageUrls: CleanUrls(feed.ImageUrls),
-            VideoUrls: CleanUrls(feed.VideoUrls));
+            VideoUrls: CleanUrls(feed.VideoUrls),
+            CommunitySlug: communitySlug);
     }
 
     public static ImportExternalDiscussionDto ToRemovalDto(

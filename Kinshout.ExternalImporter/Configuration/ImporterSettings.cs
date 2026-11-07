@@ -17,6 +17,9 @@ public sealed class KinshoutApiSettings
     public string KnownDiscussionsPath { get; set; } = "/api/imports/known-discussions";
     public string DiscussionImportStatePath { get; set; } = "/api/imports/discussion-import-state";
     public string DiscussionImportRunsPath { get; set; } = "/api/imports/discussion-import-runs";
+    public string YouTubeMetricTargetsPath { get; set; } = "/api/imports/youtube-metrics/targets";
+    public string YouTubeMetricsPath { get; set; } = "/api/imports/youtube-metrics";
+    public string SourceRegistryPath { get; set; } = "/api/imports/sources";
     public string ImportKey { get; set; } = "";
     public int BatchSize { get; set; } = 100;
 }
@@ -35,6 +38,16 @@ public sealed class ImportScheduleSettings
     public bool SkipExisting { get; set; } = true;
     /// <summary>Delete Kinshout rows for provider listings missing from the latest source crawl.</summary>
     public bool DetectRemovedListings { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ClassiquesBackfill { get; set; }
+
+    /// <summary>Search recent videos about each imported person, not only their own channel.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool YouTubeBuzz { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public HashSet<string> ProviderFilter { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class ExternalProviderSettings
@@ -79,4 +92,10 @@ public sealed class ExternalProviderSettings
 
     [System.Text.Json.Serialization.JsonIgnore]
     public DateTime? SincePublishedAt { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ClassiquesBackfill { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool YouTubeBuzz { get; set; }
 }

@@ -14,6 +14,7 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
     {
         "/api/auth/client",
         "/api/health",
+        "/api/youtube/websub",
     };
 
     private static readonly Regex VideoWorkerCallbackPath = new(

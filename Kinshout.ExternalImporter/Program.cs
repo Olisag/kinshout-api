@@ -8,10 +8,22 @@ var dryRun = args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase);
 var once = args.Contains("--once", StringComparer.OrdinalIgnoreCase);
 var discussionsOnly = args.Contains("--discussions", StringComparer.OrdinalIgnoreCase);
 var advertsOnly = args.Contains("--adverts", StringComparer.OrdinalIgnoreCase);
+var webSub = args.Contains("--youtube-websub", StringComparer.OrdinalIgnoreCase);
+var youtubeStats = args.Contains("--youtube-stats", StringComparer.OrdinalIgnoreCase);
+var classiquesBackfill = args.Contains("--classiques-backfill", StringComparer.OrdinalIgnoreCase);
+var youtubeBuzz = args.Contains("--youtube-buzz", StringComparer.OrdinalIgnoreCase);
+var providerFilter = GetOption(args, "--providers");
 
 var settings = SettingsLoader.Load(configPath);
-if (once)
+if (once || webSub || youtubeStats || classiquesBackfill || youtubeBuzz)
     settings.Schedule.RunOnce = true;
+settings.Schedule.ClassiquesBackfill = classiquesBackfill;
+settings.Schedule.YouTubeBuzz = youtubeBuzz;
+if (!string.IsNullOrWhiteSpace(providerFilter))
+{
+    foreach (var provider in providerFilter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        settings.Schedule.ProviderFilter.Add(provider);
+}
 
 using var http = new HttpClient
 {
@@ -51,7 +63,19 @@ async Task RunScheduledAsync()
 
 async Task RunImportsAsync()
 {
-    if (!discussionsOnly)
+    if (webSub)
+    {
+        await new YouTubeRegistryJobs(http, settings).RenewWebSubAsync(cts.Token);
+        return;
+    }
+
+    if (youtubeStats)
+    {
+        await new YouTubeRegistryJobs(http, settings).RefreshStatsAsync(cts.Token);
+        return;
+    }
+
+    if (!discussionsOnly && !classiquesBackfill && !youtubeBuzz)
     {
         var advertRunner = new ExternalImportRunner(http, settings, dryRun);
         await advertRunner.RunOnceAsync(cts.Token);

@@ -26,6 +26,9 @@ public static class DbSchemaPatcher
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureEditorialDeskSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureKinoiserieSchemaAsync(db, connection, sqlServer: true, ct);
         await CommunitySeed.BackfillMissingDiscussionCommunitiesAsync(db, ct);
         await EnsureSearchFullTextIndexesAsync(db, connection, ct);
@@ -86,6 +89,9 @@ public static class DbSchemaPatcher
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureEditorialDeskSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureKinoiserieSchemaAsync(db, connection, sqlServer: false, ct);
         await CommunitySeed.BackfillMissingDiscussionCommunitiesAsync(db, ct);
         await NormalizeExternalDiscussionViewCountsAsync(db, ct);
@@ -1036,6 +1042,175 @@ public static class DbSchemaPatcher
                 : "ALTER TABLE DiscussionReplies ADD COLUMN Address TEXT";
             await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
         }
+    }
+
+    private static async Task EnsureCanonicalMediaKeySchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "CanonicalMediaKey", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD CanonicalMediaKey nvarchar(200) NULL"
+                : "ALTER TABLE Discussions ADD COLUMN CanonicalMediaKey TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        var indexSql = sqlServer
+            ? """
+              IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Discussions_CanonicalMediaKey' AND object_id = OBJECT_ID('Discussions'))
+              CREATE INDEX IX_Discussions_CanonicalMediaKey ON Discussions (CanonicalMediaKey)
+              """
+            : "CREATE INDEX IF NOT EXISTS IX_Discussions_CanonicalMediaKey ON Discussions (CanonicalMediaKey)";
+        await db.Database.ExecuteSqlRawAsync(indexSql, cancellationToken: ct);
+
+        var pending = await db.Discussions
+            .Where(d => d.CanonicalMediaKey == null
+                && d.SourceExternalUrl != null
+                && (d.SourceExternalUrl.Contains("youtu")
+                    || d.SourceExternalUrl.Contains("tiktok.com")
+                    || d.SourceExternalUrl.Contains("facebook.com")
+                    || d.SourceExternalUrl.Contains("fb.watch")
+                    || d.SourceExternalUrl.Contains("twitter.com")
+                    || d.SourceExternalUrl.Contains("x.com")))
+            .OrderByDescending(d => d.CreatedAt)
+            .Take(500)
+            .ToListAsync(ct);
+        var changed = false;
+        foreach (var discussion in pending)
+        {
+            var key = MediaCanonicalKey.FromStored(discussion.SourceExternalUrl, discussion.VideoUrlsJson);
+            if (key is null)
+                continue;
+            if (pending.Any(other => other.Id != discussion.Id && other.CanonicalMediaKey == key)
+                || await db.Discussions.AnyAsync(other => other.Id != discussion.Id && other.CanonicalMediaKey == key, ct))
+            {
+                continue;
+            }
+
+            discussion.CanonicalMediaKey = key;
+            changed = true;
+        }
+
+        if (changed)
+            await db.SaveChangesAsync(ct);
+    }
+
+    private static async Task EnsureEditorialDeskSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await TableExistsAsync(connection, sqlServer, "EditorialPins", ct))
+        {
+            if (sqlServer)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE EditorialPins (
+                        [Key] nvarchar(40) NOT NULL,
+                        DiscussionId uniqueidentifier NULL,
+                        [Window] nvarchar(16) NULL,
+                        UpdatedAt datetime2 NOT NULL,
+                        CONSTRAINT PK_EditorialPins PRIMARY KEY ([Key])
+                    )
+                    """, ct);
+            }
+            else
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    """
+                    CREATE TABLE EditorialPins (
+                        Key TEXT NOT NULL PRIMARY KEY,
+                        DiscussionId TEXT NULL,
+                        Window TEXT NULL,
+                        UpdatedAt TEXT NOT NULL
+                    )
+                    """, ct);
+            }
+        }
+
+        if (await TableExistsAsync(connection, sqlServer, "RegistrySourceRecords", ct))
+            return;
+
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE RegistrySourceRecords (
+                    Name nvarchar(160) NOT NULL,
+                    Import bit NOT NULL,
+                    DefinitionJson nvarchar(max) NULL,
+                    UpdatedAt datetime2 NOT NULL,
+                    CONSTRAINT PK_RegistrySourceRecords PRIMARY KEY (Name)
+                )
+                """, ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE RegistrySourceRecords (
+                    Name TEXT NOT NULL PRIMARY KEY,
+                    Import INTEGER NOT NULL,
+                    DefinitionJson TEXT NULL,
+                    UpdatedAt TEXT NOT NULL
+                )
+                """, ct);
+        }
+    }
+
+    private static async Task EnsureVideoMetricSnapshotSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (await TableExistsAsync(connection, sqlServer, "VideoMetricSnapshots", ct))
+            return;
+
+        if (sqlServer)
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE VideoMetricSnapshots (
+                    Id uniqueidentifier NOT NULL,
+                    Provider nvarchar(40) NOT NULL,
+                    ExternalId nvarchar(80) NOT NULL,
+                    Views int NOT NULL,
+                    Likes int NOT NULL,
+                    Comments int NOT NULL,
+                    TrendScore int NOT NULL,
+                    FetchedAt datetime2 NOT NULL,
+                    CONSTRAINT PK_VideoMetricSnapshots PRIMARY KEY (Id)
+                )
+                """, ct);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE VideoMetricSnapshots (
+                    Id TEXT NOT NULL PRIMARY KEY,
+                    Provider TEXT NOT NULL,
+                    ExternalId TEXT NOT NULL,
+                    Views INTEGER NOT NULL,
+                    Likes INTEGER NOT NULL,
+                    Comments INTEGER NOT NULL,
+                    TrendScore INTEGER NOT NULL,
+                    FetchedAt TEXT NOT NULL
+                )
+                """, ct);
+        }
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX IX_VideoMetricSnapshots_Provider_ExternalId_FetchedAt
+            ON VideoMetricSnapshots (Provider, ExternalId, FetchedAt)
+            """, ct);
     }
 
     private static async Task EnsureImportWatermarkSchemaAsync(

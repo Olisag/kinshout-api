@@ -260,7 +260,19 @@ public record ImportExternalDiscussionDto(
     string Status = "active",
     DateTime? PublishedAt = null,
     IReadOnlyList<string>? ImageUrls = null,
-    IReadOnlyList<string>? VideoUrls = null);
+    IReadOnlyList<string>? VideoUrls = null,
+    string? CommunitySlug = null);
+
+public record YouTubeMetricPointDto(
+    string ExternalId,
+    int Views,
+    int Likes,
+    int Comments,
+    DateTime? PublishedAt = null);
+
+public record RecordYouTubeMetricsRequestDto(IReadOnlyList<YouTubeMetricPointDto> Metrics);
+
+public record YouTubeMetricTargetsDto(IReadOnlyList<string> ExternalIds);
 
 public record ImportExternalDiscussionsRequestDto(IReadOnlyList<ImportExternalDiscussionDto> Discussions);
 

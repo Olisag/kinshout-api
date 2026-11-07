@@ -27,6 +27,8 @@ public class Discussion
     public string? SourceProviderName { get; set; }
     public string? SourceExternalId { get; set; }
     public string? SourceExternalUrl { get; set; }
+    /// <summary>Same clip across providers, for example yt:videoId or tt:videoId.</summary>
+    public string? CanonicalMediaKey { get; set; }
     public DateTime? SourceImportedAt { get; set; }
     public DateTime? SourceLastSeenAt { get; set; }
     public DateTime? SourceFirstSeenAt { get; set; }
