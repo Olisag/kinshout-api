@@ -16,6 +16,7 @@ public class ImportsController(
     IExternalDiscussionImportService discussionImports,
     IYouTubeMetricService youtubeMetrics,
     IEditorialDeskService editorialDesk,
+    IUnavailableSourceService unavailableSources,
     IOptions<ImportSettings> importOptions) : ControllerBase
 {
     /// <summary>
@@ -203,6 +204,23 @@ public class ImportsController(
 
         await youtubeMetrics.RecordAsync(request.Metrics ?? [], ct);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Delete imported Facebook and YouTube posts whose source page says the post is gone.
+    /// </summary>
+    [HttpPost("discussions/drop-unavailable")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DropUnavailableDiscussions(
+        [FromQuery] int limit = 80,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        var result = await unavailableSources.SweepAsync(limit, ct);
+        return Ok(new { checkedCount = result.Checked, removed = result.Removed });
     }
 
     /// <summary>Registry the importer should use, including Ops toggles and sources added from the desk.</summary>

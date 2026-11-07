@@ -483,7 +483,8 @@ public class DiscussionsController(
     IMemoryCache cache,
     IDiscussionService discussions,
     ILikedDiscussionService likedDiscussions,
-    IDiscussionTopicBackfillScheduler topicBackfill) : ControllerBase
+    IDiscussionTopicBackfillScheduler topicBackfill,
+    IUnavailableSourceService unavailableSources) : ControllerBase
 {
     private static readonly TimeSpan DiscussionCategoriesCacheDuration = TimeSpan.FromMinutes(15);
 
@@ -664,6 +665,24 @@ public class DiscussionsController(
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Drop the discussion when Facebook or YouTube says the source post is gone.
+    /// A live post is remembered for six hours. Requires the frontend client token only.
+    /// </summary>
+    [HttpPost("{id:guid}/source-check")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CheckSource(Guid id, CancellationToken ct)
+    {
+        var exists = await db.Discussions.AsNoTracking().AnyAsync(d => d.Id == id, ct);
+        if (!exists)
+            return NotFound();
+
+        var removed = await unavailableSources.DropIfUnavailableAsync(id, ct);
+        return Ok(new { removed });
     }
 
     /// <summary>
