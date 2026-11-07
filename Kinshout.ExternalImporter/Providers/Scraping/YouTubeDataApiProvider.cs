@@ -20,7 +20,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             Console.WriteLine("  YouTube Data API: YOUTUBE_API_KEY is not set, so no videos were fetched.");
-            return DiscussionFetchResult.From([], []);
+            return DiscussionFetchResult.From([], new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
 
         if (settings.YouTubeBuzz)
