@@ -299,6 +299,12 @@ public record RetransformExternalDiscussionsResponseDto(
     int Failed,
     int Remaining);
 
+public record RepairDuplicateTitlesResponseDto(
+    int Rewritten,
+    int Unchanged,
+    int Failed,
+    int Remaining);
+
 public record PurgeTextOnlyDiscussionsResponseDto(
     int Scanned,
     int Deleted,

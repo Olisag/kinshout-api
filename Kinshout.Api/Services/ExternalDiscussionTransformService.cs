@@ -39,7 +39,7 @@ public partial class ExternalDiscussionTransformService(
                 true);
 
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
-            return FallbackTransform(raw);
+            return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
         var author = string.IsNullOrWhiteSpace(originalAuthor) ? "inconnu" : originalAuthor.Trim();
         var platform = string.IsNullOrWhiteSpace(platformName) ? "réseau social" : platformName.Trim();
@@ -57,6 +57,7 @@ public partial class ExternalDiscussionTransformService(
             - body = contexte factuel tiré du texte; ton vivant, style discussion Kinshasa/RDC
             - Ne termine PAS toujours par une question; variez (résumé, constat, réaction). Question seulement parfois.
             - Ne pas inventer de faits absents du texte source
+            - Si le texte commence par « Titre: », ce titre est le sujet réel (événement, date, culte, chanson). Nomme-le dans title et dans body. N'utilise pas un pied de page répété (partenariat, contacts, dons, abonnement) comme titre
             - Pas de emojis, hashtags, ni MAJUSCULES agressives dans title/body
             - Si le texte source contient une URL YouTube (youtube.com/watch, youtu.be, shorts), conserve-la telle quelle sur sa propre ligne à la fin du body
 
@@ -75,22 +76,23 @@ public partial class ExternalDiscussionTransformService(
             var title = CleanTitle(root.TryGetProperty("title", out var t) ? t.GetString() : null, raw);
             var body = CleanBody(root.TryGetProperty("body", out var b) ? b.GetString() : null, raw);
             if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
-                return FallbackTransform(raw);
+                return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
-            return new ExternalDiscussionTransformResult(title, body, false);
+            return DiscussionSourceText.ApplyTitle(new ExternalDiscussionTransformResult(title, body, false), raw);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "External discussion AI transform failed; using fallback.");
-            return FallbackTransform(raw);
+            return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
         }
     }
 
     internal static ExternalDiscussionTransformResult FallbackTransform(string raw)
     {
-        var cleaned = CleanRawText(raw);
+        var prose = DiscussionSourceText.WithoutMarkedTitle(raw);
+        var cleaned = CleanRawText(prose);
         var title = BuildFallbackTitle(cleaned);
-        var body = BuildFallbackBody(raw);
+        var body = BuildFallbackBody(prose);
         return new ExternalDiscussionTransformResult(title, body, true);
     }
 
@@ -132,7 +134,7 @@ public partial class ExternalDiscussionTransformService(
     private static string CleanBody(string? body, string rawFallback)
     {
         if (string.IsNullOrWhiteSpace(body))
-            return BuildFallbackBody(rawFallback);
+            return BuildFallbackBody(DiscussionSourceText.WithoutMarkedTitle(rawFallback));
 
         var value = body.Trim();
         // Preserve YouTube URLs from the raw source when the model dropped them.

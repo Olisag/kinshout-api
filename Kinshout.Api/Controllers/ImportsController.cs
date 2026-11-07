@@ -179,6 +179,23 @@ public class ImportsController(
     }
 
     /// <summary>
+    /// Give each copied headline its own video title. Reads the public YouTube title,
+    /// then rewrites only posts that share a headline.
+    /// </summary>
+    [HttpPost("discussions/repair-duplicate-titles")]
+    [ProducesResponseType(typeof(RepairDuplicateTitlesResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<RepairDuplicateTitlesResponseDto>> RepairDuplicateTitles(
+        [FromQuery] int limit = 20,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Ok(await discussionImports.RepairDuplicateTitlesAsync(limit, ct));
+    }
+
+    /// <summary>
     /// Delete text-only discussions (no photo/video/YouTube), unless they are absolute hits.
     /// </summary>
     [HttpPost("discussions/purge-text-only")]
