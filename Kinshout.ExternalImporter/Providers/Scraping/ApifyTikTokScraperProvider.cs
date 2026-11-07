@@ -20,7 +20,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         if (profiles.Count == 0)
         {
             Console.WriteLine("  TikTok: no registry handles to import.");
-            return DiscussionFetchResult.From([], []);
+            return DiscussionFetchResult.From([], new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         }
 
         if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
