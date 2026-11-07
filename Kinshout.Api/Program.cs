@@ -60,6 +60,11 @@ builder.Services.AddDbContext<KinshoutDbContext>(options =>
 });
 
 builder.Services.AddHttpClient("OpenAI");
+builder.Services.AddHttpClient("SourceAvailability", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(12);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
+});
 builder.Services.AddHttpClient("ExternalImageMirror", client =>
 {
     var mirrorTimeout = builder.Configuration.GetSection(ImportSettings.SectionName).Get<ImportSettings>()?.MirrorImageTimeoutSeconds ?? 30;
@@ -124,6 +129,7 @@ builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussi
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
 builder.Services.AddScoped<IYouTubeMetricService, YouTubeMetricService>();
 builder.Services.AddScoped<IEditorialDeskService, EditorialDeskService>();
+builder.Services.AddScoped<IUnavailableSourceService, UnavailableSourceService>();
 builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
 builder.Services.AddHostedService<KinshoutStartupHostedService>();
 builder.Services.AddHostedService<AbandonedVideoUploadCleanupService>();

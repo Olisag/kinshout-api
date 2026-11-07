@@ -12,10 +12,11 @@ var webSub = args.Contains("--youtube-websub", StringComparer.OrdinalIgnoreCase)
 var youtubeStats = args.Contains("--youtube-stats", StringComparer.OrdinalIgnoreCase);
 var classiquesBackfill = args.Contains("--classiques-backfill", StringComparer.OrdinalIgnoreCase);
 var youtubeBuzz = args.Contains("--youtube-buzz", StringComparer.OrdinalIgnoreCase);
+var dropUnavailable = args.Contains("--drop-unavailable", StringComparer.OrdinalIgnoreCase);
 var providerFilter = GetOption(args, "--providers");
 
 var settings = SettingsLoader.Load(configPath);
-if (once || webSub || youtubeStats || classiquesBackfill || youtubeBuzz)
+if (once || webSub || youtubeStats || classiquesBackfill || youtubeBuzz || dropUnavailable)
     settings.Schedule.RunOnce = true;
 settings.Schedule.ClassiquesBackfill = classiquesBackfill;
 settings.Schedule.YouTubeBuzz = youtubeBuzz;
@@ -63,6 +64,12 @@ async Task RunScheduledAsync()
 
 async Task RunImportsAsync()
 {
+    if (dropUnavailable)
+    {
+        await new KinshoutImportClient(http, settings.KinshoutApi).DropUnavailableSourcesAsync(cts.Token);
+        return;
+    }
+
     if (webSub)
     {
         await new YouTubeRegistryJobs(http, settings).RenewWebSubAsync(cts.Token);

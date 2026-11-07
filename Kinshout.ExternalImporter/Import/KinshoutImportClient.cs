@@ -203,6 +203,24 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
             throw new InvalidOperationException($"Kinshout youtube metrics failed ({(int)response.StatusCode}): {body}");
     }
 
+    public async Task DropUnavailableSourcesAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            "api/imports/discussions/drop-unavailable?limit=80");
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout drop-unavailable failed ({(int)response.StatusCode}): {body}");
+
+        Console.WriteLine($"Unavailable sources: {body}");
+    }
+
     public async Task<IReadOnlyList<SourceRegistryEntry>> FetchSourceRegistryAsync(CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(settings.ImportKey))
