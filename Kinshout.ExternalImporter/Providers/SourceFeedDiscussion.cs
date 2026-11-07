@@ -35,5 +35,11 @@ public sealed class SourceFeedDiscussion
     public List<string> VideoUrls { get; set; } = [];
 
     [JsonIgnore]
+    public string? CommunitySlug { get; set; }
+
+    [JsonIgnore]
+    public int ViewCount { get; set; }
+
+    [JsonIgnore]
     public bool HasVisualMedia => ImageUrls.Count > 0 || VideoUrls.Count > 0;
 }

@@ -911,6 +911,10 @@ public class CommunityService(
             if (!community.IsActive)
                 throw new UnauthorizedAccessException("Cette communauté est inactive (lecture seule).");
 
+            if (ReadOnlyCommunityCatalog.IsReadOnly(community.Slug))
+                throw new UnauthorizedAccessException(
+                    "Cette communauté est en lecture seule. Les publications y arrivent par la rédaction.");
+
             throw new UnauthorizedAccessException("Vous devez être membre approuvé pour publier dans cette communauté.");
         }
     }

@@ -161,4 +161,71 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException($"Kinshout discussion-import-runs failed ({(int)response.StatusCode}): {body}");
     }
+
+    public async Task<IReadOnlyList<string>> FetchYouTubeMetricTargetsAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            settings.YouTubeMetricTargetsPath.TrimStart('/'));
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout youtube targets failed ({(int)response.StatusCode}): {body}");
+
+        var parsed = JsonSerializer.Deserialize<YouTubeMetricTargetsResponse>(body, JsonOptions);
+        return parsed?.ExternalIds ?? [];
+    }
+
+    public async Task RecordYouTubeMetricsAsync(IReadOnlyList<YouTubeMetricPoint> metrics, CancellationToken ct)
+    {
+        if (metrics.Count == 0)
+            return;
+
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            settings.YouTubeMetricsPath.TrimStart('/'));
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(new { metrics }, options: JsonOptions),
+        };
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout youtube metrics failed ({(int)response.StatusCode}): {body}");
+    }
+
+    public async Task<IReadOnlyList<SourceRegistryEntry>> FetchSourceRegistryAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            settings.SourceRegistryPath.TrimStart('/'));
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout sources failed ({(int)response.StatusCode}): {body}");
+
+        var parsed = JsonSerializer.Deserialize<SourceRegistryFile>(body, JsonOptions);
+        return parsed?.Sources ?? [];
+    }
+
+    private sealed record YouTubeMetricTargetsResponse(IReadOnlyList<string>? ExternalIds);
+
+    private sealed class SourceRegistryFile
+    {
+        public List<SourceRegistryEntry> Sources { get; set; } = [];
+    }
 }

@@ -17,6 +17,15 @@ public static class TopicCommunitySeed
         ("culture", "Culture & divertissement", "Cinéma, humour, festivals et culture kinoise hors musique"),
         ("ville", "Vie de quartier", "Quotidien, circulation, marchés et communes de Kinshasa"),
         ("education", "Éducation", "EXETAT, écoles, universités et études à Kinshasa"),
+        ("humour", "Humour & comédiens", "Sketches, stand-up et humour congolais"),
+        ("influence", "Influenceurs", "Créateurs et tendances"),
+        ("foi", "Églises & pasteurs", "Gospel, louange et enseignements"),
+        ("classiques", "Classiques",
+            "Franco & TPOK Jazz, Tabu Ley, Madilu, Lutumba Simaro, Bana OK, Papa Wemba"),
+        ("diaspora-fr", "Diaspora FR / EU", "Musique et créateurs congolais en France et en Europe"),
+        ("diaspora-us", "Diaspora USA", "Créateurs congolais aux États-Unis"),
+        ("diaspora-ca", "Diaspora Canada", "Créateurs congolais au Canada"),
+        ("diaspora-za", "Diaspora Afrique du Sud", "Créateurs congolais en Afrique du Sud"),
     ];
 
     public static async Task EnsureTopicCommunitiesAsync(
@@ -72,6 +81,11 @@ public static class TopicCommunitySeed
     public static string? InferSlug(string title, string body)
     {
         var blob = $"{title} {body}".ToLowerInvariant();
+
+        if (ContainsAny(blob,
+                "franco luambo", "tpok", "tabu ley", "rochereau", "madilu",
+                "lutumba simaro", "bana ok", "papa wemba"))
+            return "classiques";
 
         if (ContainsAny(blob,
                 "fally", "ipupa", "ferre gola", "ferrê", "wenge", "jb mpiana", "werras", "werra",

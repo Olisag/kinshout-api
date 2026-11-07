@@ -14,6 +14,16 @@ public sealed class ExternalDiscussionImportRunner(
         var maxDiscussionAgeDays = Math.Max(1, settings.Schedule.MaxDiscussionAgeDays);
         var skipExisting = settings.Schedule.SkipExisting;
         var importClient = new KinshoutImportClient(http, settings.KinshoutApi);
+        try
+        {
+            var remoteSources = await importClient.FetchSourceRegistryAsync(ct);
+            SourceRegistry.UseRemote(remoteSources);
+            Console.WriteLine($"Loaded {remoteSources.Count} registry source(s) from Kinshout.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Could not load the registry from Kinshout ({ex.Message}); using the local file.");
+        }
         var totals = new ImportExternalDiscussionsResponseDto(0, 0, 0, 0);
 
         IReadOnlySet<string>? knownKeys = null;
@@ -44,8 +54,21 @@ public sealed class ExternalDiscussionImportRunner(
             }
         }
 
-        foreach (var providerSettings in settings.DiscussionProviders.Where(p => p.Enabled))
+        var providers = settings.DiscussionProviders.Where(p => p.Enabled);
+        if (settings.Schedule.ProviderFilter.Count > 0)
         {
+            providers = providers.Where(p =>
+                settings.Schedule.ProviderFilter.Contains(p.Provider)
+                || settings.Schedule.ProviderFilter.Contains(p.Type));
+        }
+
+        if (settings.Schedule.ClassiquesBackfill || settings.Schedule.YouTubeBuzz)
+            providers = providers.Where(p => p.Type.Contains("youtube-data-api", StringComparison.OrdinalIgnoreCase));
+
+        foreach (var providerSettings in providers)
+        {
+            providerSettings.ClassiquesBackfill = settings.Schedule.ClassiquesBackfill;
+            providerSettings.YouTubeBuzz = settings.Schedule.YouTubeBuzz;
             if (string.IsNullOrWhiteSpace(providerSettings.Provider))
             {
                 Console.WriteLine($"Skipping discussion provider '{providerSettings.Name}' because Provider is empty.");
@@ -71,9 +94,9 @@ public sealed class ExternalDiscussionImportRunner(
                     .Where(d => d is not null)
                     .Cast<ImportExternalDiscussionDto>()
                     .ToList();
-                var mapped = mappedBeforeFreshness
-                    .Where(d => IsSinceLastImport(d, sinceUtc))
-                    .ToList();
+                var mapped = settings.Schedule.ClassiquesBackfill
+                    ? mappedBeforeFreshness
+                    : mappedBeforeFreshness.Where(d => IsSinceLastImport(d, sinceUtc)).ToList();
                 var skippedOld = mappedBeforeFreshness.Count - mapped.Count;
 
                 var skippedExisting = 0;

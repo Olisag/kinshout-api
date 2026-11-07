@@ -36,7 +36,8 @@ public sealed record ImportExternalDiscussionDto(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("publishedAt")] DateTime? PublishedAt,
     [property: JsonPropertyName("imageUrls")] IReadOnlyList<string>? ImageUrls = null,
-    [property: JsonPropertyName("videoUrls")] IReadOnlyList<string>? VideoUrls = null);
+    [property: JsonPropertyName("videoUrls")] IReadOnlyList<string>? VideoUrls = null,
+    [property: JsonPropertyName("communitySlug")] string? CommunitySlug = null);
 
 public sealed record ImportExternalDiscussionsRequestDto(
     [property: JsonPropertyName("discussions")] IReadOnlyList<ImportExternalDiscussionDto> Discussions);

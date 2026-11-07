@@ -14,6 +14,8 @@ namespace Kinshout.Api.Controllers;
 public class ImportsController(
     IExternalAdvertImportService imports,
     IExternalDiscussionImportService discussionImports,
+    IYouTubeMetricService youtubeMetrics,
+    IEditorialDeskService editorialDesk,
     IOptions<ImportSettings> importOptions) : ControllerBase
 {
     /// <summary>
@@ -173,6 +175,46 @@ public class ImportsController(
             return Unauthorized(new { error = "Clé d'import invalide." });
 
         return Ok(await discussionImports.RetransformAllAsync(force, limit, ct));
+    }
+
+    /// <summary>YouTube ids from the last 72 hours, capped at 40, for the hourly stats job.</summary>
+    [HttpGet("youtube-metrics/targets")]
+    [ProducesResponseType(typeof(YouTubeMetricTargetsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<YouTubeMetricTargetsDto>> GetYouTubeMetricTargets(CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        var ids = await youtubeMetrics.GetRefreshTargetsAsync(ct);
+        return Ok(new YouTubeMetricTargetsDto(ids));
+    }
+
+    /// <summary>Store an hourly YouTube sample and refresh the trend score on the matching post.</summary>
+    [HttpPost("youtube-metrics")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RecordYouTubeMetrics(
+        [FromBody] RecordYouTubeMetricsRequestDto request,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        await youtubeMetrics.RecordAsync(request.Metrics ?? [], ct);
+        return NoContent();
+    }
+
+    /// <summary>Registry the importer should use, including Ops toggles and sources added from the desk.</summary>
+    [HttpGet("sources")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetSources(CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Content(await editorialDesk.GetRegistryJsonAsync(ct), "application/json");
     }
 
     private bool IsAuthorized()

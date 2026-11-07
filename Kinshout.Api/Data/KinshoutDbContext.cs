@@ -24,6 +24,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<LikedDiscussion> LikedDiscussions => Set<LikedDiscussion>();
     public DbSet<LikedReply> LikedReplies => Set<LikedReply>();
     public DbSet<ImportWatermark> ImportWatermarks => Set<ImportWatermark>();
+    public DbSet<VideoMetricSnapshot> VideoMetricSnapshots => Set<VideoMetricSnapshot>();
+    public DbSet<EditorialPin> EditorialPins => Set<EditorialPin>();
+    public DbSet<RegistrySourceRecord> RegistrySourceRecords => Set<RegistrySourceRecord>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -130,7 +133,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.Property(x => x.SourceProviderName).HasMaxLength(120);
             e.Property(x => x.SourceExternalId).HasMaxLength(128);
             e.Property(x => x.SourceExternalUrl).HasMaxLength(2048);
+            e.Property(x => x.CanonicalMediaKey).HasMaxLength(200);
             e.Property(x => x.SourceOriginalAuthor).HasMaxLength(200);
+            e.HasIndex(x => x.CanonicalMediaKey);
             e.HasIndex(x => x.CreatedAt);
             e.HasIndex(x => new { x.ReplyCount, x.CreatedAt });
             e.HasIndex(x => new { x.ViewCount, x.CreatedAt });
@@ -263,6 +268,26 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasIndex(x => x.DiscussionId);
             e.HasOne(x => x.User).WithMany(x => x.LikedDiscussions).HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Discussion).WithMany().HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<VideoMetricSnapshot>(e =>
+        {
+            e.HasIndex(x => new { x.Provider, x.ExternalId, x.FetchedAt });
+            e.Property(x => x.Provider).HasMaxLength(40);
+            e.Property(x => x.ExternalId).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<EditorialPin>(e =>
+        {
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(40);
+            e.Property(x => x.Window).HasMaxLength(16);
+        });
+
+        modelBuilder.Entity<RegistrySourceRecord>(e =>
+        {
+            e.HasKey(x => x.Name);
+            e.Property(x => x.Name).HasMaxLength(160);
         });
 
         modelBuilder.Entity<LikedReply>(e =>

@@ -44,8 +44,23 @@ public static class CommunityAccessHelper
         !CommunityVisibilityHelper.IsPrivate(community.Visibility)
         || IsApprovedMember(community, membership, userId);
 
-    public static bool CanPost(Community community, CommunityMember? membership, Guid userId) =>
-        community.IsActive && IsApprovedMember(community, membership, userId);
+    public static bool CanPost(Community community, CommunityMember? membership, Guid userId)
+    {
+        if (!community.IsActive)
+            return false;
+
+        // Read-only tops: import user (the room creator) and moderators only.
+        if (ReadOnlyCommunityCatalog.IsReadOnly(community.Slug))
+            return CanModerate(community, membership, userId);
+
+        return IsApprovedMember(community, membership, userId);
+    }
+
+    /// <summary>
+    /// Read-only rooms block new posts. Comments stay open for anyone who can view the discussion.
+    /// </summary>
+    public static bool CanComment(Community community, CommunityMember? membership, Guid? userId) =>
+        community.IsActive && CanViewDiscussions(community, membership, userId);
 
     public static bool IsGeneral(Community? community) =>
         community?.Slug == CommunityDefaults.GeneralSlug;
