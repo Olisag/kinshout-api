@@ -158,6 +158,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             Title = title,
             Body = body,
             OriginalAuthor = author,
+            CommunitySlug = CongoleseSocialTopic.Slug(title, body),
             PublishedAt = postedAt,
             EngagementScore = score,
             Status = "active",

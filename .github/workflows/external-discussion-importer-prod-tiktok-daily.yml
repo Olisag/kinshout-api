@@ -1,4 +1,4 @@
-# TikTok registry handles daily at 04:41 Kinshasa (03:41 UTC). Cap is 16.
+# TikTok Congolese social search daily at 04:41 Kinshasa (03:41 UTC). Cap is 16 buzzing clips.
 name: External discussion importer (prod, TikTok daily)
 
 on:

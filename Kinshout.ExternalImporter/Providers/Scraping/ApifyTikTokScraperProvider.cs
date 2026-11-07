@@ -3,7 +3,7 @@ using Kinshout.ExternalImporter.Configuration;
 
 namespace Kinshout.ExternalImporter.Providers.Scraping;
 
-/// <summary>Daily TikTok pull for registry handles. Caps stay small (~16).</summary>
+/// <summary>Daily TikTok search for Congolese jokes, gossip, and everyday clips. Not a list of famous accounts.</summary>
 public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProviderSettings settings) : IExternalDiscussionProvider
 {
     private const string DefaultActorId = "clockworks/tiktok-scraper";
@@ -12,34 +12,31 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
 
     public async Task<DiscussionFetchResult> FetchAsync(CancellationToken ct)
     {
-        var profiles = SourceRegistry.Load()
-            .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.Tiktok))
-            .Select(source => source.Tiktok!.Trim().TrimStart('@'))
+        var queries = settings.SearchQueries
+            .Where(query => !string.IsNullOrWhiteSpace(query))
+            .Select(query => query.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (profiles.Count == 0)
-        {
-            Console.WriteLine("  TikTok: no registry handles to import.");
-            return DiscussionFetchResult.From([], new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        }
+        if (queries.Count == 0)
+            queries.Add("Kinshasa");
 
         if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
             settings.ApifyActorId = DefaultActorId;
 
         var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 16;
+        var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 2000;
         var client = new ApifyClient(http, settings);
         using var doc = await client.RunActorAndGetDatasetAsync(new
         {
-            profiles,
+            searchQueries = queries,
+            hashtags = queries.Select(query => query.Replace(" ", "", StringComparison.Ordinal)).ToList(),
             resultsPerPage = limit,
-            profileSorting = "latest",
             shouldDownloadVideos = false,
             shouldDownloadCovers = false,
         }, ct);
 
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var keptByHandle = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
             return DiscussionFetchResult.From(discussions, seen);
 
@@ -50,33 +47,37 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url))
                 continue;
 
-            var handle = ReadHandle(item);
-            var bucket = string.IsNullOrWhiteSpace(handle) ? id : handle;
-            keptByHandle.TryGetValue(bucket, out var kept);
-            if (kept >= limit)
+            if (discussions.Count >= limit)
+                break;
+
+            var author = ReadAuthor(item);
+            var text = ReadString(item, "text") ?? url;
+            var title = TrimTitle(text);
+            if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
+                || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text))
+                continue;
+
+            var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);
+            if (score < minScore)
                 continue;
 
             seen.Add(id);
-            keptByHandle[bucket] = kept + 1;
-            var author = ReadAuthor(item);
-            var text = ReadString(item, "text") ?? url;
-            var source = SourceRegistry.MatchTikTok(handle) ?? SourceRegistry.MatchAuthor(author);
             discussions.Add(new SourceFeedDiscussion
             {
                 ExternalId = id,
                 ExternalUrl = url,
-                Title = TrimTitle(text),
+                Title = title,
                 Body = text,
                 OriginalAuthor = author,
-                CommunitySlug = source?.CommunitySlug,
+                CommunitySlug = CongoleseSocialTopic.Slug(title, text),
                 PublishedAt = ReadPublished(item),
-                EngagementScore = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5),
+                EngagementScore = score,
                 Status = "active",
                 VideoUrls = [url],
             });
         }
 
-        Console.WriteLine($"  TikTok: kept {discussions.Count} video(s) from {profiles.Count} profile(s).");
+        Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} Congolese search(es).");
         return DiscussionFetchResult.From(discussions, seen);
     }
 
@@ -84,14 +85,6 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
     {
         var line = text.Replace('\n', ' ').Trim();
         return line.Length <= 140 ? line : line[..140].Trim();
-    }
-
-    private static string? ReadHandle(JsonElement item)
-    {
-        if (!item.TryGetProperty("authorMeta", out var meta))
-            return null;
-
-        return ReadString(meta, "name") ?? ReadString(meta, "uniqueId");
     }
 
     private static string? ReadAuthor(JsonElement item)
