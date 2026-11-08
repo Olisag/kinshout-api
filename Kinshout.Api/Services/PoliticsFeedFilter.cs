@@ -18,6 +18,8 @@ public static class PoliticsFeedFilter
         "tshisekedi",
         "fatshi",
         "kabila",
+        "bemba",
+        "mlc",
         "fcc ",
         "udps",
         "m23",

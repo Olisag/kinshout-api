@@ -92,6 +92,8 @@ internal static class KinshasaSocialPostFilter
             "tshisekedi",
             "fatshi",
             "kabila",
+            "bemba",
+            "mlc",
             "fcc ",
             "udps",
             "m23",
