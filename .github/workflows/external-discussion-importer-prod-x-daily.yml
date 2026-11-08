@@ -1,9 +1,7 @@
-# X signal daily at 04:11 Kinshasa (03:11 UTC).
-name: External discussion importer (prod, X daily)
+# Not scheduled. This copy writes to the dev API only.
+name: External discussion importer (dev, X daily)
 
 on:
-  schedule:
-    - cron: "11 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,9 +27,9 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Run X discussion import (prod)
+      - name: Run X discussion import (dev)
         env:
-          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
           KINSHOUT_IMPORTER_BATCH_SIZE: 25
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}

@@ -1,9 +1,7 @@
-# Advert import into dev every ~15 days at 03:00 Kinshasa (02:00 UTC on the 1st and 16th).
-name: External advert importer (prod, every 15 days)
+# Not scheduled. This copy writes to the dev API only.
+name: External advert importer (dev, every 15 days)
 
 on:
-  schedule:
-    - cron: "0 2 1,16 * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,9 +27,9 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Run external advert import (prod)
+      - name: Run external advert import (dev)
         env:
-          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
           KINSHOUT_IMPORTER_BATCH_SIZE: 10
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}

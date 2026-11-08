@@ -1,5 +1,5 @@
-# Manual: rewrite YouTube posts that share one headline, using each video's own title.
-name: Repair duplicate YouTube titles (prod)
+# Not scheduled. This copy writes to the dev API only.
+name: Repair duplicate YouTube titles (dev)
 
 on:
   workflow_dispatch:
@@ -12,13 +12,13 @@ jobs:
       contents: read
 
     steps:
-      - name: Rewrite collapsed YouTube titles on prod
+      - name: Rewrite collapsed YouTube titles on dev
         env:
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
         run: |
           set -euo pipefail
           response=$(curl -sfS -X POST \
-            "https://kinshout-api-prod.azurewebsites.net/api/imports/discussions/repair-duplicate-titles?limit=40" \
+            "https://kinshout-api-dev.azurewebsites.net/api/imports/discussions/repair-duplicate-titles?limit=40" \
             -H "X-Kinshout-Import-Key: ${KINSHOUT_IMPORTER_IMPORT_KEY}" \
             -H "Content-Type: application/json")
           echo "$response"

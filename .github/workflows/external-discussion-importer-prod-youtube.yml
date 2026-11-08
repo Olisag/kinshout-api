@@ -1,9 +1,7 @@
-# YouTube Data API reconciliation every 6 hours. Apify YouTube stays off.
-name: External discussion importer (prod, YouTube reconcile)
+# Not scheduled. This copy writes to the dev API only.
+name: External discussion importer (dev, YouTube reconcile)
 
 on:
-  schedule:
-    - cron: "7 */6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,9 +27,9 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Reconcile YouTube uploads (prod)
+      - name: Reconcile YouTube uploads (dev)
         env:
-          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
           KINSHOUT_IMPORTER_BATCH_SIZE: 25
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}

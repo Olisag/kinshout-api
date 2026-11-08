@@ -1,9 +1,7 @@
-# Drop imported posts once Facebook or YouTube says the source is gone.
-name: External discussion importer (prod, drop unavailable)
+# Not scheduled. This copy writes to the dev API only.
+name: External discussion importer (dev, drop unavailable)
 
 on:
-  schedule:
-    - cron: "47 */6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,8 +27,8 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Drop posts the source has removed (prod)
+      - name: Drop posts the source has removed (dev)
         env:
-          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
         run: dotnet run -- --once --drop-unavailable

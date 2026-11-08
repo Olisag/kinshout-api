@@ -1,9 +1,7 @@
-# Renew YouTube WebSub leases every 6 days. The hub lease is about 10 days.
-name: External discussion importer (prod, YouTube WebSub)
+# Not scheduled. This copy writes to the dev API only.
+name: External discussion importer (dev, YouTube WebSub)
 
 on:
-  schedule:
-    - cron: "19 4 */6 * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,8 +27,8 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Renew YouTube WebSub (prod)
+      - name: Renew YouTube WebSub (dev)
         env:
-          YOUTUBE_WEBSUB_CALLBACK: https://kinshout-api-prod.azurewebsites.net/api/youtube/websub
+          YOUTUBE_WEBSUB_CALLBACK: https://kinshout-api-dev.azurewebsites.net/api/youtube/websub
           YOUTUBE_WEBSUB_SECRET: ${{ secrets.YOUTUBE_WEBSUB_SECRET }}
         run: dotnet run -- --youtube-websub

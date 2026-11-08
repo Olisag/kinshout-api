@@ -1,9 +1,7 @@
-# Facebook discussions weekly, Monday 03:13 Kinshasa (02:13 UTC).
-name: External discussion importer (prod, Facebook weekly)
+# Not scheduled. This copy writes to the dev API only.
+name: External discussion importer (dev, Facebook weekly)
 
 on:
-  schedule:
-    - cron: "13 2 * * 1"
   workflow_dispatch:
 
 concurrency:
@@ -29,9 +27,9 @@ jobs:
         with:
           dotnet-version: "10.x"
 
-      - name: Run external discussion import (prod)
+      - name: Run external discussion import (dev)
         env:
-          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-prod.azurewebsites.net
+          KINSHOUT_IMPORTER_API_BASE_URL: https://kinshout-api-dev.azurewebsites.net
           KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
           KINSHOUT_IMPORTER_BATCH_SIZE: 25
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
