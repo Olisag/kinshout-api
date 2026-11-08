@@ -51,7 +51,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             var videos = await LoadVideosAsync(apiKey, ids, ct);
             foreach (var video in videos)
             {
-                if (IsBlocked(video.Title, video.Body))
+                if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
                     continue;
                 if (!settings.ClassiquesBackfill && video.ViewCount < BuzzMinimumViews)
                     continue;
@@ -88,7 +88,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                     continue;
                 if (!Mentions(source, video.Title, video.Body))
                     continue;
-                if (IsBlocked(video.Title, video.Body))
+                if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
                     continue;
 
                 seen.Add(video.ExternalId);
@@ -138,7 +138,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                     continue;
                 if (video.PublishedAt is null || video.PublishedAt < since)
                     continue;
-                if (IsBlocked(video.Title, video.Body))
+                if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
                     continue;
 
                 var subject = FindSubject(sources, show, video.Title, video.Body);
@@ -175,7 +175,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                     continue;
                 if (video.ViewCount < BuzzMinimumViews)
                     continue;
-                if (IsBlocked(video.Title, video.Body))
+                if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
                     continue;
 
                 seen.Add(video.ExternalId);
@@ -300,15 +300,17 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         return false;
     }
 
-    private static bool IsBlocked(string? title, string? body)
+    private static bool IsBlocked(string? title, string? body, string? author)
     {
-        var haystack = Fold($"{title} {body}");
-        return BlockedTerms.Any(term => haystack.Contains(term, StringComparison.Ordinal));
+        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body, author))
+            return true;
+
+        var haystack = Fold($"{title} {body} {author}");
+        return AdultTerms.Any(term => haystack.Contains(term, StringComparison.Ordinal));
     }
 
-    private static readonly string[] BlockedTerms =
+    private static readonly string[] AdultTerms =
     [
-        "politique", "election", "m23", "nangaa", "naanga", "kanambe",
         "porn", "sexe", "sexuel", "onlyfans", "questions osees", "question osee",
     ];
 

@@ -133,7 +133,7 @@ public sealed partial class ApifyYouTubeScraperProvider(HttpClient http, Externa
         if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, body))
             return null;
 
-        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body))
+        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body, author))
             return null;
 
         var views = ReadInt(item, "viewCount") ?? 0;

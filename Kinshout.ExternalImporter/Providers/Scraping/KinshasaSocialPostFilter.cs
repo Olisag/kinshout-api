@@ -76,12 +76,12 @@ internal static class KinshasaSocialPostFilter
     }
 
     /// <summary>
-    /// Soft politics / conflict filter for the curated Kinshasa social feed.
-    /// Keeps day-to-day city life, sport, culture, education.
+    /// Politics and armed conflict stay out of the feed. City life, sport,
+    /// culture, and education stay.
     /// </summary>
-    public static bool LooksLikePoliticsOrConflict(string? title, string? body)
+    public static bool LooksLikePoliticsOrConflict(string? title, string? body, string? author = null)
     {
-        var blob = $"{title} {body}".ToLowerInvariant();
+        var blob = $"{title} {body} {author}".ToLowerInvariant();
         return ContainsAny(
             blob,
             "fayulu",
@@ -90,9 +90,15 @@ internal static class KinshasaSocialPostFilter
             "kamerhe",
             "katumbi",
             "tshisekedi",
+            "fatshi",
+            "kabila",
             "fcc ",
             "udps",
             "m23",
+            "fardc",
+            "fdlr",
+            "topcongo",
+            "top congo",
             "rwanda",
             "rwandais",
             "rwandaise",

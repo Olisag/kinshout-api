@@ -54,7 +54,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             var text = ReadString(item, "text") ?? url;
             var title = TrimTitle(text);
             if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
-                || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text))
+                || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author))
                 continue;
 
             var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);

@@ -137,7 +137,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, body))
             return null;
 
-        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body))
+        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body, author))
             return null;
 
         var likes = ReadInt(item, "likeCount") ?? ReadInt(item, "likes") ?? 0;
