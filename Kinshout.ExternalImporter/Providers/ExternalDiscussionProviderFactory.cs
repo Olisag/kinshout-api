@@ -10,9 +10,9 @@ public static class ExternalDiscussionProviderFactory
         {
             "apify-facebook-posts-scraper" or "facebook-posts-scraper" => new ApifyFacebookPostsScraperProvider(http, settings),
             "apify-twitter-posts-scraper" or "apify-x-posts-scraper" or "twitter-posts-scraper" or "x-posts-scraper" => new ApifyTwitterPostsScraperProvider(http, settings),
-            "apify-youtube-scraper" or "youtube-scraper" or "youtube" => new ApifyYouTubeScraperProvider(http, settings),
+            "apify-youtube-scraper" or "youtube-scraper" => new ApifyYouTubeScraperProvider(http, settings),
             "youtube-data-api" => new YouTubeDataApiProvider(http, settings),
-            "apify-tiktok-scraper" or "tiktok-scraper" or "tiktok" => new ApifyTikTokScraperProvider(http, settings),
+            "apify-tiktok-scraper" or "tiktok-scraper" => new ApifyTikTokScraperProvider(http, settings),
             _ => throw new InvalidOperationException($"Unsupported discussion provider type '{settings.Type}' for provider '{settings.Name}'."),
         };
 }

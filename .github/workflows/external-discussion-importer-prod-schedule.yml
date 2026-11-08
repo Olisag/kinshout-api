@@ -1,9 +1,9 @@
-# Facebook discussions weekly, Monday 03:00 Kinshasa (02:00 UTC).
+# Facebook discussions weekly, Monday 03:13 Kinshasa (02:13 UTC).
 name: External discussion importer (prod, Facebook weekly)
 
 on:
   schedule:
-    - cron: "0 2 * * 1"
+    - cron: "13 2 * * 1"
   workflow_dispatch:
 
 concurrency:

@@ -100,9 +100,11 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
 
         var showHits = await FetchShowHitsAsync(apiKey, sources, seen, ct);
         discussions.AddRange(showHits);
+        var communityHits = await FetchCommunityBuzzAsync(apiKey, publishedAfter, seen, ct);
+        discussions.AddRange(communityHits);
 
         Console.WriteLine(
-            $"  YouTube buzz: kept {discussions.Count} video(s) from {sources.Count} search(es) and {showHits.Count} show hit(s). Each search costs 100 quota units.");
+            $"  YouTube buzz: kept {discussions.Count} video(s) from {sources.Count} people, {showHits.Count} show hit(s), and {communityHits.Count} community clip(s). Each search costs 100 quota units.");
         return DiscussionFetchResult.From(discussions, seen);
     }
 
@@ -150,6 +152,49 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         return kept;
     }
 
+    /// <summary>
+    /// A few searches for what Congolese people are watching, whoever posted it.
+    /// Known names already have their own search.
+    /// </summary>
+    private async Task<List<SourceFeedDiscussion>> FetchCommunityBuzzAsync(
+        string apiKey,
+        string publishedAfter,
+        HashSet<string> seen,
+        CancellationToken ct)
+    {
+        var kept = new List<SourceFeedDiscussion>();
+        foreach (var query in CommunityBuzzQueries)
+        {
+            var ids = await SearchIdsAsync(apiKey, query, publishedAfter, ct);
+            if (ids.Count == 0)
+                continue;
+
+            foreach (var video in await LoadVideosAsync(apiKey, ids, ct))
+            {
+                if (string.IsNullOrWhiteSpace(video.ExternalId) || seen.Contains(video.ExternalId))
+                    continue;
+                if (video.ViewCount < BuzzMinimumViews)
+                    continue;
+                if (IsBlocked(video.Title, video.Body))
+                    continue;
+
+                seen.Add(video.ExternalId);
+                video.CommunitySlug = CongoleseSocialTopic.Slug(video.Title, video.Body);
+                kept.Add(video);
+            }
+        }
+
+        return kept;
+    }
+
+    private static readonly string[] CommunityBuzzQueries =
+    [
+        "Kinshasa (humour OR sketch OR potins OR buzz OR insolite)",
+        "Kinshasa (quartier OR embouteillage OR marché OR kinois OR tendance)",
+        "(Congolais OR Kinois) (diaspora OR Bruxelles OR Paris OR Montréal OR Johannesburg)",
+        "\"RDC\" (buzz OR viral OR tendance OR insolite)",
+    ];
+
     private static SourceRegistryEntry? FindSubject(
         IReadOnlyList<SourceRegistryEntry> sources,
         SourceRegistryEntry show,
@@ -185,6 +230,15 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         CancellationToken ct)
     {
         var query = string.IsNullOrWhiteSpace(source.SearchQuery) ? $"\"{source.Name}\"" : source.SearchQuery.Trim();
+        return await SearchIdsAsync(apiKey, query, publishedAfter, ct);
+    }
+
+    private async Task<List<string>> SearchIdsAsync(
+        string apiKey,
+        string query,
+        string publishedAfter,
+        CancellationToken ct)
+    {
         var url = "https://www.googleapis.com/youtube/v3/search"
             + "?part=snippet&type=video&order=viewCount&maxResults=5&safeSearch=strict&videoEmbeddable=true"
             + $"&publishedAfter={Uri.EscapeDataString(publishedAfter)}"
@@ -194,7 +248,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         var body = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
         {
-            Console.WriteLine($"  YouTube search for {source.Name} failed ({(int)response.StatusCode}).");
+            Console.WriteLine($"  YouTube search failed ({(int)response.StatusCode}).");
             return [];
         }
 
@@ -367,6 +421,9 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                 ExternalUrl = watchUrl,
                 Title = string.IsNullOrWhiteSpace(title) ? id : title.Trim(),
                 Body = string.IsNullOrWhiteSpace(description) ? watchUrl : description.Trim(),
+                OriginalAuthor = snippet.TryGetProperty("channelTitle", out var channelNode)
+                    ? channelNode.GetString()
+                    : null,
                 PublishedAt = published,
                 ViewCount = views,
                 EngagementScore = views + (likes * 5),

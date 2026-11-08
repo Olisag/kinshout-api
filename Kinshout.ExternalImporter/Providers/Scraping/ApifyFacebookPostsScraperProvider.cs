@@ -19,7 +19,8 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         var discussions = new List<SourceFeedDiscussion>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var keptIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 20;
+        var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
+        var perQuery = 4;
         var minEngagement = ResolveMinEngagement();
         var minPostedAt = ResolveMinPostedAt();
         var rawCount = 0;
@@ -38,9 +39,10 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             }
 
             rawCount += doc.RootElement.GetArrayLength();
+            var added = 0;
             foreach (var item in doc.RootElement.EnumerateArray())
             {
-                if (discussions.Count >= maxItems)
+                if (discussions.Count >= maxItems || added >= perQuery)
                     break;
 
                 var rawId = ReadString(item, "postId") ?? ReadString(item, "id");
@@ -60,6 +62,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
                         continue;
 
                     discussions.Add(mapped);
+                    added++;
                 }
                 catch (Exception ex)
                 {
@@ -155,6 +158,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             Title = title,
             Body = body,
             OriginalAuthor = author,
+            CommunitySlug = CongoleseSocialTopic.Slug(title, body),
             PublishedAt = postedAt,
             EngagementScore = score,
             Status = "active",

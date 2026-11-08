@@ -1,0 +1,31 @@
+# Manual: rewrite YouTube posts that share one headline, using each video's own title.
+name: Repair duplicate YouTube titles (prod)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Rewrite collapsed YouTube titles on prod
+        env:
+          KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sfS -X POST \
+            "https://kinshout-api-prod.azurewebsites.net/api/imports/discussions/repair-duplicate-titles?limit=40" \
+            -H "X-Kinshout-Import-Key: ${KINSHOUT_IMPORTER_IMPORT_KEY}" \
+            -H "Content-Type: application/json")
+          echo "$response"
+          rewritten=$(echo "$response" | jq -r '.rewritten')
+          failed=$(echo "$response" | jq -r '.failed')
+          if [ "$failed" != "0" ]; then
+            echo "Repair failed for ${failed} post(s)."
+            exit 1
+          fi
+          echo "Rewritten ${rewritten}."

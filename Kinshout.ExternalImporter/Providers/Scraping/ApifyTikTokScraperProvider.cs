@@ -1,13 +1,9 @@
-using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Kinshout.ExternalImporter.Configuration;
 
 namespace Kinshout.ExternalImporter.Providers.Scraping;
 
-/// <summary>
-/// Pulls Kinshasa/Congo TikTok videos via Apify (embed URL kept — do not rehost).
-/// </summary>
+/// <summary>Daily TikTok search for Congolese jokes, gossip, and everyday clips. Not a list of famous accounts.</summary>
 public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProviderSettings settings) : IExternalDiscussionProvider
 {
     private const string DefaultActorId = "clockworks/tiktok-scraper";
@@ -16,285 +12,122 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
 
     public async Task<DiscussionFetchResult> FetchAsync(CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
-            settings.ApifyActorId = DefaultActorId;
-
-        var client = new ApifyClient(http, settings);
-        var input = BuildInput();
-        using var doc = await client.RunActorAndGetDatasetAsync(input, ct);
-
-        var discussions = new List<SourceFeedDiscussion>();
-        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-        {
-            Console.WriteLine("  Apify TikTok: unexpected dataset format.");
-            return DiscussionFetchResult.From(discussions, seenIds);
-        }
-
-        var rawCount = doc.RootElement.GetArrayLength();
-        var filteredOut = 0;
-        var minEngagement = ResolveMinEngagement();
-        var minPostedAt = ResolveMinPostedAt();
-        var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 15;
-        var kept = 0;
-
-        foreach (var item in doc.RootElement.EnumerateArray())
-        {
-            if (kept >= maxItems)
-                break;
-
-            if (item.TryGetProperty("error", out _))
-            {
-                filteredOut++;
-                continue;
-            }
-
-            var rawId = ReadString(item, "id")
-                ?? ReadString(item, "videoId")
-                ?? ReadString(item, "awemeId");
-            if (!string.IsNullOrWhiteSpace(rawId))
-                seenIds.Add(rawId);
-
-            try
-            {
-                var mapped = MapVideo(item, minEngagement, minPostedAt);
-                if (mapped is not null)
-                {
-                    discussions.Add(mapped);
-                    kept++;
-                }
-                else
-                {
-                    filteredOut++;
-                }
-            }
-            catch (Exception ex)
-            {
-                filteredOut++;
-                Console.WriteLine($"  Apify TikTok parse skipped: {ex.Message}");
-            }
-        }
-
-        if (rawCount > 0)
-        {
-            Console.WriteLine(
-                $"  Apify TikTok: kept {discussions.Count}/{rawCount} Kinshasa videos ({filteredOut} filtered out).");
-        }
-
-        var deduped = discussions
-            .GroupBy(d => d.ExternalId ?? d.ExternalUrl, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
-            .ToList();
-
-        return DiscussionFetchResult.From(deduped, seenIds);
-    }
-
-    private object BuildInput()
-    {
         var queries = settings.SearchQueries
-            .Where(q => !string.IsNullOrWhiteSpace(q))
-            .Select(q => q.Trim().TrimStart('#'))
+            .Where(query => !string.IsNullOrWhiteSpace(query))
+            .Select(query => query.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (queries.Count == 0)
             queries.Add("Kinshasa");
 
-        var resultsPerPage = settings.ResultsLimit > 0 ? settings.ResultsLimit : 15;
+        if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
+            settings.ApifyActorId = DefaultActorId;
 
-        // clockworks/tiktok-scraper accepts hashtags and/or searchQueries depending on version.
-        return new
+        var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
+        var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 2000;
+        var client = new ApifyClient(http, settings);
+        using var doc = await client.RunActorAndGetDatasetAsync(new
         {
-            hashtags = queries,
             searchQueries = queries,
-            resultsPerPage,
-            resultsLimit = resultsPerPage,
+            hashtags = queries.Select(query => query.Replace(" ", "", StringComparison.Ordinal)).ToList(),
+            resultsPerPage = Math.Max(limit, queries.Count * 5),
             shouldDownloadVideos = false,
             shouldDownloadCovers = false,
-            shouldDownloadSubtitles = false,
-            shouldDownloadSlideshowImages = false,
-            proxyConfiguration = new { useApifyProxy = true },
-        };
-    }
+        }, ct);
 
-    private SourceFeedDiscussion? MapVideo(JsonElement item, int minEngagement, DateTime minPostedAt)
-    {
-        var id = ReadString(item, "id")
-            ?? ReadString(item, "videoId")
-            ?? ReadString(item, "awemeId");
-        var webUrl = ReadString(item, "webVideoUrl")
-            ?? ReadString(item, "url")
-            ?? ReadString(item, "shareUrl")
-            ?? ReadNestedString(item, "videoMeta", "url");
-        var text = ReadString(item, "text")
-            ?? ReadString(item, "desc")
-            ?? ReadString(item, "title")
-            ?? string.Empty;
+        var discussions = new List<SourceFeedDiscussion>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            return DiscussionFetchResult.From(discussions, seen);
 
-        if (string.IsNullOrWhiteSpace(id) && string.IsNullOrWhiteSpace(webUrl))
-            return null;
-
-        var watchUrl = NormalizeWatchUrl(webUrl, id);
-        if (string.IsNullOrWhiteSpace(watchUrl))
-            return null;
-
-        var externalId = !string.IsNullOrWhiteSpace(id)
-            ? id.Trim()
-            : ExtractIdFromUrl(watchUrl) ?? watchUrl;
-
-        var author = ReadNestedString(item, "authorMeta", "name")
-            ?? ReadNestedString(item, "authorMeta", "nickName")
-            ?? ReadString(item, "author")
-            ?? ReadString(item, "nickname");
-
-        var title = BuildTitle(text, author);
-        var body = BuildBody(text, watchUrl);
-
-        if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
-            return null;
-
-        if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, body))
-            return null;
-
-        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body))
-            return null;
-
-        var plays = ReadInt(item, "playCount")
-            ?? ReadNestedInt(item, "videoMeta", "playCount")
-            ?? 0;
-        var likes = ReadInt(item, "diggCount")
-            ?? ReadInt(item, "likes")
-            ?? ReadInt(item, "likeCount")
-            ?? 0;
-        var comments = ReadInt(item, "commentCount") ?? 0;
-        var shares = ReadInt(item, "shareCount") ?? 0;
-        var score = plays > 0 ? plays : likes * 20 + comments * 5 + shares * 10;
-        if (score < minEngagement)
-            return null;
-
-        var postedAt = ReadTimestamp(item, "createTimeISO")
-            ?? ReadTimestamp(item, "createTime")
-            ?? ReadTimestamp(item, "uploadedAt");
-        if (postedAt is { } published && published.ToUniversalTime() < minPostedAt)
-            return null;
-
-        // Keep the cover as a poster for the FE embed (not shown as a separate gallery image).
-        var cover = ReadString(item, "coverUrl")
-            ?? ReadNestedString(item, "videoMeta", "coverUrl")
-            ?? ReadNestedString(item, "covers", "default");
-
-        return new SourceFeedDiscussion
+        foreach (var item in doc.RootElement.EnumerateArray())
         {
-            ExternalId = externalId,
-            ExternalUrl = watchUrl,
-            Title = title,
-            Body = body,
-            OriginalAuthor = author,
-            PublishedAt = postedAt,
-            EngagementScore = score,
-            Status = "active",
-            ImageUrls = string.IsNullOrWhiteSpace(cover) ? [] : [cover],
-        };
-    }
+            var id = ReadString(item, "id");
+            var url = ReadString(item, "webVideoUrl") ?? ReadString(item, "url");
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url))
+                continue;
 
-    private static string BuildTitle(string text, string? author)
-    {
-        var cleaned = Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
-        if (string.IsNullOrWhiteSpace(cleaned))
-            return string.IsNullOrWhiteSpace(author) ? "TikTok Kinshasa" : $"TikTok · {author}";
+            if (discussions.Count >= limit)
+                break;
 
-        return cleaned.Length <= 120 ? cleaned : cleaned[..117] + "...";
-    }
+            var author = ReadAuthor(item);
+            var text = ReadString(item, "text") ?? url;
+            var title = TrimTitle(text);
+            if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
+                || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text))
+                continue;
 
-    private static string BuildBody(string text, string watchUrl)
-    {
-        var cleaned = Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim();
-        if (cleaned.Length > 500)
-            cleaned = cleaned[..497] + "...";
+            var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);
+            if (score < minScore)
+                continue;
 
-        if (string.IsNullOrWhiteSpace(cleaned))
-            return watchUrl;
-
-        return $"{cleaned}\n\n{watchUrl}";
-    }
-
-    private static string? NormalizeWatchUrl(string? rawUrl, string? videoId)
-    {
-        if (!string.IsNullOrWhiteSpace(rawUrl))
-        {
-            var cleaned = rawUrl.Trim().Trim('<', '>');
-            if (Uri.TryCreate(cleaned, UriKind.Absolute, out _))
-                return cleaned.Split('?', 2)[0].TrimEnd('/');
+            seen.Add(id);
+            discussions.Add(new SourceFeedDiscussion
+            {
+                ExternalId = id,
+                ExternalUrl = url,
+                Title = title,
+                Body = text,
+                OriginalAuthor = author,
+                CommunitySlug = CongoleseSocialTopic.Slug(title, text),
+                PublishedAt = ReadPublished(item),
+                EngagementScore = score,
+                Status = "active",
+                VideoUrls = [url],
+            });
         }
 
-        if (!string.IsNullOrWhiteSpace(videoId))
-            return $"https://www.tiktok.com/@kinoiserie/video/{videoId.Trim()}";
+        Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} Congolese search(es).");
+        return DiscussionFetchResult.From(discussions, seen);
+    }
+
+    private static string TrimTitle(string text)
+    {
+        var line = text.Replace('\n', ' ').Trim();
+        return line.Length <= 140 ? line : line[..140].Trim();
+    }
+
+    private static string? ReadAuthor(JsonElement item)
+    {
+        if (item.TryGetProperty("authorMeta", out var meta))
+        {
+            var name = ReadString(meta, "name") ?? ReadString(meta, "nickName");
+            if (!string.IsNullOrWhiteSpace(name))
+                return name;
+        }
+
+        return ReadString(item, "author");
+    }
+
+    private static DateTime? ReadPublished(JsonElement item)
+    {
+        var iso = ReadString(item, "createTimeISO");
+        if (DateTime.TryParse(iso, out var parsed))
+            return parsed.ToUniversalTime();
+
+        if (item.TryGetProperty("createTime", out var unix) && unix.TryGetInt64(out var seconds))
+            return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
 
         return null;
     }
 
-    private static string? ExtractIdFromUrl(string url)
+    private static int ReadInt(JsonElement item, string name)
     {
-        var match = Regex.Match(url, @"/video/(\d+)", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value : null;
+        if (!item.TryGetProperty(name, out var node))
+            return 0;
+
+        if (node.ValueKind == JsonValueKind.Number && node.TryGetInt32(out var number))
+            return number;
+
+        return int.TryParse(node.GetString(), out var parsed) ? parsed : 0;
     }
 
-    private int ResolveMaxAgeDays() => settings.MaxAdvertAgeDays > 0 ? settings.MaxAdvertAgeDays : 7;
-
-    private DateTime ResolveMinPostedAt() =>
-        settings.SincePublishedAt?.ToUniversalTime()
-        ?? DateTime.UtcNow.AddDays(-ResolveMaxAgeDays());
-
-    private int ResolveMinEngagement() => settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 1000;
-
-    private static string? ReadString(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
-
-    private static string? ReadNestedString(JsonElement element, string parent, string child)
+    private static string? ReadString(JsonElement item, string name)
     {
-        if (!element.TryGetProperty(parent, out var node) || node.ValueKind != JsonValueKind.Object)
-            return null;
-        return ReadString(node, child);
-    }
-
-    private static int? ReadInt(JsonElement element, string name)
-    {
-        if (!element.TryGetProperty(name, out var value))
+        if (!item.TryGetProperty(name, out var node) || node.ValueKind != JsonValueKind.String)
             return null;
 
-        return value.ValueKind switch
-        {
-            JsonValueKind.Number when value.TryGetInt32(out var n) => n,
-            JsonValueKind.Number when value.TryGetInt64(out var l) => l > int.MaxValue ? int.MaxValue : (int)l,
-            JsonValueKind.String when int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            _ => null,
-        };
-    }
-
-    private static int? ReadNestedInt(JsonElement element, string parent, string child)
-    {
-        if (!element.TryGetProperty(parent, out var node) || node.ValueKind != JsonValueKind.Object)
-            return null;
-        return ReadInt(node, child);
-    }
-
-    private static DateTime? ReadTimestamp(JsonElement item, string name)
-    {
-        if (!item.TryGetProperty(name, out var value))
-            return null;
-
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var unix))
-        {
-            // TikTok often sends seconds; treat large values as ms.
-            return unix > 10_000_000_000
-                ? DateTimeOffset.FromUnixTimeMilliseconds(unix).UtcDateTime
-                : DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
-        }
-
-        if (value.ValueKind == JsonValueKind.String)
-            return HtmlScrapeHelpers.ParseLooseDate(value.GetString());
-
-        return null;
+        var value = node.GetString();
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }
