@@ -27,6 +27,15 @@ public sealed class KinshoutStartupHostedService(
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<KinshoutDbContext>();
 
+            try
+            {
+                await PoliticsFeedFilter.ApplyStoredFlagsAsync(db, logger, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Public feed review failed. Feeds stay up; blocked posts catch up on the next start.");
+            }
+
             await DbSeed.SeedAsync(db);
 
             var clientSecret = configuration["ClientAuth:KinshoutWebSecret"];

@@ -545,6 +545,8 @@ public class ExternalDiscussionImportService(
         existing.SourceOriginalAuthor = mapped.SourceOriginalAuthor;
         existing.SourceEngagementScore = mapped.SourceEngagementScore;
         existing.ExternalPublishedAt = mapped.ExternalPublishedAt;
+        existing.PublicFeedBlocked = mapped.PublicFeedBlocked;
+        existing.PublicFeedRuleVersion = mapped.PublicFeedRuleVersion;
         existing.UpdatedAt = now;
 
         return UpsertOutcome.Updated;
@@ -635,7 +637,7 @@ public class ExternalDiscussionImportService(
         var engagement = item.EngagementScore.GetValueOrDefault();
         var createdAt = publishedAt ?? importedAt;
 
-        return new Discussion
+        var discussion = new Discussion
         {
             UserId = userId,
             CategoryId = categoryId,
@@ -665,6 +667,8 @@ public class ExternalDiscussionImportService(
             SourceEngagementScore = engagement > 0 ? engagement : null,
             ExternalPublishedAt = publishedAt,
         };
+        PoliticsFeedFilter.Mark(discussion);
+        return discussion;
     }
 
     private static List<string> SanitizeExternalMediaUrls(IReadOnlyList<string>? urls)

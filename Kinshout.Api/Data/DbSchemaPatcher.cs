@@ -25,6 +25,7 @@ public static class DbSchemaPatcher
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsurePublicFeedModerationSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: true, ct);
@@ -88,6 +89,7 @@ public static class DbSchemaPatcher
         await EnsureExternalAdvertSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureExternalDiscussionSourceSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureDiscussionTopicSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsurePublicFeedModerationSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: false, ct);
@@ -479,6 +481,29 @@ public static class DbSchemaPatcher
             var sql = sqlServer
                 ? "ALTER TABLE Discussions ADD TopicSlug nvarchar(64) NULL"
                 : "ALTER TABLE Discussions ADD COLUMN TopicSlug TEXT";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+    }
+
+    private static async Task EnsurePublicFeedModerationSchemaAsync(
+        KinshoutDbContext db,
+        DbConnection connection,
+        bool sqlServer,
+        CancellationToken ct)
+    {
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "PublicFeedBlocked", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD PublicFeedBlocked bit NOT NULL CONSTRAINT DF_Discussions_PublicFeedBlocked DEFAULT 0"
+                : "ALTER TABLE Discussions ADD COLUMN PublicFeedBlocked INTEGER NOT NULL DEFAULT 0";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "PublicFeedRuleVersion", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD PublicFeedRuleVersion int NOT NULL CONSTRAINT DF_Discussions_PublicFeedRuleVersion DEFAULT 0"
+                : "ALTER TABLE Discussions ADD COLUMN PublicFeedRuleVersion INTEGER NOT NULL DEFAULT 0";
             await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
         }
     }

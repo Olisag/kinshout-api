@@ -9,6 +9,10 @@ public class Discussion
     public Guid? CommunityId { get; set; }
     /// <summary>AI-assigned discussion topic slug (sport, politique, etc.).</summary>
     public string? TopicSlug { get; set; }
+    /// <summary>True when this post is kept out of public feeds. Computed once, so listing does not scan every body.</summary>
+    public bool PublicFeedBlocked { get; set; }
+    /// <summary>Which edition of the public-feed rules last reviewed this post. An older edition still needs a review.</summary>
+    public int PublicFeedRuleVersion { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public string Visibility { get; set; } = CommunityVisibilities.Public;

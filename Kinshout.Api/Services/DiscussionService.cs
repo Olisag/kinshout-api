@@ -423,6 +423,7 @@ public class DiscussionService(
         discussion.ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(images);
         discussion.VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(videos);
         discussion.UpdatedAt = DateTime.UtcNow;
+        PoliticsFeedFilter.Mark(discussion);
 
         await db.SaveChangesAsync(ct);
 
@@ -496,6 +497,7 @@ public class DiscussionService(
             ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(images),
             VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(videos),
         };
+        PoliticsFeedFilter.Mark(discussion);
 
         db.Discussions.Add(discussion);
         await db.SaveChangesAsync(ct);
