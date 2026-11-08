@@ -26,59 +26,89 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
         var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 2000;
         var client = new ApifyClient(http, settings);
-        using var doc = await client.RunActorAndGetDatasetAsync(new
-        {
-            searchQueries = queries,
-            hashtags = queries.Select(query => query.Replace(" ", "", StringComparison.Ordinal)).ToList(),
-            resultsPerPage = Math.Max(limit, queries.Count * 5),
-            shouldDownloadVideos = false,
-            shouldDownloadCovers = false,
-        }, ct);
-
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (doc.RootElement.ValueKind != JsonValueKind.Array)
-            return DiscussionFetchResult.From(discussions, seen);
+        var failed = 0;
 
-        foreach (var item in doc.RootElement.EnumerateArray())
+        // One search at a time. One run of every query plus made-up hashtags
+        // was still going when the importer stopped waiting, so nothing was saved.
+        foreach (var query in queries)
         {
-            var id = ReadString(item, "id");
-            var url = ReadString(item, "webVideoUrl") ?? ReadString(item, "url");
-            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url))
-                continue;
-
             if (discussions.Count >= limit)
                 break;
 
-            var author = ReadAuthor(item);
-            var text = ReadString(item, "text") ?? url;
-            var title = TrimTitle(text);
-            if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
-                || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author))
-                continue;
-
-            var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);
-            if (score < minScore)
-                continue;
-
-            seen.Add(id);
-            discussions.Add(new SourceFeedDiscussion
+            JsonDocument doc;
+            try
             {
-                ExternalId = id,
-                ExternalUrl = url,
-                Title = title,
-                Body = text,
-                OriginalAuthor = author,
-                CommunitySlug = CongoleseSocialTopic.Slug(title, text),
-                PublishedAt = ReadPublished(item),
-                EngagementScore = score,
-                Status = "active",
-                VideoUrls = [url],
-            });
+                doc = await client.RunActorAndGetDatasetAsync(new
+                {
+                    searchQueries = new[] { query },
+                    resultsPerPage = 12,
+                    shouldDownloadVideos = false,
+                    shouldDownloadCovers = false,
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                Console.WriteLine($"  TikTok search \"{query}\" failed: {ex.Message}");
+                continue;
+            }
+
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    Collect(doc.RootElement, query);
+            }
         }
+
+        if (discussions.Count == 0 && failed == queries.Count)
+            throw new InvalidOperationException($"TikTok: all {failed} searches failed.");
 
         Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} Congolese search(es).");
         return DiscussionFetchResult.From(discussions, seen);
+
+        void Collect(JsonElement items, string query)
+        {
+            var before = discussions.Count;
+            foreach (var item in items.EnumerateArray())
+            {
+                var id = ReadString(item, "id");
+                var url = ReadString(item, "webVideoUrl") ?? ReadString(item, "url");
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url) || !seen.Add(id))
+                    continue;
+
+                if (discussions.Count >= limit)
+                    break;
+
+                var author = ReadAuthor(item);
+                var text = ReadString(item, "text") ?? url;
+                var title = TrimTitle(text);
+                if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
+                    || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author))
+                    continue;
+
+                var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);
+                if (score < minScore)
+                    continue;
+
+                discussions.Add(new SourceFeedDiscussion
+                {
+                    ExternalId = id,
+                    ExternalUrl = url,
+                    Title = title,
+                    Body = text,
+                    OriginalAuthor = author,
+                    CommunitySlug = CongoleseSocialTopic.Slug(title, text),
+                    PublishedAt = ReadPublished(item),
+                    EngagementScore = score,
+                    Status = "active",
+                    VideoUrls = [url],
+                });
+            }
+
+            Console.WriteLine($"  TikTok \"{query}\": kept {discussions.Count - before}.");
+        }
     }
 
     private static string TrimTitle(string text)

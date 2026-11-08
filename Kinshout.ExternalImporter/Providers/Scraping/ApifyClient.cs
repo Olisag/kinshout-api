@@ -34,6 +34,7 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
             ?? throw new InvalidOperationException("Apify run response missing defaultDatasetId.");
 
         var deadline = DateTime.UtcNow.AddSeconds(Math.Max(60, settings.ActorTimeoutSeconds));
+        var finished = false;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
@@ -52,7 +53,10 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
             using var statusDoc = JsonDocument.Parse(statusBody);
             var status = statusDoc.RootElement.GetProperty("data").GetProperty("status").GetString();
             if (status is "SUCCEEDED")
+            {
+                finished = true;
                 break;
+            }
 
             if (status is "FAILED" or "ABORTED" or "TIMED-OUT")
             {
@@ -60,8 +64,12 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
             }
         }
 
-        if (DateTime.UtcNow >= deadline)
-            throw new TimeoutException($"Apify actor run {runId} did not finish within {settings.ActorTimeoutSeconds}s.");
+        if (!finished)
+        {
+            Console.WriteLine(
+                $"Apify actor run {runId} was still running after {settings.ActorTimeoutSeconds}s. Keeping results already saved.");
+            await TryAbortAsync(runId, token, ct);
+        }
 
         using var datasetResponse = await SendAsync(
             HttpMethod.Get,
@@ -75,6 +83,18 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
             throw new InvalidOperationException($"Apify dataset fetch failed ({(int)datasetResponse.StatusCode}): {Trim(datasetBody, 400)}");
 
         return JsonDocument.Parse(datasetBody);
+    }
+
+    private async Task TryAbortAsync(string runId, string token, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await SendAsync(HttpMethod.Post, $"/actor-runs/{runId}/abort", body: null, token, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Apify actor run {runId} could not be stopped: {ex.Message}");
+        }
     }
 
     private async Task<HttpResponseMessage> SendAsync(
