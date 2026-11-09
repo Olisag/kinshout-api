@@ -21,6 +21,11 @@ public class OpenAiSettings
     public string ModerationModel { get; set; } = "omni-moderation-latest";
     /// <summary>When false, text/image/document moderation checks are skipped.</summary>
     public bool ModerationEnabled { get; set; } = true;
+    /// <summary>
+    /// When false, OpenAI/text moderation is skipped for discussion posts and replies.
+    /// Independent from <see cref="ModerationEnabled"/>, which still covers adverts and uploads.
+    /// </summary>
+    public bool DiscussionModerationEnabled { get; set; } = false;
 }
 
 public class OAuthSettings

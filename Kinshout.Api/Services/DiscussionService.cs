@@ -380,7 +380,7 @@ public class DiscussionService(
 
         var discussion = await RequireManageableDiscussionAsync(discussionId, userId, ct);
 
-        await moderation.EnsureTextAllowedAsync($"{title}\n{body}", ct);
+        await moderation.EnsureDiscussionTextAllowedAsync($"{title}\n{body}", ct);
 
         var category = await AssignTopicCategoryAsync($"{title}. {body}", ct);
         Guid communityId;
@@ -473,7 +473,7 @@ public class DiscussionService(
             ? await ResolveCommunityIdAsync(request.CommunitySlug, userId, ct)
             : await ResolveDefaultCommunityIdAsync(userId, ct);
         await communities.EnsureCanPostAsync(communityId, userId, ct);
-        await moderation.EnsureTextAllowedAsync($"{request.Title}\n{request.Body}", ct);
+        await moderation.EnsureDiscussionTextAllowedAsync($"{request.Title}\n{request.Body}", ct);
 
         var category = await AssignTopicCategoryAsync($"{request.Title}. {request.Body}", ct);
 
@@ -609,7 +609,7 @@ public class DiscussionService(
 
         await participation.EnsureCanParticipateAsync(discussion, userId, ct);
 
-        await moderation.EnsureTextAllowedAsync(request.Body, ct);
+        await moderation.EnsureDiscussionTextAllowedAsync(request.Body, ct);
 
         var attachment = ResolveReplyAttachment(userId, request.ImageUrl, request.VideoUrl, request.Location);
 
@@ -647,7 +647,7 @@ public class DiscussionService(
             .FirstOrDefaultAsync(r => r.Id == replyId && r.DiscussionId == discussionId && r.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Réponse introuvable.");
 
-        await moderation.EnsureTextAllowedAsync(body, ct);
+        await moderation.EnsureDiscussionTextAllowedAsync(body, ct);
 
         var attachment = ResolveReplyAttachment(userId, request.ImageUrl, request.VideoUrl, request.Location);
 

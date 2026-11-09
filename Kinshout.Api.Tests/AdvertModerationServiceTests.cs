@@ -8,10 +8,18 @@ namespace Kinshout.Api.Tests;
 
 public class AdvertModerationServiceTests
 {
-    private static AdvertModerationService CreateService(string apiKey = "", bool moderationEnabled = true) =>
+    private static AdvertModerationService CreateService(
+        string apiKey = "",
+        bool moderationEnabled = true,
+        bool discussionModerationEnabled = false) =>
         new(
             new TestHttpClientFactory(),
-            Options.Create(new OpenAiSettings { ApiKey = apiKey, ModerationEnabled = moderationEnabled }),
+            Options.Create(new OpenAiSettings
+            {
+                ApiKey = apiKey,
+                ModerationEnabled = moderationEnabled,
+                DiscussionModerationEnabled = discussionModerationEnabled,
+            }),
             Mock.Of<ILogger<AdvertModerationService>>());
 
     [Fact]
@@ -53,6 +61,31 @@ public class AdvertModerationServiceTests
     {
         var service = CreateService(moderationEnabled: false);
         await service.EnsureTextAllowedAsync("Massage érotique à domicile");
+    }
+
+    [Fact]
+    public async Task EnsureDiscussionTextAllowedAsync_WhenDisabled_AllowsBlockedKeywords()
+    {
+        var service = CreateService(discussionModerationEnabled: false);
+        await service.EnsureDiscussionTextAllowedAsync("Massage érotique à domicile");
+    }
+
+    [Fact]
+    public async Task EnsureDiscussionTextAllowedAsync_WhenEnabled_BlocksSexualKeywords()
+    {
+        var service = CreateService(discussionModerationEnabled: true);
+
+        await Assert.ThrowsAsync<AdvertModerationException>(() =>
+            service.EnsureDiscussionTextAllowedAsync("Massage érotique à domicile"));
+    }
+
+    [Fact]
+    public async Task EnsureTextAllowedAsync_StaysEnabled_WhenDiscussionModerationIsOff()
+    {
+        var service = CreateService(moderationEnabled: true, discussionModerationEnabled: false);
+
+        await Assert.ThrowsAsync<AdvertModerationException>(() =>
+            service.EnsureTextAllowedAsync("Massage érotique à domicile"));
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory

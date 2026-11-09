@@ -56,6 +56,20 @@ public class AdvertModerationService(
         return EnsureTextAllowedCoreAsync(text, ct);
     }
 
+    public Task EnsureDiscussionTextAllowedAsync(string text, CancellationToken ct = default)
+    {
+        if (!_settings.DiscussionModerationEnabled)
+        {
+            logger.LogWarning("Discussion moderation is disabled; skipping text check.");
+            return Task.CompletedTask;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+            return Task.CompletedTask;
+
+        return EnsureTextAllowedCoreAsync(text, ct);
+    }
+
     private async Task EnsureTextAllowedCoreAsync(string text, CancellationToken ct)
     {
         var result = string.IsNullOrWhiteSpace(_settings.ApiKey)

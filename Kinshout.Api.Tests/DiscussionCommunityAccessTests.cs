@@ -240,7 +240,7 @@ public class DiscussionCommunityAccessTests
     private static DiscussionService CreateService(KinshoutDbContext db)
     {
         var moderation = new Mock<IAdvertModerationService>();
-        moderation.Setup(m => m.EnsureTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        moderation.Setup(m => m.EnsureDiscussionTextAllowedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         var communities = new CommunityService(db, Mock.Of<IOpenAiService>(), Mock.Of<ICommunityJoinNotifier>(), Mock.Of<ICommunityReportNotifier>());
