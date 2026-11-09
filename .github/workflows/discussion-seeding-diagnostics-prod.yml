@@ -1,0 +1,67 @@
+name: Diagnose production discussion seeding
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/Master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Sign in with existing production deployment identity
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_19F6DFAABDC747A8B8A57AA4357F3312 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BA0E7AC063D7423B93689D49C6E14B50 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A4BFFEE8378E424FB38B9FDAFFB1C988 }}
+      - name: Inspect configuration and generation connectivity without exposing secrets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import subprocess, json, urllib.request, urllib.error, tempfile, zipfile, collections
+          args = ['--resource-group', 'Phpnet20211126011001ResourceGroup', '--name', 'kinshout-api-prod']
+          def az(*command):
+              result = subprocess.run(['az', *command, *args, '--output', 'json'], capture_output=True, text=True)
+              if result.returncode: raise RuntimeError('Azure read operation failed')
+              return json.loads(result.stdout)
+          settings = {x['name']:x.get('value','') for x in az('webapp','config','appsettings','list')}
+          def setting(name, default=None):
+              return next((value for key,value in settings.items() if key.lower().replace(':','__') == name.lower()), default)
+          key = setting('OpenAI__ApiKey', '')
+          moderation = str(setting('OpenAI__ModerationEnabled', 'true')).lower() != 'false'
+          model = setting('OpenAI__Model', 'gpt-4o-mini')
+          print('CONFIG', json.dumps({'enabled':setting('DiscussionSeeding__Enabled'), 'environment':setting('ASPNETCORE_ENVIRONMENT',setting('DOTNET_ENVIRONMENT','Production')), 'openAiKeyConfigured':bool(key), 'keyVaultReference':key.startswith('@Microsoft.KeyVault('), 'moderationEnabled':moderation, 'model':model}))
+          if key and not key.startswith('@Microsoft.KeyVault('):
+              payload = {'model':model,'response_format':{'type':'json_object'},'messages':[{'role':'system','content':'Réponds en JSON avec une réaction courte à une répétition de rumba: {"comment":"..."}.'},{'role':'user','content':'Une vidéo présente une répétition acoustique de rumba congolaise.'}]}
+              req = urllib.request.Request('https://api.openai.com/v1/chat/completions',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
+              try:
+                  with urllib.request.urlopen(req,timeout=35) as response:
+                      data=json.load(response)
+                      print('GENERATION_PROBE',json.dumps({'httpStatus':response.status,'responseReceived':bool(data.get('choices')),'usage':data.get('usage')}))
+              except urllib.error.HTTPError as error:
+                  try: code=json.load(error).get('error',{}).get('code')
+                  except Exception: code=None
+                  print('GENERATION_PROBE',json.dumps({'httpStatus':error.code,'errorCode':code}))
+              except Exception as error: print('GENERATION_PROBE',json.dumps({'errorType':type(error).__name__}))
+          else: print('GENERATION_PROBE skipped: missing key or unresolved Key Vault reference')
+          app = az('webapp','show')
+          print('APP',json.dumps({'state':app.get('state'),'alwaysOn':app.get('siteConfig',{}).get('alwaysOn')}))
+          with tempfile.TemporaryDirectory() as temp:
+              logfile=temp+'/logs.zip'
+              result=subprocess.run(['az','webapp','log','download',*args,'--log-file',logfile,'--output','none'],capture_output=True,text=True,timeout=90)
+              if result.returncode: print('WORKER_LOGS unavailable')
+              else:
+                  needles=['Seeding generation failed','Discussion seeding tick failed','Seeding requires an OpenAI key','could not be translated','Invalid column name','Cannot insert the value NULL','FOREIGN KEY','InvalidOperationException','HttpRequestException','SqlException','DbUpdateException']
+                  counts=collections.Counter()
+                  with zipfile.ZipFile(logfile) as archive:
+                      for item in archive.infolist():
+                          if item.file_size>20_000_000 or not item.filename.lower().endswith(('.txt','.log','.xml')): continue
+                          text=archive.read(item).decode(errors='replace')
+                          for needle in needles: counts[needle]+=text.count(needle)
+                  print('WORKER_LOG_PATTERNS',json.dumps(dict(counts)))
+          PY
