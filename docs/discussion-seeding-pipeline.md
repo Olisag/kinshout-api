@@ -14,7 +14,7 @@ The database flags are internal durable coordination/rollback state, not moderat
 
 ## Developer operation
 
-In the backend repository's Actions tab, run **Set production discussion seeding switch** on branch **Master**. Check `enabled` to turn it on; leave it unchecked to turn it off. The workflow uses the existing production Azure deployment identity, changes only `DiscussionSeeding__Enabled` on `kinshout-api-prod`, and does not print App Service settings or secrets. GitHub repository/workflow permissions control who can run it; no Kinoiserie moderator role is involved.
+In the backend repository's Actions tab, run **Set production discussion seeding switch** on branch **Master**. Check `enabled` to turn it on; leave it unchecked to turn it off. The workflow uses the existing production Azure deployment identity, changes `DiscussionSeeding__Enabled` on `kinshout-api-prod` and ensures `OpenAI__ModerationEnabled=true` when enabling seeding, and does not print App Service settings or secrets. GitHub repository/workflow permissions control who can run it; no Kinoiserie moderator role is involved.
 
 
 - Enable: set `DiscussionSeeding__Enabled=true` in the production API App Service and restart/apply settings. Existing API OpenAI credentials and enabled moderation are required. No new moderator session or API request is required.
@@ -27,3 +27,7 @@ The former `/api/editorial/discussion-seeding/*` endpoints and moderator desk pa
 ## Verification limits
 
 The first live six-fixture batch failed politics abstention and showed overly verbose writing. The prompt and code-level political rejection were improved. The revised generator still needs a fresh live qualitative review, including Lingala and actual source material. Automated tests do not establish language quality. Reports are under review/ and contain no API secrets.
+
+## Production prerequisite diagnosed
+
+The initial activation enabled the worker but produced no seeded comments because Azure had `OpenAI__ModerationEnabled=false`. The existing production OpenAI key and generation model responded successfully. Logs recorded the generator's fail-closed configuration exception. The developer switch workflow now enforces moderation when enabling seeding. Turning seeding off does not disable moderation. This shared moderation setting also applies to ordinary content submissions; enabling it restores those checks as well.

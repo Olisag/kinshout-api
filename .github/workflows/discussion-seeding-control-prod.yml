@@ -34,9 +34,13 @@ jobs:
           SEEDING_ENABLED: ${{ inputs.enabled }}
         run: |
           set -euo pipefail
+          settings=("DiscussionSeeding__Enabled=${SEEDING_ENABLED}")
+          if [ "$SEEDING_ENABLED" = "true" ]; then
+            settings+=("OpenAI__ModerationEnabled=true")
+          fi
           az webapp config appsettings set \
             --resource-group Phpnet20211126011001ResourceGroup \
             --name kinshout-api-prod \
-            --settings "DiscussionSeeding__Enabled=${SEEDING_ENABLED}" \
+            --settings "${settings[@]}" \
             --output none
           echo "Production global seeding switch set to ${SEEDING_ENABLED}."
