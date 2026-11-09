@@ -6,6 +6,8 @@ namespace Kinshout.Api.Data;
 
 public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : DbContext(options)
 {
+    internal DbContextOptions<KinshoutDbContext> ContextOptions { get; } = options;
+
     public DbSet<ApiClient> ApiClients => Set<ApiClient>();
     public DbSet<User> Users => Set<User>();
     public DbSet<UserLogin> UserLogins => Set<UserLogin>();
@@ -27,6 +29,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<VideoMetricSnapshot> VideoMetricSnapshots => Set<VideoMetricSnapshot>();
     public DbSet<EditorialPin> EditorialPins => Set<EditorialPin>();
     public DbSet<RegistrySourceRecord> RegistrySourceRecords => Set<RegistrySourceRecord>();
+    public DbSet<DiscussionSeedingControl> DiscussionSeedingControls => Set<DiscussionSeedingControl>();
+    public DbSet<DiscussionSeedRun> DiscussionSeedRuns => Set<DiscussionSeedRun>();
+    public DbSet<DiscussionSeedJob> DiscussionSeedJobs => Set<DiscussionSeedJob>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -61,6 +66,30 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<DiscussionSeedingControl>(e =>
+        {
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.HasData(new DiscussionSeedingControl { Id = 1 });
+        });
+        modelBuilder.Entity<DiscussionSeedRun>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(120);
+            e.HasIndex(x => x.StoppedAt);
+        });
+        modelBuilder.Entity<DiscussionSeedJob>(e =>
+        {
+            e.Property(x => x.IdempotencyKey).HasMaxLength(128);
+            e.Property(x => x.Body).HasMaxLength(4000);
+            e.Property(x => x.SourceRevision).HasMaxLength(64);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.HasIndex(x => x.IdempotencyKey).IsUnique();
+            e.HasIndex(x => new { x.SeedRunId, x.Status });
+            e.HasIndex(x => new { x.Status, x.ScheduledAt });
+            e.HasOne<DiscussionSeedRun>().WithMany().HasForeignKey(x => x.SeedRunId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Discussion>().WithMany().HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.PersonaUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<ApiClient>(e =>
         {
             e.HasIndex(x => x.ClientId).IsUnique();
@@ -71,6 +100,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         modelBuilder.Entity<User>(e =>
         {
             e.HasIndex(x => x.Email).IsUnique();
+            e.HasIndex(x => x.SeedRunId);
+            e.HasOne<DiscussionSeedRun>().WithMany().HasForeignKey(x => x.SeedRunId).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.Email).HasMaxLength(320);
             e.Property(x => x.PasswordHash).HasMaxLength(500);
             e.Property(x => x.EmailConfirmationTokenHash).HasMaxLength(64);
@@ -123,6 +154,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         modelBuilder.Entity<Discussion>(e =>
         {
             e.Property(x => x.Title).HasMaxLength(200);
+            e.Property(x => x.SourceReactionTextsJson).HasDefaultValue("[]");
+            e.Property(x => x.SourceMetricsRevision).HasMaxLength(64);
+            e.Property(x => x.SeedProcessedRevision).HasMaxLength(64);
             e.Property(x => x.ReplyCount).HasDefaultValue(0);
             e.Property(x => x.LikeCount).HasDefaultValue(0);
             e.Property(x => x.ViewCount).HasDefaultValue(0);
@@ -171,7 +205,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasOne(x => x.User).WithMany(x => x.CommunityMemberships).HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(Database.IsSqlServer() ? DeleteBehavior.NoAction : DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<DiscussionParticipant>(e =>
@@ -184,7 +218,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.ReviewedByUser).WithMany().HasForeignKey(x => x.ReviewedByUserId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(Database.IsSqlServer() ? DeleteBehavior.NoAction : DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<VideoAsset>(e =>
@@ -236,6 +270,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
 
         modelBuilder.Entity<DiscussionReply>(e =>
         {
+            e.HasQueryFilter(x => x.SeedHiddenAt == null);
+            e.HasIndex(x => x.SeedRunId);
+            e.HasOne<DiscussionSeedRun>().WithMany().HasForeignKey(x => x.SeedRunId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(x => new { x.DiscussionId, x.CreatedAt });
             e.HasIndex(x => new { x.UserId, x.DiscussionId });
             e.Property(x => x.ImageUrl).HasMaxLength(500);

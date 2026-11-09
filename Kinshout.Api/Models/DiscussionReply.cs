@@ -3,6 +3,11 @@ namespace Kinshout.Api.Models;
 public class DiscussionReply
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>Null for organic replies. Preserved when a seed run is stopped.</summary>
+    public Guid? SeedRunId { get; set; }
+    public DateTime? SeedHiddenAt { get; set; }
+
     public Guid DiscussionId { get; set; }
     public Guid UserId { get; set; }
     public string Body { get; set; } = string.Empty;

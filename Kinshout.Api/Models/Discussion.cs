@@ -25,6 +25,12 @@ public class Discussion
     public int ReplyCount { get; set; }
     public int LikeCount { get; set; }
     public int ViewCount { get; set; }
+    public long? SourceLikeCount { get; set; }
+    public long? SourceViewCount { get; set; }
+    public DateTime? SourceMetricsObservedAt { get; set; }
+    public string SourceReactionTextsJson { get; set; } = "[]";
+    public string? SourceMetricsRevision { get; set; }
+    public string? SeedProcessedRevision { get; set; }
 
     /// <summary>Null or kinshout = native topic. Other values = imported external post.</summary>
     public string? SourceProvider { get; set; }

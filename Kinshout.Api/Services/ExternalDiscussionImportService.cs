@@ -68,6 +68,17 @@ public class ExternalDiscussionImportService(
             {
                 var outcome = await UpsertAsync(item, hosts, ct);
                 await db.SaveChangesAsync(ct);
+                if (outcome != UpsertOutcome.Skipped
+                    && (item.SourceViewCount is not null || item.SourceLikeCount is not null || item.SourceReactions is not null))
+                {
+                    var provider = DiscussionSourceProvider.Normalize(item.Source.Provider);
+                    var postId = await db.Discussions.AsNoTracking()
+                        .Where(d => d.SourceProvider == provider && d.SourceExternalId == item.Source.ExternalId.Trim())
+                        .Select(d => d.Id).FirstOrDefaultAsync(ct);
+                    if (postId != Guid.Empty)
+                        await DiscussionSourceMetrics.UpdateAsync(db, postId, item.SourceViewCount, item.SourceLikeCount,
+                            item.SourceReactions, item.Source.LastSeenAt ?? item.Source.ImportedAt ?? DateTime.UtcNow, ct);
+                }
                 switch (outcome)
                 {
                     case UpsertOutcome.Created: created++; break;
@@ -667,6 +678,7 @@ public class ExternalDiscussionImportService(
             SourceEngagementScore = engagement > 0 ? engagement : null,
             ExternalPublishedAt = publishedAt,
         };
+        DiscussionSourceMetrics.Apply(discussion, item.SourceViewCount, item.SourceLikeCount, item.SourceReactions, lastSeenAt);
         PoliticsFeedFilter.Mark(discussion);
         return discussion;
     }

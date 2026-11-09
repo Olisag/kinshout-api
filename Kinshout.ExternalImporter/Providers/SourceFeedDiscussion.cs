@@ -37,8 +37,14 @@ public sealed class SourceFeedDiscussion
     [JsonIgnore]
     public string? CommunitySlug { get; set; }
 
-    [JsonIgnore]
+    [JsonPropertyName("viewCount")]
     public int ViewCount { get; set; }
+
+    [JsonPropertyName("likeCount")]
+    public long? LikeCount { get; set; }
+
+    [JsonPropertyName("sourceReactions")]
+    public List<string>? SourceReactions { get; set; }
 
     [JsonIgnore]
     public bool HasVisualMedia => ImageUrls.Count > 0 || VideoUrls.Count > 0;

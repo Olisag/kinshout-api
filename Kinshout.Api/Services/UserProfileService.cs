@@ -28,7 +28,7 @@ public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadU
     {
         var row = await db.Users
             .AsNoTracking()
-            .Where(u => u.Id == userId && u.IsProfilePublic)
+            .Where(u => u.Id == userId && u.IsProfilePublic && u.SeedHiddenAt == null)
             .Select(u => new
             {
                 User = u,
@@ -71,7 +71,7 @@ public class UserProfileService(KinshoutDbContext db, IUploadUrlResolver uploadU
     {
         var isPublic = await db.Users
             .AsNoTracking()
-            .AnyAsync(u => u.Id == userId && u.IsProfilePublic, ct);
+            .AnyAsync(u => u.Id == userId && u.IsProfilePublic && u.SeedHiddenAt == null, ct);
         if (!isPublic)
             throw new KeyNotFoundException("Profil introuvable.");
 

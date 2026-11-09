@@ -27,7 +27,9 @@ internal static class DiscussionSourceMapper
             discussion.SourceFirstSeenAt ?? discussion.CreatedAt,
             discussion.SourceOriginalAuthor,
             discussion.SourceEngagementScore,
-            discussion.ExternalPublishedAt);
+            discussion.ExternalPublishedAt,
+            discussion.SourceLikeCount,
+            discussion.SourceViewCount);
     }
 
     public static DateTime SortDate(Discussion discussion) =>

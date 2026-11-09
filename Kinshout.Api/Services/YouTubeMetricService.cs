@@ -55,25 +55,30 @@ public class YouTubeMetricService(KinshoutDbContext db) : IYouTubeMetricService
                 continue;
 
             var publishedAt = metric.PublishedAt?.ToUniversalTime();
-            var score = TrendScore(metric.Views, metric.Likes, publishedAt, now);
+            var score = TrendScore(metric.Views, metric.Likes ?? 0, publishedAt, now);
             db.VideoMetricSnapshots.Add(new VideoMetricSnapshot
             {
                 Provider = "youtube",
                 ExternalId = externalId,
                 Views = Math.Max(0, metric.Views),
-                Likes = Math.Max(0, metric.Likes),
+                Likes = Math.Max(0, metric.Likes ?? 0),
                 Comments = Math.Max(0, metric.Comments),
                 TrendScore = score,
                 FetchedAt = now,
             });
 
             if (byId.TryGetValue(externalId, out var discussion))
+            {
                 discussion.SourceEngagementScore = score;
+            }
 
             stored++;
         }
 
         await db.SaveChangesAsync(ct);
+        foreach (var metric in metrics)
+            if (byId.TryGetValue(metric.ExternalId.Trim(), out var discussion))
+                await DiscussionSourceMetrics.UpdateAsync(db, discussion.Id, metric.Views, metric.Likes, metric.SourceReactions, now, ct);
         return stored;
     }
 

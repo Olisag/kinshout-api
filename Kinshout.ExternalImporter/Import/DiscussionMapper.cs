@@ -34,7 +34,10 @@ public static class DiscussionMapper
             PublishedAt: feed.PublishedAt,
             ImageUrls: CleanUrls(feed.ImageUrls),
             VideoUrls: CleanUrls(feed.VideoUrls),
-            CommunitySlug: communitySlug);
+            CommunitySlug: communitySlug,
+            SourceViewCount: feed.ViewCount > 0 ? feed.ViewCount : null,
+            SourceLikeCount: feed.LikeCount,
+            SourceReactions: feed.SourceReactions);
     }
 
     public static ImportExternalDiscussionDto ToRemovalDto(

@@ -3,6 +3,11 @@ namespace Kinshout.Api.Models;
 public class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>Null for organic accounts. Set only by the seeding pipeline.</summary>
+    public Guid? SeedRunId { get; set; }
+    public DateTime? SeedHiddenAt { get; set; }
+
     public string Email { get; set; } = string.Empty;
     /// <summary>Password hash for email/password (Local) auth. Null for OAuth-only users.</summary>
     public string? PasswordHash { get; set; }

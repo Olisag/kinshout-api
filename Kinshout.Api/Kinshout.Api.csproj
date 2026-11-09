@@ -12,10 +12,11 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Kinshout.Api.Tests" />
+    <InternalsVisibleTo Include="CommentQuality" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Data/source-registry.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="Data/source-registry.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

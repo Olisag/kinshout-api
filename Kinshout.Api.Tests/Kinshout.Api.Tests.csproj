@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Kinshout.Api\Kinshout.Api.csproj" />
     <ProjectReference Include="..\Kinshout.VideoWorker\Kinshout.VideoWorker.csproj" />
+    <ProjectReference Include="..\Kinshout.ExternalImporter\Kinshout.ExternalImporter.csproj" />
   </ItemGroup>
 
 </Project>

@@ -24,4 +24,15 @@ public class MediaCanonicalKeyTests
 
         Assert.Equal("yt:abcdefghijk", key);
     }
+
+    [Theory]
+    [InlineData("https://www.facebook.com/mmc/posts/123", null, "fb:123")]
+    [InlineData("https://www.facebook.com/mmc/posts/123", "https://cdn.example.com/clip.mp4", "fb:123")]
+    [InlineData("https://www.facebook.com/mmc/posts/123", "https://www.facebook.com/watch?v=456", "fb:123")]
+    [InlineData("https://www.youtube.com/watch?v=abcdefghijk", "https://www.tiktok.com/@artist/video/1234567890", "yt:abcdefghijk")]
+    [InlineData("https://example.com/shared", "https://www.youtube.com/watch?v=abcdefghijk", "yt:abcdefghijk")]
+    public void Clip_precedence_preserves_source_fallbacks(string externalUrl, string? attachedUrl, string expected)
+    {
+        Assert.Equal(expected, MediaCanonicalKey.From(externalUrl, attachedUrl is null ? null : [attachedUrl]));
+    }
 }

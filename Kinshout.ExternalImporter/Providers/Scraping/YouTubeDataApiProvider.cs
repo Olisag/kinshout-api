@@ -428,6 +428,8 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                     : null,
                 PublishedAt = published,
                 ViewCount = views,
+                LikeCount = item.TryGetProperty("statistics", out var sourceStats) && sourceStats.TryGetProperty("likeCount", out _) ? likes : null,
+                SourceReactions = (await Kinshout.ExternalImporter.Import.YouTubeSourceReactions.FetchWhenEnabledAsync(http, apiKey, id, ct))?.ToList(),
                 EngagementScore = views + (likes * 5),
                 Status = "active",
                 ImageUrls = string.IsNullOrWhiteSpace(thumb) ? [] : [thumb],

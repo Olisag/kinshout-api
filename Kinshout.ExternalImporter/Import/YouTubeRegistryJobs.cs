@@ -86,9 +86,11 @@ public sealed class YouTubeRegistryJobs(HttpClient http, ImporterSettings settin
                 metrics.Add(new YouTubeMetricPoint(
                     id,
                     ReadStat(item, "viewCount"),
-                    ReadStat(item, "likeCount"),
+                    item.TryGetProperty("statistics", out var stats) && stats.TryGetProperty("likeCount", out _)
+                        ? ReadStat(item, "likeCount") : null,
                     ReadStat(item, "commentCount"),
-                    published));
+                    published,
+                    await YouTubeSourceReactions.FetchWhenEnabledAsync(http, apiKey, id, ct)));
             }
         }
 
@@ -108,6 +110,7 @@ public sealed class YouTubeRegistryJobs(HttpClient http, ImporterSettings settin
 public sealed record YouTubeMetricPoint(
     string ExternalId,
     int Views,
-    int Likes,
+    int? Likes,
     int Comments,
-    DateTime? PublishedAt);
+    DateTime? PublishedAt,
+    IReadOnlyList<string>? SourceReactions = null);

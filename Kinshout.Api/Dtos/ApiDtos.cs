@@ -261,14 +261,18 @@ public record ImportExternalDiscussionDto(
     DateTime? PublishedAt = null,
     IReadOnlyList<string>? ImageUrls = null,
     IReadOnlyList<string>? VideoUrls = null,
-    string? CommunitySlug = null);
+    string? CommunitySlug = null,
+    long? SourceViewCount = null,
+    long? SourceLikeCount = null,
+    IReadOnlyList<string>? SourceReactions = null);
 
 public record YouTubeMetricPointDto(
     string ExternalId,
     int Views,
-    int Likes,
+    int? Likes,
     int Comments,
-    DateTime? PublishedAt = null);
+    DateTime? PublishedAt = null,
+    IReadOnlyList<string>? SourceReactions = null);
 
 public record RecordYouTubeMetricsRequestDto(IReadOnlyList<YouTubeMetricPointDto> Metrics);
 
@@ -364,7 +368,9 @@ public record DiscussionSourceDto(
     DateTime FirstSeenAt,
     string? OriginalAuthor = null,
     int? EngagementScore = null,
-    DateTime? PublishedAt = null);
+    DateTime? PublishedAt = null,
+    long? LikeCount = null,
+    long? ViewCount = null);
 
 public record DiscussionDetailDto(
     Guid Id,

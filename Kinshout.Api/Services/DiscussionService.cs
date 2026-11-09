@@ -219,7 +219,7 @@ public class DiscussionService(
     {
         var isPublic = await db.Users
             .AsNoTracking()
-            .AnyAsync(u => u.Id == userId && u.IsProfilePublic, ct);
+            .AnyAsync(u => u.Id == userId && u.IsProfilePublic && u.SeedHiddenAt == null, ct);
         if (!isPublic)
             throw new KeyNotFoundException("Profil introuvable.");
 
@@ -626,9 +626,7 @@ public class DiscussionService(
             Address = attachment.Address,
         };
 
-        db.DiscussionReplies.Add(reply);
-        discussion.ReplyCount++;
-        await db.SaveChangesAsync(ct);
+        await DiscussionReplyWriter.SaveAsync(db, discussion, reply, adding: true, ct);
 
         var user = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
         return ToReplyDto(reply, user);
@@ -675,10 +673,7 @@ public class DiscussionService(
         var discussion = await db.Discussions.FirstOrDefaultAsync(d => d.Id == discussionId, ct)
             ?? throw new KeyNotFoundException("Discussion introuvable.");
 
-        db.DiscussionReplies.Remove(reply);
-        if (discussion.ReplyCount > 0)
-            discussion.ReplyCount--;
-        await db.SaveChangesAsync(ct);
+        await DiscussionReplyWriter.SaveAsync(db, discussion, reply, adding: false, ct);
     }
 
     private async Task<int> IncrementViewCountAsync(Guid id, int currentCount, CancellationToken ct)

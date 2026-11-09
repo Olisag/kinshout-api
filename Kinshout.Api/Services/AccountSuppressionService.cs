@@ -52,6 +52,9 @@ public class AccountSuppressionService(
         db.UserLogins.RemoveRange(
             await db.UserLogins.Where(l => l.UserId == userId).ToListAsync(ct));
 
+        db.DiscussionSeedJobs.RemoveRange(
+            await db.DiscussionSeedJobs.Where(j => j.PersonaUserId == userId).ToListAsync(ct));
+
         db.Users.Remove(user);
         await db.SaveChangesAsync(ct);
 
@@ -116,7 +119,7 @@ public class AccountSuppressionService(
         {
             await DeleteDiscussionUploadsAsync(discussion, ct);
 
-            var replies = await db.DiscussionReplies
+            var replies = await db.DiscussionReplies.IgnoreQueryFilters()
                 .Where(r => r.DiscussionId == discussion.Id)
                 .ToListAsync(ct);
             foreach (var reply in replies)
@@ -145,7 +148,7 @@ public class AccountSuppressionService(
 
     private async Task DeleteRemainingRepliesAsync(Guid userId, CancellationToken ct)
     {
-        var replies = await db.DiscussionReplies
+        var replies = await db.DiscussionReplies.IgnoreQueryFilters()
             .Where(r => r.UserId == userId)
             .ToListAsync(ct);
         if (replies.Count == 0)
@@ -153,6 +156,27 @@ public class AccountSuppressionService(
 
         foreach (var reply in replies)
             await DeleteReplyUploadsAsync(reply, ct);
+
+        if (db.Database.IsRelational())
+        {
+            var ids = replies.Select(r => r.Id).ToList();
+            await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+                await DiscussionSeedingService.AcquireControlLockAsync(db, ct);
+                var counts = await db.DiscussionReplies.IgnoreQueryFilters()
+                    .Where(r => ids.Contains(r.Id) && r.SeedHiddenAt == null)
+                    .GroupBy(r => r.DiscussionId).Select(g => new { Id = g.Key, Count = g.Count() }).ToListAsync(ct);
+                await db.LikedReplies.Where(l => ids.Contains(l.ReplyId)).ExecuteDeleteAsync(ct);
+                await db.DiscussionReplies.IgnoreQueryFilters().Where(r => ids.Contains(r.Id)).ExecuteDeleteAsync(ct);
+                foreach (var group in counts)
+                    await db.Discussions.Where(d => d.Id == group.Id).ExecuteUpdateAsync(update => update
+                        .SetProperty(d => d.ReplyCount, d => d.ReplyCount >= group.Count ? d.ReplyCount - group.Count : 0), ct);
+                await tx.CommitAsync(ct);
+            });
+            foreach (var reply in replies) db.Entry(reply).State = EntityState.Detached;
+            return;
+        }
 
         var replyIds = replies.Select(r => r.Id).ToList();
         db.LikedReplies.RemoveRange(
@@ -162,7 +186,7 @@ public class AccountSuppressionService(
         var discussions = await db.Discussions
             .Where(d => discussionIds.Contains(d.Id))
             .ToListAsync(ct);
-        var removedByDiscussion = replies.GroupBy(r => r.DiscussionId)
+        var removedByDiscussion = replies.Where(r => r.SeedHiddenAt == null).GroupBy(r => r.DiscussionId)
             .ToDictionary(g => g.Key, g => g.Count());
         foreach (var discussion in discussions)
         {

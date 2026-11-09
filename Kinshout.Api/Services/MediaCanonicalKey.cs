@@ -9,24 +9,23 @@ public static class MediaCanonicalKey
 {
     public static string? From(string? externalUrl, IEnumerable<string>? videoUrls)
     {
-        if (!string.IsNullOrWhiteSpace(externalUrl))
-        {
-            var key = FromUrl(externalUrl);
-            if (key is not null)
-                return key;
-        }
+        var externalKey = FromUrl(externalUrl);
+        if (externalKey is not null && !externalKey.StartsWith("fb:", StringComparison.Ordinal))
+            return externalKey;
 
         if (videoUrls is null)
-            return null;
+            return externalKey;
 
         foreach (var url in videoUrls)
         {
             var key = FromUrl(url);
-            if (key is not null)
+            // A Facebook share identifies the wrapper post, not necessarily the clip.
+            // Prefer the attached clip's identity so a YouTube import deduplicates it.
+            if (key is not null && (externalKey is null || !key.StartsWith("fb:", StringComparison.Ordinal)))
                 return key;
         }
 
-        return null;
+        return externalKey;
     }
 
     public static string? FromStored(string? externalUrl, string? videoUrlsJson)

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kinshout.Api.Data;
 
-public static class DbSchemaPatcher
+public static partial class DbSchemaPatcher
 {
     public static async Task ApplyAsync(KinshoutDbContext db, CancellationToken ct = default)
     {
@@ -28,6 +28,7 @@ public static class DbSchemaPatcher
         await EnsurePublicFeedModerationSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureDiscussionSeedingSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureEditorialDeskSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureKinoiserieSchemaAsync(db, connection, sqlServer: true, ct);
@@ -92,6 +93,7 @@ public static class DbSchemaPatcher
         await EnsurePublicFeedModerationSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureImportWatermarkSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureDiscussionSeedingSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureEditorialDeskSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureKinoiserieSchemaAsync(db, connection, sqlServer: false, ct);

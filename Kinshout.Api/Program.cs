@@ -129,6 +129,11 @@ builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussi
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
 builder.Services.AddScoped<IYouTubeMetricService, YouTubeMetricService>();
 builder.Services.AddScoped<IEditorialDeskService, EditorialDeskService>();
+builder.Services.AddScoped<IDiscussionSeedingService, DiscussionSeedingService>();
+builder.Services.Configure<DiscussionSeedingSettings>(builder.Configuration.GetSection("DiscussionSeeding"));
+builder.Services.AddScoped<IDiscussionSeedCommentGenerator, DiscussionSeedCommentGenerator>();
+builder.Services.AddScoped<DiscussionSeedingPipeline>();
+builder.Services.AddHostedService<DiscussionSeedingWorker>();
 builder.Services.AddScoped<IUnavailableSourceService, UnavailableSourceService>();
 builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
 builder.Services.AddHostedService<KinshoutStartupHostedService>();

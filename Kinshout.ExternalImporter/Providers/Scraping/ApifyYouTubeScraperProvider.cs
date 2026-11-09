@@ -157,6 +157,9 @@ public sealed partial class ApifyYouTubeScraperProvider(HttpClient http, Externa
             Body = body,
             OriginalAuthor = author,
             PublishedAt = postedAt,
+            LikeCount = ReadInt(item, "likes") ?? ReadInt(item, "likeCount"),
+            ViewCount = views,
+            SourceReactions = SourceReactionReader.Read(item),
             EngagementScore = score,
             Status = "active",
         };
