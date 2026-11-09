@@ -56,12 +56,9 @@ public sealed class DiscussionSeedingPipeline(
         var run = await read.DiscussionSeedRuns.AsNoTracking().Where(x => x.StoppedAt == null)
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).FirstOrDefaultAsync(ct);
         if (run is null) return 0;
-        var todayUtc = Now.Date;
-        if (await read.DiscussionSeedJobs.CountAsync(j => j.CreatedAt >= todayUtc, ct) >= Math.Clamp(config.MaxCommentsPerDay, 1, 1000)) return 0;
         var candidates = await Eligible(read).AsNoTracking()
-            .Where(d => ((d.SourceMetricsRevision == null && d.SeedProcessedRevision == null)
+            .Where(d => (d.SourceMetricsRevision == null && d.SeedProcessedRevision == null)
                     || (d.SourceMetricsRevision != null && d.SourceMetricsRevision != d.SeedProcessedRevision))
-                && read.DiscussionSeedJobs.Count(j => j.SeedRunId == run.Id && j.DiscussionId == d.Id) < Math.Clamp(config.MaxCommentsPerPost, 1, 30))
             .OrderByDescending(d => d.SourceMetricsObservedAt).Take(Math.Clamp(config.MaxJobsPerTick, 1, 20)).ToListAsync(ct);
         var queued = 0;
         foreach (var candidate in candidates)
@@ -91,9 +88,6 @@ public sealed class DiscussionSeedingPipeline(
                     if (current is null || Revision(current) != revision
                         || current.SeedProcessedRevision == revision) return 0;
                     var existingJobs = await db.DiscussionSeedJobs.Where(j => j.DiscussionId == current.Id && j.SeedRunId == run.Id).ToListAsync(ct);
-                    var today = Now.Date;
-                    if (existingJobs.Count >= Math.Clamp(config.MaxCommentsPerPost, 1, 30)
-                        || await db.DiscussionSeedJobs.CountAsync(j => j.CreatedAt >= today, ct) >= Math.Clamp(config.MaxCommentsPerDay, 1, 1000)) return 0;
                     var replies = await db.DiscussionReplies.Where(r => r.DiscussionId == current.Id).Select(r => r.Body).ToListAsync(ct);
                     if (!DiscussionSeedCommentGenerator.IsOriginal(body, replies.Concat(existingJobs.Select(j => j.Body))))
                     { current.SeedProcessedRevision = revision; await db.SaveChangesAsync(ct); return 0; }

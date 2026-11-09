@@ -177,19 +177,24 @@ public sealed class DiscussionSeedingPipelineTests
     }
 
     [Fact]
-    public async Task PerPostLimit_IsEnforcedAcrossRefreshes()
+    public async Task GrowingSource_ContinuesBeyondFormerDailyAndPerPostLimits_ButNotWithoutChanges()
     {
         await using var f = await Fixture.CreateAsync();
-        f.Settings.MaxCommentsPerPost = 1;
-        await f.Pipeline().GenerateAsync();
-        f.Db.ChangeTracker.Clear();
-        var post = await f.Db.Discussions.SingleAsync();
-        DiscussionSourceMetrics.Apply(post, 999, 20, null, f.Clock.Utc.AddMinutes(1));
-        await f.Db.SaveChangesAsync();
-        f.Generator.Invocations.Clear();
+        for (var i = 0; i < 101; i++)
+        {
+            f.Db.ChangeTracker.Clear();
+            var post = await f.Db.Discussions.SingleAsync();
+            DiscussionSourceMetrics.Apply(post, 100 + i, 5 + i, null, f.Clock.Utc.AddSeconds(i));
+            await f.Db.SaveChangesAsync();
+            f.Generator.Setup(g => g.GenerateAsync(It.IsAny<DiscussionSeedInput>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync($"Réaction culturelle {i:D3}");
+            Assert.Equal(1, await f.Pipeline().GenerateAsync());
+            Assert.Equal(0, await f.Pipeline().GenerateAsync());
+        }
+        Assert.Equal(101, await f.Db.DiscussionSeedJobs.CountAsync());
+        Assert.Equal(101, await f.Db.DiscussionSeedJobs.CountAsync(j => j.CreatedAt >= f.Clock.Utc.Date));
+        f.Clock.Utc = f.Clock.Utc.AddDays(1);
         Assert.Equal(0, await f.Pipeline().GenerateAsync());
-        f.Generator.VerifyNoOtherCalls();
-        Assert.Single(await f.Db.DiscussionSeedJobs.ToListAsync());
     }
 
     [Fact]

@@ -8,7 +8,7 @@ All public imported discussions are eligible across existing source providers, i
 
 Existing exclusions remain: native Kinoiserie posts, private/inactive communities, blocked content, politics and disallowed content are excluded or rejected. Seeding stops on a discussion after the configured organic-reply threshold. Generation may abstain when there is too little useful context. Eligibility is not a promise that every imported post will receive a comment.
 
-Default limits: 100 queued comments/day, 8 per post per run, 4 jobs/tick, 60-second ticks, 60–600-second randomized delays, and stop after 3 organic replies. Actual publication times are checked again to prevent overdue jobs publishing as a batch. The daily queue limit is not an API-attempt spending cap. Accounts are created on demand from a 12-persona pool per run and reused; they cannot log in.
+There is no daily comment quota or lifetime comment quota per post. A new source-metric revision can continue to produce a comment while a post remains active; unchanged snapshots do not produce repeated comments. Throughput settings: 4 jobs/tick, 60-second ticks, 60–600-second randomized delays, and stop after 3 organic replies. Actual publication times are checked again to prevent overdue jobs publishing as a batch. Accounts are created on demand from a 12-persona pool per run and reused; they cannot log in.
 
 The database flags are internal durable coordination/rollback state, not moderator-managed product settings. They are initialized from the global setting on worker startup. The combined-like display is gated by both the global setting and internal state; source counts and organic likes remain separate in storage.
 
