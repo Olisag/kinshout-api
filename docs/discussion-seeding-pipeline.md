@@ -14,6 +14,9 @@ The database flags are internal durable coordination/rollback state, not moderat
 
 ## Developer operation
 
+In the backend repository's Actions tab, run **Set production discussion seeding switch** on branch **Master**. Check `enabled` to turn it on; leave it unchecked to turn it off. The workflow uses the existing production Azure deployment identity, changes only `DiscussionSeeding__Enabled` on `kinshout-api-prod`, and does not print App Service settings or secrets. GitHub repository/workflow permissions control who can run it; no Kinoiserie moderator role is involved.
+
+
 - Enable: set `DiscussionSeeding__Enabled=true` in the production API App Service and restart/apply settings. Existing API OpenAI credentials and enabled moderation are required. No new moderator session or API request is required.
 - Disable: set `DiscussionSeeding__Enabled=false` on every API instance and restart/apply settings. Existing generated content remains visible; queued jobs stop publishing.
 - Remove generated activity: first disable the global setting on all instances, then run the operator tool described in discussion-seeding-rollback.md.
