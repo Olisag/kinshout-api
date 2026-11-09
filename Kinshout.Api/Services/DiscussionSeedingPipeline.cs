@@ -22,6 +22,31 @@ public sealed class DiscussionSeedingPipeline(
     private static readonly string[] Handles = ["MasoloYaKin", "RumbaNaBiso", "MwanaMboka", "KinCulture", "NdomboloClub", "LisoloYaLelo", "MbokaVibes", "SangoCulture", "KinMelodie", "BisoEnsemble", "RumbaCorner", "MasoloMix"];
     private static readonly string[] Styles = ["réaction concise et chaleureuse", "observation sur la musique et le rythme", "question courte sur le sujet", "avis culturel nuancé"];
 
+    /// <summary>Called once by each worker on startup after schema repair. No moderator account is needed.</summary>
+    public Task<int> InitializeAsync(CancellationToken ct = default)
+    {
+        if (!settings.Value.Enabled) return Task.FromResult(0);
+        return LockedAsync(async db =>
+        {
+            if (!settings.Value.Enabled) return 0;
+            if (!await db.DiscussionSeedRuns.AnyAsync(r => r.StoppedAt == null, ct))
+                db.DiscussionSeedRuns.Add(new DiscussionSeedRun
+                {
+                    Name = "Developer-enabled imported discussions", CreatedAt = Now,
+                    // Guid.Empty identifies a developer/configuration action, not an application user.
+                    CreatedByUserId = Guid.Empty,
+                });
+            await db.DiscussionSeedingControls.Where(x => x.Id == 1).ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.GenerationEnabled, true)
+                .SetProperty(x => x.PublishingEnabled, true)
+                .SetProperty(x => x.CombinedLikesEnabled, true)
+                .SetProperty(x => x.UpdatedAt, (DateTime?)Now)
+                .SetProperty(x => x.UpdatedByUserId, (Guid?)null), ct);
+            await db.SaveChangesAsync(ct);
+            return 1;
+        }, ct);
+    }
+
     public async Task<int> GenerateAsync(CancellationToken ct = default)
     {
         var config = settings.Value;
@@ -34,8 +59,8 @@ public sealed class DiscussionSeedingPipeline(
         var todayUtc = Now.Date;
         if (await read.DiscussionSeedJobs.CountAsync(j => j.CreatedAt >= todayUtc, ct) >= Math.Clamp(config.MaxCommentsPerDay, 1, 1000)) return 0;
         var candidates = await Eligible(read).AsNoTracking()
-            .Where(d => d.SourceMetricsRevision != null && d.SourceMetricsRevision != d.SeedProcessedRevision
-                && d.SourceReactionTextsJson != "[]"
+            .Where(d => ((d.SourceMetricsRevision == null && d.SeedProcessedRevision == null)
+                    || (d.SourceMetricsRevision != null && d.SourceMetricsRevision != d.SeedProcessedRevision))
                 && read.DiscussionSeedJobs.Count(j => j.SeedRunId == run.Id && j.DiscussionId == d.Id) < Math.Clamp(config.MaxCommentsPerPost, 1, 30))
             .OrderByDescending(d => d.SourceMetricsObservedAt).Take(Math.Clamp(config.MaxJobsPerTick, 1, 20)).ToListAsync(ct);
         var queued = 0;
@@ -45,7 +70,7 @@ public sealed class DiscussionSeedingPipeline(
             try
             {
                 var reactions = JsonSerializer.Deserialize<string[]>(candidate.SourceReactionTextsJson) ?? [];
-                if (reactions.Length == 0) continue;
+                var revision = Revision(candidate);
                 var index = (int)(BitConverter.ToUInt32(SHA256.HashData(candidate.Id.ToByteArray())) % (uint)Handles.Length);
                 var priorCount = await read.DiscussionSeedJobs.CountAsync(j => j.DiscussionId == candidate.Id && j.SeedRunId == run.Id, ct);
                 var voice = (index + priorCount) % Handles.Length;
@@ -63,16 +88,16 @@ public sealed class DiscussionSeedingPipeline(
                 {
                     if (!settings.Value.Enabled || !await CanGenerateAsync(db, run.Id, ct)) return 0;
                     var current = await Eligible(db).FirstOrDefaultAsync(x => x.Id == candidate.Id, ct);
-                    if (current is null || current.SourceMetricsRevision != candidate.SourceMetricsRevision
-                        || current.SeedProcessedRevision == candidate.SourceMetricsRevision) return 0;
+                    if (current is null || Revision(current) != revision
+                        || current.SeedProcessedRevision == revision) return 0;
                     var existingJobs = await db.DiscussionSeedJobs.Where(j => j.DiscussionId == current.Id && j.SeedRunId == run.Id).ToListAsync(ct);
                     var today = Now.Date;
                     if (existingJobs.Count >= Math.Clamp(config.MaxCommentsPerPost, 1, 30)
                         || await db.DiscussionSeedJobs.CountAsync(j => j.CreatedAt >= today, ct) >= Math.Clamp(config.MaxCommentsPerDay, 1, 1000)) return 0;
                     var replies = await db.DiscussionReplies.Where(r => r.DiscussionId == current.Id).Select(r => r.Body).ToListAsync(ct);
                     if (!DiscussionSeedCommentGenerator.IsOriginal(body, replies.Concat(existingJobs.Select(j => j.Body))))
-                    { current.SeedProcessedRevision = candidate.SourceMetricsRevision; await db.SaveChangesAsync(ct); return 0; }
-                    var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"v1:{run.Id}:{current.Id}:{candidate.SourceMetricsRevision}"))).ToLowerInvariant();
+                    { current.SeedProcessedRevision = revision; await db.SaveChangesAsync(ct); return 0; }
+                    var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"v1:{run.Id}:{current.Id}:{revision}"))).ToLowerInvariant();
                     if (await db.DiscussionSeedJobs.AnyAsync(j => j.IdempotencyKey == key, ct)) return 0;
                     var slot = (index + existingJobs.Count) % Handles.Length;
                     var email = $"seed.{run.Id:N}.{slot}@kinoiserie.invalid";
@@ -92,10 +117,10 @@ public sealed class DiscussionSeedingPipeline(
                     db.DiscussionSeedJobs.Add(new DiscussionSeedJob
                     {
                         SeedRunId = run.Id, DiscussionId = current.Id, PersonaUserId = persona.Id,
-                        Body = body, IdempotencyKey = key, SourceRevision = current.SourceMetricsRevision,
+                        Body = body, IdempotencyKey = key, SourceRevision = revision,
                         CreatedAt = Now, ScheduledAt = scheduled,
                     });
-                    current.SeedProcessedRevision = current.SourceMetricsRevision;
+                    current.SeedProcessedRevision = revision;
                     await db.SaveChangesAsync(ct);
                     return 1;
                 }, ct);
@@ -177,11 +202,15 @@ public sealed class DiscussionSeedingPipeline(
         db.DiscussionSeedingControls.AnyAsync(x => x.Id == 1 && x.GenerationEnabled
             && db.DiscussionSeedRuns.Any(r => r.Id == run && r.StoppedAt == null), ct);
 
+    private static string Revision(Discussion source) => source.SourceMetricsRevision
+        ?? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"initial:{source.Id}:{source.Title}:{source.SourceRawBody ?? source.Body}"))).ToLowerInvariant();
+
     private Task<int> ConsumeRevisionAsync(Discussion source, Guid run, CancellationToken ct) => LockedAsync(async db =>
     {
         if (!await CanGenerateAsync(db, run, ct)) return 0;
         return await db.Discussions.Where(d => d.Id == source.Id && d.SourceMetricsRevision == source.SourceMetricsRevision)
-            .ExecuteUpdateAsync(s => s.SetProperty(d => d.SeedProcessedRevision, source.SourceMetricsRevision), ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.SeedProcessedRevision, Revision(source)), ct);
     }, ct);
 
     private async Task<int> LockedAsync(Func<KinshoutDbContext, Task<int>> action, CancellationToken ct)
@@ -206,6 +235,7 @@ public sealed class DiscussionSeedingWorker(IServiceScopeFactory scopes, IOption
     {
         // Wait for startup schema repair before the first tick. The deployment gate
         // is false by default; no network requests or jobs run while disabled.
+        var initialized = false;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -214,6 +244,11 @@ public sealed class DiscussionSeedingWorker(IServiceScopeFactory scopes, IOption
                 if (!settings.Value.Enabled) continue;
                 using var scope = scopes.CreateScope();
                 var pipeline = scope.ServiceProvider.GetRequiredService<DiscussionSeedingPipeline>();
+                if (!initialized)
+                {
+                    await pipeline.InitializeAsync(stoppingToken);
+                    initialized = true;
+                }
                 await pipeline.GenerateAsync(stoppingToken);
                 await pipeline.PublishDueAsync(stoppingToken);
             }

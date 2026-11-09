@@ -4,10 +4,10 @@ Run backend tests with `KINSHOUT_DOTNET` pointing to the .NET 10 executable when
 
 ## Recorded local result
 
-- SQL Server 2022 Developer 16.0.4305.5 with its matching full-text component: 23 seeding checks passed, zero skipped or failed.
-- Full backend regression: 551 passed, 21 existing skips, zero failures (572 total).
+- SQL Server 2022 Developer 16.0.4305.5 with its matching full-text component: 25 seeding checks passed, zero skipped or failed.
+- Full backend regression: 562 passed, 21 existing skips, zero failures (583 total).
 - Live quality: six real gpt-4o-mini generation calls completed with the temporary restricted key. Five automated checks passed; politics abstention failed. Outputs were moderated successfully. See review/comment-quality-live-initial.json. The revised prompt has not yet been rerun against the live API.
-- All work is local. No feature switches were enabled, no production database was connected, and nothing was deployed.
+- Developer-control revision: moderator setup and mutation endpoints were removed; a single global production setting now initializes the worker automatically. Production enablement is requested by the owner. Local validation used disposable databases; deployment is recorded separately in review/production-deployment.json.
 
 SQL validation found that the EF model used SET NULL for community/participant reviewer references, while the existing SQL Server schema patcher uses NO ACTION. SQL Server rejects these alongside the membership user cascade as multiple cascade paths. The model now uses NO ACTION on SQL Server, matching the deployed schema; SQLite retains SET NULL. Account suppression already clears reviewer references explicitly.
 

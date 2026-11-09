@@ -32,7 +32,49 @@ public sealed class DiscussionSeedingPipelineTests
     }
 
     [Fact]
-    public async Task Generation_IsDefaultOff_AndRequiresSourceReactions()
+    public async Task DeveloperEnablement_InitializesOnceWithoutModeratorOrExistingFlags()
+    {
+        await using var f = await Fixture.CreateAsync();
+        await f.Db.DiscussionSeedRuns.ExecuteDeleteAsync();
+        await f.Control.SetFlagsAsync(f.Actor, new());
+        Assert.Equal(1, await f.Pipeline().InitializeAsync());
+        Assert.Equal(1, await f.Pipeline().InitializeAsync());
+        var run = await f.Db.DiscussionSeedRuns.SingleAsync();
+        Assert.Equal(Guid.Empty, run.CreatedByUserId);
+        Assert.Equal(new DiscussionSeedingFlags(true, true, true), await f.Control.GetFlagsAsync());
+        Assert.Equal(1, await f.Pipeline().GenerateAsync());
+    }
+
+    [Fact]
+    public async Task DeveloperDisablement_DoesNotInitializeAndStopsPendingPublication()
+    {
+        await using var f = await Fixture.CreateAsync();
+        Assert.Equal(1, await f.Pipeline().GenerateAsync());
+        f.Settings.Enabled = false;
+        f.Clock.Utc = f.Clock.Utc.AddHours(1);
+        Assert.Equal(0, await f.Pipeline().InitializeAsync());
+        Assert.Equal(0, await f.Pipeline().GenerateAsync());
+        Assert.Equal(0, await f.Pipeline().PublishDueAsync());
+        Assert.Empty(await f.Db.DiscussionReplies.ToListAsync());
+    }
+
+    [Fact]
+    public async Task HistoricalImport_WithoutMetricsOrReactions_IsSeededOnlyOnce()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var post = await f.Db.Discussions.SingleAsync();
+        post.SourceMetricsRevision = null;
+        post.SourceReactionTextsJson = "[]";
+        await f.Db.SaveChangesAsync();
+        Assert.Equal(1, await f.Pipeline().GenerateAsync());
+        Assert.Equal(0, await f.Pipeline().GenerateAsync());
+        f.Db.ChangeTracker.Clear();
+        Assert.NotNull((await f.Db.Discussions.SingleAsync()).SeedProcessedRevision);
+        Assert.Single(await f.Db.DiscussionSeedJobs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Generation_IsDefaultOff_AndWorksWithoutSourceReactions()
     {
         await using var f = await Fixture.CreateAsync();
         f.Settings.Enabled = false;
@@ -42,8 +84,8 @@ public sealed class DiscussionSeedingPipelineTests
         var post = await f.Db.Discussions.SingleAsync();
         DiscussionSourceMetrics.Apply(post, 100, 5, [], f.Clock.Utc.AddMinutes(1));
         await f.Db.SaveChangesAsync();
-        Assert.Equal(0, await f.Pipeline().GenerateAsync());
-        f.Generator.VerifyNoOtherCalls();
+        Assert.Equal(1, await f.Pipeline().GenerateAsync());
+        f.Generator.Verify(g => g.GenerateAsync(It.Is<DiscussionSeedInput>(x => x.Reactions.Count == 0), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

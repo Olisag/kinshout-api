@@ -2,7 +2,7 @@ namespace Kinshout.Api.Configuration;
 
 public sealed class DiscussionSeedingSettings
 {
-    // Deployment gate in addition to the database switches. Never enabled by a migration.
+    // Developer-owned global switch. The worker initializes its internal run automatically when enabled.
     public bool Enabled { get; set; }
     public int TickSeconds { get; set; } = 60;
     public int MaxCommentsPerPost { get; set; } = 8;

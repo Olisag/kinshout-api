@@ -138,31 +138,6 @@ public class DiscussionSeedingRollbackTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.SetFlagsAsync(f.ActorId, new(true, true, true)));
     }
 
-    [Fact]
-    public async Task NonModerator_CannotReadOrChangeSeedingControls()
-    {
-        var userId = Guid.NewGuid();
-        var desk = new Mock<IEditorialDeskService>();
-        desk.Setup(x => x.EnsureCanEditAsync(userId, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new UnauthorizedAccessException());
-        var service = new Mock<IDiscussionSeedingService>(MockBehavior.Strict);
-        var controller = new DiscussionSeedingController(service.Object, desk.Object)
-        {
-            ControllerContext = new ControllerContext
-            {
-                HttpContext = new DefaultHttpContext
-                {
-                    User = new ClaimsPrincipal(new ClaimsIdentity(
-                        [new Claim(ClaimTypes.NameIdentifier, userId.ToString())], "test")),
-                },
-            },
-        };
-
-        Assert.Equal(403, Assert.IsType<StatusCodeResult>(await controller.GetFlags(default)).StatusCode);
-        Assert.Equal(403, Assert.IsType<StatusCodeResult>(await controller.StopAndHide(new(), default)).StatusCode);
-        service.VerifyNoOtherCalls();
-    }
-
     private sealed class Fixture(SeedingTestDatabase database) : IAsyncDisposable
     {
         public KinshoutDbContext Db { get; } = new(database.Options);

@@ -1,118 +1,31 @@
-# Discussion seeding: rollback foundation
+# Developer stop and rollback
 
-The recovery foundation now supports the [source-driven pipeline](discussion-seeding-pipeline.md).
-All switches and the deployment gate still default to **off**. Nothing has been deployed.
-The foundation alone does not run generation; the separate pipeline implements it.
+The global switch is `DiscussionSeeding__Enabled` on the API's Azure App Service. Moderator controls and their HTTP endpoints have been removed.
 
-## Recovery target
+## Stop future activity
 
-The original backend baseline is `9a4f4b9ccf2baa15a23da950774ce4f758d81439`,
-tagged locally as `baseline/discussion-seeding-20261108`.
+Set `DiscussionSeeding__Enabled=false` on every API instance and apply/restart. This stops generation and publication. Existing comments and accounts remain visible; original and organic content is not changed. Disabling also disables the combined-like display once the frontend refreshes its display setting (normally within 30 seconds).
 
-**Once generated records exist, the application recovery target must retain this
-foundation's visibility filters.** Reverting to an older application which does
-not understand `SeedHiddenAt` would show hidden records again. Tag the reviewed,
-tested foundation commit as the recovery target before enabling any later
-generation feature. A Git revert alone cannot undo database writes.
+## Preview or hide generated activity
 
-Keep the additive migration when rolling application code back to that recovery
-target. Its `Down` removes provenance/history and is only for disposable or
-prelaunch databases, not emergency production rollback.
+Use the operator console with the developer's existing database credentials supplied securely as `ConnectionStrings__DefaultConnection`. Do not put credentials in source control, reports or command history.
 
-## Operator workflow
-
-The frontend adds a panel to `/mod/general/editorial`. The existing editorial
-moderator permission is checked on every backend request; hiding the panel is
-not the authorization boundary.
-
-1. Open the panel and refresh the preview.
-2. Review active runs, pending jobs, visible generated comments and profiles.
-3. Choose **Stop and hide**, then confirm.
-4. Verify the switches are off and the affected records no longer appear.
-
-The action atomically disables all switches, stops runs, cancels pending jobs,
-hides tagged comments/profiles, and subtracts only newly hidden comments from
-reply counters. Existing organic replies (including imported editorial replies),
-likes, views, comment bodies and original timestamps are retained. Repeated
-execution does not decrement counters again. Re-enabling flags does not unhide
-records or revive stopped runs.
-
-Profiles use a separate hidden timestamp because the legacy SQLite schema
-repair can reset `IsProfilePublic`; recovery visibility must survive a restart.
-Account deletion still includes hidden replies and does not subtract them twice.
-
-## API
-
-All paths below require the existing client authentication and a user JWT for
-a moderator accepted by `IEditorialDeskService.EnsureCanEditAsync`.
-
-| Method | Path under `/api/editorial/discussion-seeding` | Purpose |
-| --- | --- | --- |
-| GET | `/flags` | Current database-backed switches |
-| PUT | `/flags` | Replace switches; body has `generationEnabled`, `publishingEnabled`, `combinedLikesEnabled` |
-| POST | `/runs` | Prepare a named run; body `{ "name": "UAT pilot" }` |
-| GET | `/rollback-preview?runId=<optional UUID>` | Read-only estimate of affected records |
-| POST | `/stop-and-hide` | Body `{}` for all runs, or `{ "runId": "<UUID>" }` for one run |
-
-A scoped stop still disables the global pipeline, but hides/cancels only that
-run's records. Other runs remain stopped by the switches until an operator
-explicitly re-enables them. An unknown run returns 404 without modifying flags.
-The UI exposes recovery only; it does not expose an enable action.
-
-## Before enabling the publisher
-
-Use the staged UAT procedure and source requirements in the
-[pipeline guide](discussion-seeding-pipeline.md). The publisher now uses the
-same database lock as rollback, persists provenance at creation, moderates
-contributions and rechecks the run before publication. Normal human reply
-writers use atomic counter deltas. The deployment gate remains false.
-
-SQL Server UAT and live quality checks remain necessary. Keep source engagement
-separate from organic metrics, and retain this foundation's visibility filters
-when rolling application code back.
-
-## Validation
-
-`DiscussionSeedingRollbackTests` covers default-off switches, repeat-safe schema
-repair, idempotent and scoped rollback, preservation of organic data/history,
-transaction rollback on a database failure, missing controls, and authorization.
-
-```sh
-./scripts/test-backend.sh
+```bash
+dotnet run --project tools/SeedingControl -- preview
 ```
 
-.NET SDK **10.0.100** is installed in this workspace at
-`/tmp/kinoiserie-dotnet`. Microsoft's official blob download feed worked when
-its primary build download host was blocked. To use that installation explicitly:
+For rollback, first stop every API instance's seeding worker with the Azure global setting above. Set `DiscussionSeeding__Enabled=false` in the console environment too, then run:
 
-```sh
-KINSHOUT_DOTNET=/tmp/kinoiserie-dotnet/dotnet ./scripts/test-backend.sh
+```bash
+dotnet run --project tools/SeedingControl -- stop-and-hide
 ```
 
-The test script disables MSBuild node reuse and shared compilation, and runs
-MSBuild with one node. This avoids the Unix socket background servers which
-are unavailable in this workspace; normal VSTest execution still runs the real
-test assembly. CI uses the same script with the SDK installed by setup-dotnet.
+The console acknowledgement does not remotely check Azure configuration; the operator must stop all workers first. Otherwise an enabled application restart can initialize a new run.
 
-The first build exposed duplicate SDK content for `Data/source-registry.json`;
-its project entry now uses `Update` to preserve copying without including it
-twice. All seven rollback tests passed. The full suite also exposed an existing
-Facebook-share canonical-key bug: the attached YouTube clip must identify the
-shared video instead of the Facebook wrapper post. That behavior is fixed, with
-five additional cases covering source precedence and fallback identities.
+Stop-and-hide atomically stops runs, cancels pending jobs, hides generated comments/profiles and subtracts only newly hidden replies from counters. It preserves organic replies/likes and generated history. The command is idempotent. `Guid.Empty` records infrastructure/developer actions rather than attributing them to a moderator user.
 
-Validation on November 8, 2026: **551 passed, 0 failed, 21 skipped** (572 total).
-All seven rollback tests passed. The 21 skips are existing explicit exclusions
-for advert-search behavior after search was changed to discussions only. The
-TRX report is available in `review/test-results/backend-tests.trx`.
+## Application rollback
 
-SQL Server UAT and multi-instance publisher testing remain required before
-enabling any later generation feature. Passing SQLite tests does not establish
-SQL Server compatibility. NuGet reported dependency security advisories for
-ImageSharp and transitive SQLite/PKCS packages; dependency upgrades are not part
-of this testing fix.
+GitHub rollback branches `rollback/before-discussion-seeding-20261108` preserve backend `9a4f4b9ccf2baa15a23da950774ce4f758d81439` and frontend `f4603dbdd81d1a580873a67d24ca15b6e27a6f12`.
 
-The frontend source was downloaded from private repository commit
-`f4603dbdd81d1a580873a67d24ca15b6e27a6f12`. Its local Git baseline is an archive
-snapshot, not the repository's original Git ancestry; apply its patch onto that
-real commit rather than pushing the snapshot as a replacement history.
+Disable and hide generated activity before reverting to application code that predates the visibility filters. Retain the additive database schema. Do not downgrade/drop schema as an emergency rollback; later organic activity must not be overwritten with an old database snapshot.
