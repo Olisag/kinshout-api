@@ -118,6 +118,124 @@ public static partial class DiscussionMultimedia
         string? body) =>
         imageUrls.Count == 0 ? [] : imageUrls.ToList();
 
+    /// <summary>
+    /// Heal misclassified X imports: poster JPEGs must not stay in VideoUrls
+    /// (they render as a second empty/broken player beside the real photo).
+    /// </summary>
+    public static (List<string> Images, List<string> Videos) PartitionExternalMediaUrls(
+        IReadOnlyList<string>? imageUrls,
+        IReadOnlyList<string>? videoUrls)
+    {
+        var images = new List<string>();
+        var videos = new List<string>();
+        var seenImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddImage(string url)
+        {
+            if (seenImages.Add(url))
+                images.Add(url);
+        }
+
+        void AddVideo(string url)
+        {
+            if (seenVideos.Add(url))
+                videos.Add(url);
+        }
+
+        foreach (var url in imageUrls ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                continue;
+            var trimmed = url.Trim();
+            if (LooksLikePlayableVideoUrl(trimmed) && !LooksLikeStillImageUrl(trimmed))
+                AddVideo(trimmed);
+            else
+                AddImage(trimmed);
+        }
+
+        foreach (var url in videoUrls ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                continue;
+            var trimmed = url.Trim();
+            if (LooksLikeStillImageUrl(trimmed))
+                AddImage(trimmed);
+            else
+                AddVideo(trimmed);
+        }
+
+        if (videos.Count > 0)
+        {
+            images = images
+                .Where(image => !IsTwitterVideoPosterUrl(image))
+                .ToList();
+        }
+
+        // Same URL must not appear in both lists.
+        images = images.Where(url => !seenVideos.Contains(url)).Take(DiscussionMediaHelper.MaxImages).ToList();
+        videos = videos.Take(DiscussionMediaHelper.MaxVideos).ToList();
+        return (images, videos);
+    }
+
+    public static bool LooksLikeStillImageUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        var path = uri.AbsolutePath;
+        if (Regex.IsMatch(path, @"\.(avif|gif|jpe?g|png|webp)$", RegexOptions.IgnoreCase))
+            return true;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        if (host.Equals("video.twimg.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (host.Equals("pbs.twimg.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".twimg.com", StringComparison.OrdinalIgnoreCase))
+        {
+            if (path.Contains("/media/", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("video_thumb", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("_thumb/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var format = ExtractQueryValue(uri.Query, "format");
+            if (!string.IsNullOrWhiteSpace(format)
+                && Regex.IsMatch(format, @"^(avif|gif|jpe?g|png|webp)$", RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool LooksLikePlayableVideoUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || LooksLikeStillImageUrl(url))
+            return false;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        if (host.Equals("video.twimg.com", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return Regex.IsMatch(uri.AbsolutePath, @"\.(mp4|mov|webm|m4v|m3u8)$", RegexOptions.IgnoreCase);
+    }
+
+    public static bool IsTwitterVideoPosterUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        var path = uri.AbsolutePath;
+        return path.Contains("video_thumb", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("ext_tw_video_thumb", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("amplify_video_thumb", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("tweet_video_thumb", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsAbsoluteHitEngagement(int? engagementScore) =>
         engagementScore.GetValueOrDefault() >= AbsoluteHitEngagementScore;
 

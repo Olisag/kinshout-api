@@ -186,25 +186,30 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var images = new List<string>();
         var videos = new List<string>();
 
-        if (item.TryGetProperty("entities", out var entities) && entities.ValueKind == JsonValueKind.Object)
+        void AddImage(string? url)
         {
-            if (entities.TryGetProperty("media", out var media) && media.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var m in media.EnumerateArray())
-                {
-                    var type = (ReadString(m, "type") ?? string.Empty).ToLowerInvariant();
-                    var mediaUrl = ReadString(m, "media_url_https")
-                        ?? ReadString(m, "mediaUrl")
-                        ?? ReadString(m, "url");
-                    if (string.IsNullOrWhiteSpace(mediaUrl))
-                        continue;
-                    if (type.Contains("video", StringComparison.Ordinal))
-                        videos.Add(mediaUrl);
-                    else
-                        images.Add(mediaUrl);
-                }
-            }
+            if (string.IsNullOrWhiteSpace(url) || LooksLikeVideoUrl(url))
+                return;
+            images.Add(url);
         }
+
+        void AddVideo(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url) || LooksLikeStillImageUrl(url))
+                return;
+            videos.Add(url);
+        }
+
+        if (item.TryGetProperty("entities", out var entities) && entities.ValueKind == JsonValueKind.Object)
+            CollectEntityMedia(entities, AddImage, AddVideo);
+
+        if (item.TryGetProperty("extendedEntities", out var extended) && extended.ValueKind == JsonValueKind.Object)
+            CollectEntityMedia(extended, AddImage, AddVideo);
+        else if (item.TryGetProperty("extended_entities", out var extendedSnake) && extendedSnake.ValueKind == JsonValueKind.Object)
+            CollectEntityMedia(extendedSnake, AddImage, AddVideo);
+
+        // Some Apify shapes expose parallel mediaUrls / mediaTypes arrays.
+        CollectParallelMediaArrays(item, AddImage, AddVideo);
 
         foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
                      text,
@@ -212,16 +217,268 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
                      System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             var link = match.Value.TrimEnd(')', ']', '.', ',', ';');
-            if (link.Contains("twimg.com/", StringComparison.OrdinalIgnoreCase)
-                || link.Contains("pbs.twimg.com/", StringComparison.OrdinalIgnoreCase))
+            if (!link.Contains("twimg.com/", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (LooksLikeVideoUrl(link))
+                AddVideo(link);
+            else
+                AddImage(link);
+        }
+
+        var distinctImages = images.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var distinctVideos = videos.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        // One display surface per asset: drop poster stills that duplicate a playable clip.
+        if (distinctVideos.Count > 0)
+        {
+            distinctImages = distinctImages
+                .Where(image => !IsTwitterPosterForAnyVideo(image, distinctVideos))
+                .ToList();
+        }
+
+        // Never keep the same URL in both lists.
+        var videoSet = new HashSet<string>(distinctVideos, StringComparer.OrdinalIgnoreCase);
+        distinctImages = distinctImages.Where(url => !videoSet.Contains(url)).ToList();
+
+        return (
+            distinctImages.Take(10).ToList(),
+            distinctVideos.Take(5).ToList());
+    }
+
+    private static void CollectEntityMedia(
+        JsonElement container,
+        Action<string?> addImage,
+        Action<string?> addVideo)
+    {
+        if (!container.TryGetProperty("media", out var media) || media.ValueKind != JsonValueKind.Array)
+            return;
+
+        foreach (var m in media.EnumerateArray())
+        {
+            var type = (ReadString(m, "type") ?? ReadString(m, "mediaType") ?? string.Empty)
+                .ToLowerInvariant();
+            var poster = ReadString(m, "media_url_https")
+                ?? ReadString(m, "media_url")
+                ?? ReadString(m, "thumbnailUrl")
+                ?? ReadString(m, "thumbnail_url");
+            var videoUrl = ReadBestVideoUrl(m);
+
+            if (type.Contains("video", StringComparison.Ordinal)
+                || type.Contains("animated_gif", StringComparison.Ordinal)
+                || type.Contains("gif", StringComparison.Ordinal))
             {
-                images.Add(link);
+                // media_url_https on X videos is the poster JPEG — never store it as a video.
+                if (!string.IsNullOrWhiteSpace(videoUrl))
+                    addVideo(videoUrl);
+                else
+                    addImage(poster);
+                continue;
+            }
+
+            addImage(poster ?? ReadString(m, "mediaUrl") ?? ReadString(m, "url"));
+        }
+    }
+
+    private static void CollectParallelMediaArrays(
+        JsonElement item,
+        Action<string?> addImage,
+        Action<string?> addVideo)
+    {
+        if (!item.TryGetProperty("mediaUrls", out var urls) || urls.ValueKind != JsonValueKind.Array)
+            return;
+
+        string[]? types = null;
+        if (item.TryGetProperty("mediaTypes", out var typesNode) && typesNode.ValueKind == JsonValueKind.Array)
+        {
+            types = typesNode.EnumerateArray()
+                .Select(t => t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "")
+                .ToArray();
+        }
+
+        var index = 0;
+        foreach (var urlNode in urls.EnumerateArray())
+        {
+            var url = urlNode.ValueKind == JsonValueKind.String ? urlNode.GetString() : null;
+            var type = types is not null && index < types.Length
+                ? types[index].ToLowerInvariant()
+                : string.Empty;
+            index++;
+
+            if (string.IsNullOrWhiteSpace(url))
+                continue;
+
+            if (type.Contains("video", StringComparison.Ordinal)
+                || type.Contains("gif", StringComparison.Ordinal)
+                || LooksLikeVideoUrl(url))
+            {
+                if (LooksLikeStillImageUrl(url))
+                    addImage(url);
+                else
+                    addVideo(url);
+            }
+            else
+            {
+                addImage(url);
+            }
+        }
+    }
+
+    private static string? ReadBestVideoUrl(JsonElement media)
+    {
+        foreach (var key in new[] { "video_url", "videoUrl", "mediaUrl", "media_url" })
+        {
+            var candidate = ReadString(media, key);
+            if (LooksLikeVideoUrl(candidate))
+                return candidate;
+        }
+
+        if (TryPickBestVariant(media, "video_info", out var fromInfo))
+            return fromInfo;
+        if (TryPickBestVariant(media, "videoInfo", out var fromInfoCamel))
+            return fromInfoCamel;
+        if (media.TryGetProperty("variants", out var variants) && variants.ValueKind == JsonValueKind.Array
+            && TryPickBestVariantFromArray(variants, out var fromVariants))
+        {
+            return fromVariants;
+        }
+
+        return null;
+    }
+
+    private static bool TryPickBestVariant(JsonElement media, string infoKey, out string? url)
+    {
+        url = null;
+        if (!media.TryGetProperty(infoKey, out var info) || info.ValueKind != JsonValueKind.Object)
+            return false;
+        if (!info.TryGetProperty("variants", out var variants) || variants.ValueKind != JsonValueKind.Array)
+            return false;
+        return TryPickBestVariantFromArray(variants, out url);
+    }
+
+    private static bool TryPickBestVariantFromArray(JsonElement variants, out string? url)
+    {
+        url = null;
+        string? best = null;
+        var bestBitrate = -1;
+
+        foreach (var variant in variants.EnumerateArray())
+        {
+            var contentType = (ReadString(variant, "content_type")
+                ?? ReadString(variant, "contentType")
+                ?? string.Empty).ToLowerInvariant();
+            var candidate = ReadString(variant, "url");
+            if (string.IsNullOrWhiteSpace(candidate) || !LooksLikeVideoUrl(candidate))
+                continue;
+            if (contentType.Contains("mpegURL", StringComparison.OrdinalIgnoreCase)
+                || contentType.Contains("mpegurl", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var bitrate = ReadInt(variant, "bitrate") ?? 0;
+            if (bitrate >= bestBitrate)
+            {
+                bestBitrate = bitrate;
+                best = candidate;
             }
         }
 
-        return (
-            images.Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList(),
-            videos.Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToList());
+        url = best;
+        return !string.IsNullOrWhiteSpace(url);
+    }
+
+    /// <summary>X stores poster JPEGs on pbs.twimg.com; real clips live on video.twimg.com.</summary>
+    private static bool LooksLikeStillImageUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        var path = uri.AbsolutePath;
+        if (System.Text.RegularExpressions.Regex.IsMatch(path, @"\.(avif|gif|jpe?g|png|webp)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        if (host.Equals("video.twimg.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (host.Equals("pbs.twimg.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".twimg.com", StringComparison.OrdinalIgnoreCase))
+        {
+            if (path.Contains("/media/", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("_thumb/", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("video_thumb", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("ext_tw_video_thumb", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("amplify_video_thumb", StringComparison.OrdinalIgnoreCase)
+                || path.Contains("tweet_video_thumb", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var format = ExtractQueryValue(uri.Query, "format");
+            if (!string.IsNullOrWhiteSpace(format)
+                && System.Text.RegularExpressions.Regex.IsMatch(format, @"^(avif|gif|jpe?g|png|webp)$",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? ExtractQueryValue(string query, string key)
+    {
+        if (string.IsNullOrEmpty(query))
+            return null;
+
+        var trimmed = query.StartsWith('?') ? query[1..] : query;
+        foreach (var part in trimmed.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = part.Split('=', 2);
+            if (pair.Length == 2
+                && pair[0].Equals(key, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(pair[1]))
+            {
+                return Uri.UnescapeDataString(pair[1]);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeVideoUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+        if (LooksLikeStillImageUrl(url))
+            return false;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase).ToLowerInvariant();
+        if (host.Equals("video.twimg.com", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            uri.AbsolutePath,
+            @"\.(mp4|mov|webm|m4v|m3u8)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsTwitterPosterForAnyVideo(string imageUrl, IReadOnlyList<string> videoUrls)
+    {
+        if (videoUrls.Count == 0 || !videoUrls.Any(LooksLikeVideoUrl))
+            return false;
+        if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri))
+            return false;
+
+        var path = uri.AbsolutePath;
+        // Drop video thumbs only — keep real photo attachments on mixed posts.
+        return path.Contains("video_thumb", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("ext_tw_video_thumb", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("amplify_video_thumb", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("tweet_video_thumb", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildTitle(string text)

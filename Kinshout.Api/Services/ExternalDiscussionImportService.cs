@@ -460,12 +460,15 @@ public class ExternalDiscussionImportService(
         var engagement = item.EngagementScore;
 
         // Visual-first: skip text-only / unplayable-hotlink-only imports unless absolute hits.
-        var playableVideos = (item.VideoUrls ?? [])
-            .Where(url => !string.IsNullOrWhiteSpace(url)
-                && !DiscussionMultimedia.IsUnplayableHotlinkedVideo(url))
+        // Reclassify X poster JPEGs that scrapers put in VideoUrls before judging visuals.
+        var (partitionedImages, partitionedVideos) = DiscussionMultimedia.PartitionExternalMediaUrls(
+            SanitizeExternalMediaUrls(item.ImageUrls),
+            SanitizeExternalMediaUrls(item.VideoUrls));
+        var playableVideos = partitionedVideos
+            .Where(url => !DiscussionMultimedia.IsUnplayableHotlinkedVideo(url))
             .ToList();
         var hasVisual = DiscussionMultimedia.ImportItemHasVisualMedia(
-            item.ImageUrls,
+            partitionedImages,
             playableVideos,
             rawBody,
             item.Source.ExternalUrl);
@@ -488,7 +491,7 @@ public class ExternalDiscussionImportService(
             return UpsertOutcome.Skipped;
         }
 
-        var mediaKey = MediaCanonicalKey.From(item.Source.ExternalUrl, item.VideoUrls);
+        var mediaKey = MediaCanonicalKey.From(item.Source.ExternalUrl, partitionedVideos);
         if (existing is null && mediaKey is not null
             && await db.Discussions.AnyAsync(d => d.CanonicalMediaKey == mediaKey, ct))
         {
@@ -657,8 +660,8 @@ public class ExternalDiscussionImportService(
             Title = title.Trim(),
             Body = body.Trim(),
             SourceRawBody = rawBody,
-            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.ImageUrls)),
-            VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(SanitizeExternalMediaUrls(item.VideoUrls)),
+            ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(PartitionedImages(item)),
+            VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(PartitionedVideos(item)),
             CreatedAt = createdAt,
             UpdatedAt = importedAt,
             ReplyCount = 0,
@@ -670,7 +673,7 @@ public class ExternalDiscussionImportService(
                 : item.Source.ProviderName.Trim(),
             SourceExternalId = item.Source.ExternalId.Trim(),
             SourceExternalUrl = item.Source.ExternalUrl.Trim(),
-            CanonicalMediaKey = MediaCanonicalKey.From(item.Source.ExternalUrl, item.VideoUrls),
+            CanonicalMediaKey = MediaCanonicalKey.From(item.Source.ExternalUrl, PartitionedVideos(item)),
             SourceImportedAt = importedAt,
             SourceLastSeenAt = lastSeenAt,
             SourceFirstSeenAt = firstSeenAt,
@@ -696,6 +699,22 @@ public class ExternalDiscussionImportService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(DiscussionMediaHelper.MaxImages)
             .ToList();
+    }
+
+    private static List<string> PartitionedImages(ImportExternalDiscussionDto item)
+    {
+        var (images, _) = DiscussionMultimedia.PartitionExternalMediaUrls(
+            SanitizeExternalMediaUrls(item.ImageUrls),
+            SanitizeExternalMediaUrls(item.VideoUrls));
+        return images;
+    }
+
+    private static List<string> PartitionedVideos(ImportExternalDiscussionDto item)
+    {
+        var (_, videos) = DiscussionMultimedia.PartitionExternalMediaUrls(
+            SanitizeExternalMediaUrls(item.ImageUrls),
+            SanitizeExternalMediaUrls(item.VideoUrls));
+        return videos;
     }
 
     private async Task<Category> AssignTopicCategoryAsync(string text, CancellationToken ct)

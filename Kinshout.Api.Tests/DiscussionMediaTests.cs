@@ -146,6 +146,37 @@ public class DiscussionMediaHelperTests
     }
 }
 
+public class DiscussionMultimediaPartitionTests
+{
+    [Fact]
+    public void PartitionExternalMediaUrls_MovesXPosterOutOfVideos()
+    {
+        var poster = "https://pbs.twimg.com/ext_tw_video_thumb/1/img/abc.jpg";
+        var clip = "https://video.twimg.com/amplify_video/1/vid/720x1280/clip.mp4";
+
+        var (images, videos) = DiscussionMultimedia.PartitionExternalMediaUrls(
+            [poster],
+            [poster, clip]);
+
+        Assert.DoesNotContain(poster, images);
+        Assert.DoesNotContain(poster, videos);
+        Assert.Equal([clip], videos);
+    }
+
+    [Fact]
+    public void PartitionExternalMediaUrls_KeepsPhotoWhenNoPlayableVideo()
+    {
+        var photo = "https://pbs.twimg.com/media/ABC123?format=jpg&name=large";
+
+        var (images, videos) = DiscussionMultimedia.PartitionExternalMediaUrls(
+            [],
+            [photo]);
+
+        Assert.Equal([photo], images);
+        Assert.Empty(videos);
+    }
+}
+
 public class DiscussionMediaServiceTests
 {
     [Fact]
