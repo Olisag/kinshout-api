@@ -5,18 +5,19 @@ using Microsoft.EntityFrameworkCore;
 namespace Kinshout.Api.Services;
 
 /// <summary>
-/// Keeps party politics and armed conflict out of public feeds.
+/// Keeps party politics, armed conflict, and Congo-Brazzaville content out of public feeds.
 /// The same names are blocked at import in KinshasaSocialPostFilter.
 /// The decision is stored on the row. Public queries read that flag
 /// instead of scanning every title and body on each request.
 /// </summary>
 public static class PoliticsFeedFilter
 {
-    /// <summary>Bump when <see cref="Terms"/> changes so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 1;
+    /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
+    public const int RuleVersion = 2;
 
     private static readonly string[] Terms =
     [
+        // Parties / figures
         "fayulu",
         "kabund",
         "mukebayi",
@@ -29,21 +30,58 @@ public static class PoliticsFeedFilter
         "mlc",
         "fcc ",
         "udps",
-        "m23",
-        "fardc",
-        "fdlr",
         "topcongo",
         "top congo",
+        "naanga",
+        "nangaa",
+        "kanambe",
+        // Armed groups / conflict — including FRN
+        " frn",
+        "frn ",
+        "#frn",
+        "(frn",
+        "frn/",
+        "frn)",
+        "front pour la refondation",
+        "refondation de la nation",
+        "m23",
+        "afc/m23",
+        "afc-m23",
+        "afc m23",
+        "fardc",
+        "fdlr",
+        "codeco",
+        " adf",
+        "adf ",
+        "#adf",
+        "rebelle",
+        "rebelles",
+        "rébellion",
+        "rebellion",
+        "insurgé",
+        "insurge",
+        "insurgés",
+        "insurges",
+        "milice",
+        "milices",
+        "groupe armé",
+        "groupe arme",
+        "groupes armés",
+        "groupes armes",
+        "guerre",
+        "guerres",
+        "guerre civile",
+        "conflit armé",
+        "conflit arme",
+        "combats ",
+        "bataille",
+        "attaque armée",
+        "attaque armee",
         "rwanda",
         "rwandais",
         "rwandaise",
         "kigali",
-        "naanga",
-        "nangaa",
-        "kanambe",
-        "afc/m23",
-        "rebelle",
-        "rebelles",
+        // Institutional politics
         "gouvernement",
         "président",
         "president",
@@ -55,6 +93,20 @@ public static class PoliticsFeedFilter
         "assemblee nationale",
         "coup d'état",
         "coup d'etat",
+        // Congo-Brazzaville (not Kinshasa / DRC)
+        "brazzaville",
+        "pointe-noire",
+        "pointe noire",
+        "congo-brazzaville",
+        "congo brazzaville",
+        "congo-brazza",
+        "congo brazza",
+        "république du congo",
+        "republique du congo",
+        "republic of the congo",
+        "republic of congo",
+        "#congobrazzaville",
+        "#brazzaville",
     ];
 
     public static IQueryable<Discussion> WhereAllowed(IQueryable<Discussion> query) =>

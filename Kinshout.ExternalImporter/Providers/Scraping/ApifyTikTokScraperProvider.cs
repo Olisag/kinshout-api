@@ -84,8 +84,10 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
                 var author = ReadAuthor(item);
                 var text = ReadString(item, "text") ?? url;
                 var title = TrimTitle(text);
-                if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
-                    || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author))
+                if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, text)
+                    || KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
+                    || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author)
+                    || KinshasaSocialPostFilter.LooksLikeCongoBrazzaville($"{title} {text}"))
                     continue;
 
                 var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);

@@ -302,8 +302,13 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
 
     private static bool IsBlocked(string? title, string? body, string? author)
     {
-        if (KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body, author))
+        var blob = $"{title} {body}";
+        if (KinshasaSocialPostFilter.LooksLikeCongoBrazzaville(blob)
+            || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, body, author)
+            || !KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
+        {
             return true;
+        }
 
         var haystack = Fold($"{title} {body} {author}");
         return AdultTerms.Any(term => haystack.Contains(term, StringComparison.Ordinal));
