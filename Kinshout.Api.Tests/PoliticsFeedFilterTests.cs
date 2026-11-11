@@ -9,6 +9,8 @@ public class PoliticsFeedFilterTests
     [InlineData("Combats M23", "Les rebelles ont attaqué une position FARDC.")]
     [InlineData("Guerre à l'est", "La guerre civile continue.")]
     [InlineData("Élections", "Le président Tshisekedi parle politique.")]
+    [InlineData("Kabila à Kinshasa", "Joseph Kabila et Olive Lembe en déplacement.")]
+    [InlineData("Maman wa Roho", "Discours de Maman wa Roho sur la politique.")]
     public void IsBlocked_HidesPoliticsAndConflict(string title, string body)
     {
         Assert.True(PoliticsFeedFilter.IsBlocked(null, title, body, null, null, null));
@@ -33,8 +35,8 @@ public class PoliticsFeedFilterTests
     }
 
     [Fact]
-    public void RuleVersion_IsAtLeastTwo_ForFrnAndBrazzavillePass()
+    public void RuleVersion_IsAtLeastThree_ForKabilaCirclePass()
     {
-        Assert.True(PoliticsFeedFilter.RuleVersion >= 2);
+        Assert.True(PoliticsFeedFilter.RuleVersion >= 3);
     }
 }

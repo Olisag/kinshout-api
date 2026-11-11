@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 2;
+    public const int RuleVersion = 3;
 
     private static readonly string[] Terms =
     [
@@ -26,6 +26,11 @@ public static class PoliticsFeedFilter
         "tshisekedi",
         "fatshi",
         "kabila",
+        "olive lembe",
+        "olive lembé",
+        "maman wa roho",
+        "maman waroho",
+        "wa roho",
         "bemba",
         "mlc",
         "fcc ",
