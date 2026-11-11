@@ -144,24 +144,8 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             await db.Users.Where(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.SeedHiddenAt, (DateTime?)now), ct);
 
-            var archivedDiscussions = await ArchivableDiscussions(db, runId).ToListAsync(ct);
-            foreach (var discussion in archivedDiscussions)
-                discussion.Visibility = Discussion.ArchivedSimulationVisibility;
-            await db.SaveChangesAsync(ct);
-
-            var archivedCommunities = await ArchivableCommunities(db, runId).ToListAsync(ct);
-            foreach (var community in archivedCommunities)
-            {
-                community.IsActive = false;
-                community.Visibility = CommunityVisibilities.Private;
-            }
-            await db.SaveChangesAsync(ct);
-
-            return affected with
-            {
-                ArchivedDiscussions = archivedDiscussions.Count,
-                ArchivedCommunities = archivedCommunities.Count
-            };
+            var (archivedDiscussions, archivedCommunities) = await ArchiveCommunityContentAsync(db, runId, ct);
+            return affected with { ArchivedDiscussions = archivedDiscussions, ArchivedCommunities = archivedCommunities };
         }, ct);
 
     /// <summary>Terminal stop, retaining every published interaction and profile.</summary>
@@ -193,9 +177,34 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             await ArchivableDiscussions(db, runId).CountAsync(ct),
             await ArchivableCommunities(db, runId, preview: true).CountAsync(ct));
 
+    // Callers hold the control-row lock across both archive steps.
+    internal static async Task<(int Discussions, int Communities)> ArchiveCommunityContentAsync(
+        KinshoutDbContext db, Guid? runId, CancellationToken ct)
+    {
+        var archivedDiscussions = await ArchivableDiscussions(db, runId).ToListAsync(ct);
+        foreach (var discussion in archivedDiscussions)
+            discussion.Visibility = Discussion.ArchivedSimulationVisibility;
+        await db.SaveChangesAsync(ct);
+
+        var archivedCommunities = await ArchivableCommunities(db, runId).ToListAsync(ct);
+        foreach (var community in archivedCommunities)
+        {
+            community.IsActive = false;
+            community.Visibility = CommunityVisibilities.Private;
+        }
+        await db.SaveChangesAsync(ct);
+
+        return (archivedDiscussions.Count, archivedCommunities.Count);
+    }
+
+    internal static async Task<int> PendingCommunityCleanupAsync(KinshoutDbContext db, CancellationToken ct) =>
+        await ArchivableDiscussions(db, null).CountAsync(ct)
+        + await ArchivableCommunities(db, null).CountAsync(ct);
+
     // Keep any thread people have joined, liked, or replied to, and its containing community.
     private static IQueryable<Discussion> ArchivableDiscussions(KinshoutDbContext db, Guid? runId) =>
-        db.Discussions.Where(d => d.User.SeedRunId != null && (runId == null || d.User.SeedRunId == runId)
+        db.Discussions.Where(d => d.Visibility != Discussion.ArchivedSimulationVisibility
+            && d.User.SeedRunId != null && (runId == null || d.User.SeedRunId == runId)
             && d.Community != null
             && d.Community.CreatedByUser.SeedRunId == d.User.SeedRunId
             && !d.Replies.Any(r => r.SeedRunId == null && r.User.SeedRunId == null)
@@ -205,7 +214,7 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
 
     private static IQueryable<Community> ArchivableCommunities(KinshoutDbContext db, Guid? runId, bool preview = false)
     {
-        var retainedPosts = db.Discussions.AsQueryable();
+        var retainedPosts = db.Discussions.Where(d => d.Visibility != Discussion.ArchivedSimulationVisibility);
         if (preview)
         {
             var archivableIds = ArchivableDiscussions(db, runId).Select(d => d.Id);

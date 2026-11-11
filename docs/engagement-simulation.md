@@ -6,7 +6,7 @@ Each active run reuses up to 5,000 persisted profiles, including existing run pe
 
 Source likes/views and genuine Kinoiserie likes/replies contribute to a freshness-decayed weighted selection across the most recent 500 eligible imports, sampled among the top 100. Simulated replies do not increase the ranking score; simulated likes never touch the genuine counters. Genuine native posts, blocked/political posts, private or inactive communities, and posts at the existing genuine-reply cutoff remain excluded. Originality, abstention, production moderation at generation and publication, and rechecking eligibility under the shared database lock remain. The extension allows additional distinct comments on an unchanged source snapshot, subject to daily quotas and duplicate checks; the legacy revision-only seeder remains available with `SimulationEnabled=false`.
 
-Public communities have topic names and a description disclosing automated activity. Starter threads use topic titles. The author’s run identifier tracks their simulated origin. The API resolves legacy community URLs to the current slugs. Up to two of six curated themes open per UTC week. The worker rotates moderated French discussion prompts across those communities and may comment and like their threads. The starter prompts use curated text without a generation call.
+Production has disabled seeded community and starter-discussion creation and archives seeded content without genuine participation on worker startup. Existing seeded likes and comments on other discussions continue. When community seeding is enabled, public communities have topic names and a description disclosing automated activity. Starter threads use topic titles. The author’s run identifier tracks their simulated origin. The API resolves legacy community URLs to the current slugs. Up to two of six curated themes open per UTC week. The worker rotates moderated French discussion prompts across those communities and may comment and like their threads. The starter prompts use curated text without a generation call.
 
 ## Configuration and cost
 
@@ -18,8 +18,9 @@ Public communities have topic names and a description disclosing automated activ
 | ProfileCount | 1500 globally, 5000 in Production (maximum 5000) |
 | DailyComments | 150 globally, 500 in Production |
 | DailyLikes | 1200 globally, 4000 in Production |
-| DailyDiscussionPosts | 0 globally, 10 in Production |
-| WeeklyPublicCommunities | 0 globally, 2 in Production |
+| DailyDiscussionPosts | 0 |
+| WeeklyPublicCommunities | 0 |
+| ArchiveSeededCommunityContent | false globally, true in Production |
 | MaxLikesPerTick | 4 globally, 6 in Production |
 | TickSeconds | 60 |
 | MinDelaySeconds / MaxDelaySeconds | 60 / 600 |

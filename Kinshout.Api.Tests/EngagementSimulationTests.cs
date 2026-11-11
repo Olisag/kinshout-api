@@ -284,6 +284,36 @@ public sealed class EngagementSimulationTests
         Assert.Equal(2, rolledBack.ArchivedCommunities);
     }
 
+    [Fact]
+    public async Task CommunityCleanupStopsOnlyCommunityContentAndKeepsGenuineParticipation()
+    {
+        await using var f = await Fixture.Create();
+        f.Config.ProfileCount = 12;
+        f.Config.DailyDiscussionPosts = 10;
+        f.Config.WeeklyPublicCommunities = 2;
+        await f.Pipeline().PublishSimulationLikesAsync();
+        for (var i = 0; i < 4; i++)
+            Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        var posts = await f.Db.Discussions.Where(d => d.User.SeedRunId != null).OrderBy(d => d.Title).ToListAsync();
+        var human = await f.Db.Users.SingleAsync(u => u.Email == "real@example.com");
+        f.Db.DiscussionReplies.Add(new() { DiscussionId = posts[0].Id, UserId = human.Id, Body = "Une vraie réponse." });
+        await f.Db.SaveChangesAsync();
+
+        f.Config.ArchiveSeededCommunityContent = true;
+        await f.Pipeline().InitializeAsync();
+        await f.Pipeline().InitializeAsync();
+        Assert.False(await f.Db.Discussions.AnyAsync(d => d.Id == posts[1].Id));
+        Assert.True(await f.Db.Discussions.AnyAsync(d => d.Id == posts[0].Id));
+        Assert.True(await f.Db.DiscussionReplies.AnyAsync(r => r.DiscussionId == posts[0].Id && r.UserId == human.Id));
+        Assert.Equal(1, await f.Db.Communities.CountAsync(c => c.IsActive && c.CreatedByUser.SeedRunId != null));
+        Assert.Equal(0, await DiscussionSeedingService.PendingCommunityCleanupAsync(f.Db, default));
+        Assert.Equal(12, await f.Db.Users.CountAsync(u => u.SeedRunId != null && u.SeedHiddenAt == null));
+        Assert.True((await f.Control.GetFlagsAsync()).PublishingEnabled);
+        Assert.Equal(0, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        f.Clock.Utc = f.Clock.Utc.AddMinutes(2);
+        Assert.True(await f.Pipeline().PublishSimulationLikesAsync() > 0);
+    }
+
     private sealed class Clock : TimeProvider
     {
         public DateTime Utc = new(2026, 11, 11, 12, 0, 0, DateTimeKind.Utc);

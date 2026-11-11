@@ -7,6 +7,7 @@ public sealed class DiscussionSeedingSettings
     public bool SimulationEnabled { get; set; }
     public int ProfileCount { get; set; } = 1500;
     public int DailyComments { get; set; } = 150;
+    public bool ArchiveSeededCommunityContent { get; set; }
     public int DailyDiscussionPosts { get; set; }
     public int WeeklyPublicCommunities { get; set; }
     public int MaxLikesPerTick { get; set; } = 4;

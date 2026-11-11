@@ -31,7 +31,7 @@ public sealed partial class DiscussionSeedingPipeline
     {
         var config = settings.Value;
         if (!config.Enabled || !config.SimulationEnabled || !ModerationReady
-            || config.WeeklyPublicCommunities <= 0 || config.DailyDiscussionPosts <= 0) return 0;
+            || config.ArchiveSeededCommunityContent || config.WeeklyPublicCommunities <= 0 || config.DailyDiscussionPosts <= 0) return 0;
 
         await using var read = new KinshoutDbContext(options);
         var run = await read.DiscussionSeedRuns.Where(r => r.StoppedAt == null)

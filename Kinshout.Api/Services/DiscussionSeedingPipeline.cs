@@ -32,6 +32,12 @@ public sealed partial class DiscussionSeedingPipeline(
         {
             if (!settings.Value.Enabled) return 0;
             await RefreshPublicNamesAsync(db, ct);
+            if (settings.Value.ArchiveSeededCommunityContent)
+            {
+                var (discussions, communities) = await DiscussionSeedingService.ArchiveCommunityContentAsync(db, null, ct);
+                if (discussions != 0 || communities != 0)
+                    logger.LogInformation("Archived seeded community content: {Discussions} discussions and {Communities} communities", discussions, communities);
+            }
             // An operator pause/stop survives restarts. Bootstrap only a fresh installation.
             if (await db.DiscussionSeedRuns.AnyAsync(ct)) return 1;
             if (await db.DiscussionSeedingControls.AnyAsync(c => c.Id == 1 && c.UpdatedAt != null, ct)) return 0;

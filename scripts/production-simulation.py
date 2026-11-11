@@ -97,7 +97,7 @@ def main():
             continue
         targets = report.get('targets', {})
         if (targets.get('profileCount'), targets.get('dailyComments'), targets.get('dailyLikes'),
-            targets.get('dailyDiscussionPosts'), targets.get('weeklyPublicCommunities')) != (5000, 500, 4000, 10, 2):
+            targets.get('dailyDiscussionPosts'), targets.get('weeklyPublicCommunities')) != (5000, 500, 4000, 0, 0):
             raise RuntimeError('Production simulation targets do not match the expected settings')
         heartbeat = report.get('heartbeatAt')
         active = report['enabled'] and report['flags']['generationEnabled'] and report['flags']['publishingEnabled'] and report['activeRuns'] > 0
@@ -107,7 +107,8 @@ def main():
         if first is None:
             first = heartbeat
         elif (heartbeat and heartbeat != first and report['activeSimulatedProfiles'] >= 5000
-              and report['simulatedPublicCommunities'] >= 2 and report['legacyProfileNames'] == 0
+              and report['archiveSeededCommunityContent'] and report['pendingSeededCommunityCleanup'] == 0
+              and report['legacyProfileNames'] == 0
               and report['legacyCommunityNames'] == 0 and report['legacyDiscussionTitles'] == 0):
             stamp = datetime.datetime.fromisoformat(heartbeat.rstrip('Z')).replace(tzinfo=datetime.timezone.utc)
             if (datetime.datetime.now(datetime.timezone.utc) - stamp).total_seconds() < 180:
