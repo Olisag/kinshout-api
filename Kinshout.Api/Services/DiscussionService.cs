@@ -137,6 +137,7 @@ public class DiscussionService(
             .ToListAsync(ct);
 
         var likedIds = await LoadLikedDiscussionIdsAsync(db, viewerUserId, items.Select(d => d.Id), ct);
+        var simulatedLikes = await LoadSimulatedLikeCountsAsync(db, items.Select(d => d.Id), ct);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(items, ct);
         var communityMemberIds = await LoadViewerApprovedCommunityIdsAsync(db, viewerUserId, items, ct);
         return PagingHelper.Create(
@@ -144,7 +145,8 @@ public class DiscussionService(
                 d,
                 likedIds.Contains(d.Id),
                 videoAssets,
-                IsCommunityMember(d, communityMemberIds))).ToList(),
+                IsCommunityMember(d, communityMemberIds),
+                simulatedLikeCount: simulatedLikes.GetValueOrDefault(d.Id))).ToList(),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -192,6 +194,7 @@ public class DiscussionService(
             .ToListAsync(ct);
 
         var likedIds = await LoadLikedDiscussionIdsAsync(db, userId, items.Select(d => d.Id), ct);
+        var simulatedLikes = await LoadSimulatedLikeCountsAsync(db, items.Select(d => d.Id), ct);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(items, ct);
         var communityMemberIds = await LoadViewerApprovedCommunityIdsAsync(db, userId, items, ct);
         var moderatedCommunityIds = await LoadViewerModeratedCommunityIdsAsync(userId, items, ct);
@@ -204,7 +207,8 @@ public class DiscussionService(
                 DiscussionAccessHelper.CanManage(
                     d,
                     userId,
-                    d.CommunityId is Guid communityId && moderatedCommunityIds.Contains(communityId)))).ToList(),
+                    d.CommunityId is Guid communityId && moderatedCommunityIds.Contains(communityId)),
+                simulatedLikeCount: simulatedLikes.GetValueOrDefault(d.Id))).ToList(),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -243,6 +247,7 @@ public class DiscussionService(
             .ToListAsync(ct);
 
         var likedIds = await LoadLikedDiscussionIdsAsync(db, viewerUserId, items.Select(d => d.Id), ct);
+        var simulatedLikes = await LoadSimulatedLikeCountsAsync(db, items.Select(d => d.Id), ct);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(items, ct);
         var communityMemberIds = await LoadViewerApprovedCommunityIdsAsync(db, viewerUserId, items, ct);
         return PagingHelper.Create(
@@ -250,7 +255,8 @@ public class DiscussionService(
                 d,
                 likedIds.Contains(d.Id),
                 videoAssets,
-                IsCommunityMember(d, communityMemberIds))).ToList(),
+                IsCommunityMember(d, communityMemberIds),
+                simulatedLikeCount: simulatedLikes.GetValueOrDefault(d.Id))).ToList(),
             normalizedPage,
             normalizedPageSize,
             total);
@@ -316,6 +322,7 @@ public class DiscussionService(
             await GetViewerAccessAsync(d, viewerUserId, ct);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(videos, ct);
 
+        var simulatedLikes = await LoadSimulatedLikeCountsAsync(db, [id], ct);
         return new DiscussionDetailDto(
             d.Id,
             d.Title,
@@ -324,7 +331,7 @@ public class DiscussionService(
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
             TimeHelpers.FormatRelative(DiscussionSourceMapper.SortDate(d)),
-            d.LikeCount,
+            d.LikeCount + simulatedLikes.GetValueOrDefault(id),
             viewCount,
             d.ReplyCount,
             isLiked,
@@ -873,7 +880,21 @@ public class DiscussionService(
     {
         var videos = DiscussionMediaHelper.ParseUrlList(d.VideoUrlsJson);
         var videoAssets = await LoadVideoAssetsByStorageUrlAsync(videos, ct);
-        return ToListDto(d, isLiked, videoAssets);
+        var simulatedLikes = await LoadSimulatedLikeCountsAsync(db, [d.Id], ct);
+        return ToListDto(d, isLiked, videoAssets, simulatedLikeCount: simulatedLikes.GetValueOrDefault(d.Id));
+    }
+
+    internal static async Task<Dictionary<Guid, int>> LoadSimulatedLikeCountsAsync(
+        KinshoutDbContext db, IEnumerable<Guid> discussionIds, CancellationToken ct)
+    {
+        var ids = discussionIds.Distinct().ToArray();
+        if (ids.Length == 0) return [];
+
+        return await db.DiscussionSimulatedLikes
+            .Where(l => l.HiddenAt == null && ids.Contains(l.DiscussionId))
+            .GroupBy(l => l.DiscussionId)
+            .Select(g => new { DiscussionId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.DiscussionId, g => g.Count, ct);
     }
 
     internal static DiscussionDto ToListDto(
@@ -881,7 +902,8 @@ public class DiscussionService(
         bool isLiked = false,
         IReadOnlyDictionary<string, VideoAsset>? videoAssetsByStorageUrl = null,
         bool isCommunityMember = false,
-        bool canManage = false)
+        bool canManage = false,
+        int simulatedLikeCount = 0)
     {
         var images = DiscussionMultimedia.FilterAttachedImagesForEmbed(
             DiscussionMediaHelper.ParseUrlList(d.ImageUrlsJson),
@@ -897,7 +919,7 @@ public class DiscussionService(
             d.ReplyCount,
             TimeHelpers.FormatRelative(DiscussionSourceMapper.SortDate(d)),
             d.Category?.Slug,
-            d.LikeCount,
+            d.LikeCount + simulatedLikeCount,
             d.ViewCount,
             isLiked,
             d.IsExternal,

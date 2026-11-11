@@ -167,6 +167,7 @@ public class LikedDiscussionService(KinshoutDbContext db) : ILikedDiscussionServ
             .Where(d => pageIds.Contains(d.Id))
             .ToListAsync(ct);
 
+        var simulatedLikes = await DiscussionService.LoadSimulatedLikeCountsAsync(db, pageIds, ct);
         var byId = discussions.ToDictionary(d => d.Id);
         var discussionLikedIds = discussionLikes.Select(l => l.DiscussionId).ToHashSet();
         var communityMemberIds = await DiscussionService.LoadViewerApprovedCommunityIdsAsync(
@@ -176,7 +177,8 @@ public class LikedDiscussionService(KinshoutDbContext db) : ILikedDiscussionServ
             .Select(id => DiscussionService.ToListDto(
                 byId[id],
                 isLiked: discussionLikedIds.Contains(id),
-                isCommunityMember: DiscussionService.IsCommunityMember(byId[id], communityMemberIds)))
+                isCommunityMember: DiscussionService.IsCommunityMember(byId[id], communityMemberIds),
+                simulatedLikeCount: simulatedLikes.GetValueOrDefault(id)))
             .ToList();
 
         return PagingHelper.Create(items, normalizedPage, normalizedPageSize, total);
@@ -216,10 +218,12 @@ public class LikedDiscussionService(KinshoutDbContext db) : ILikedDiscussionServ
 
         var communityMemberIds = await DiscussionService.LoadViewerApprovedCommunityIdsAsync(
             db, userId, [discussion], ct);
+        var simulatedLikes = await DiscussionService.LoadSimulatedLikeCountsAsync(db, [discussionId], ct);
         return DiscussionService.ToListDto(
             discussion,
             isLiked,
-            isCommunityMember: DiscussionService.IsCommunityMember(discussion, communityMemberIds));
+            isCommunityMember: DiscussionService.IsCommunityMember(discussion, communityMemberIds),
+            simulatedLikeCount: simulatedLikes.GetValueOrDefault(discussionId));
     }
 
     private static DiscussionReplyDto ToReplyDto(DiscussionReply reply, bool isLiked) =>

@@ -126,11 +126,13 @@ public class SearchService(
             matchedDiscussions,
             ct);
         var advertResults = advertDtos.ToDtos(matchedAdverts, savedIds);
+        var simulatedLikes = await DiscussionService.LoadSimulatedLikeCountsAsync(db, matchedDiscussions.Select(d => d.Id), ct);
         var discussionResults = matchedDiscussions
             .Select(d => DiscussionService.ToListDto(
                 d,
                 likedDiscussionIds.Contains(d.Id),
-                isCommunityMember: DiscussionService.IsCommunityMember(d, communityMemberIds)))
+                isCommunityMember: DiscussionService.IsCommunityMember(d, communityMemberIds),
+                simulatedLikeCount: simulatedLikes.GetValueOrDefault(d.Id)))
             .ToList();
         if (request.Tab.Equals("all", StringComparison.OrdinalIgnoreCase))
             return BuildMixedSearchResult(

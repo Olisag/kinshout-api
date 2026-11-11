@@ -82,6 +82,14 @@ public sealed class EngagementSimulationTests
         f.Clock.Utc = f.Clock.Utc.AddMinutes(20);
         await f.Pipeline().PublishDueAsync();
         await f.Pipeline().PublishSimulationLikesAsync();
+        var discussionId = await f.Db.Discussions.Select(d => d.Id).SingleAsync();
+        var discussions = new DiscussionService(f.Db, Mock.Of<IOpenAiService>(), f.Moderation.Object,
+            Mock.Of<IUploadStorage>(), TestDbFactory.CreatePermissiveCommunityService(),
+            TestDbFactory.CreatePermissiveDiscussionParticipationService(),
+            TestDbFactory.CreatePermissiveVideoService(), TestDbFactory.CreateMemoryCache());
+        var before = await discussions.GetByIdAsync(discussionId);
+        Assert.Equal(11, before!.LikeCount);
+        Assert.Equal(2, before.ReplyCount);
         await f.Control.SetFlagsAsync(Guid.Empty, new());
         await f.Pipeline().InitializeAsync();
         Assert.False((await f.Control.GetFlagsAsync()).GenerationEnabled);
@@ -100,6 +108,9 @@ public sealed class EngagementSimulationTests
         var post = await f.Db.Discussions.AsNoTracking().SingleAsync();
         Assert.Equal(7, post.LikeCount);
         Assert.Equal(1, post.ReplyCount);
+        var after = await discussions.GetByIdAsync(discussionId);
+        Assert.Equal(7, after!.LikeCount);
+        Assert.Equal(1, after.ReplyCount);
         Assert.Single(await f.Db.LikedDiscussions.ToListAsync());
         Assert.NotNull(await f.Db.Users.SingleOrDefaultAsync(u => u.SeedRunId == null && u.Email == "real@example.com"));
     }
