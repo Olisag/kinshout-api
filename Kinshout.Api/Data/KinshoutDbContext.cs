@@ -32,6 +32,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<DiscussionSeedingControl> DiscussionSeedingControls => Set<DiscussionSeedingControl>();
     public DbSet<DiscussionSeedRun> DiscussionSeedRuns => Set<DiscussionSeedRun>();
     public DbSet<DiscussionSeedJob> DiscussionSeedJobs => Set<DiscussionSeedJob>();
+    public DbSet<DiscussionSimulatedLike> DiscussionSimulatedLikes => Set<DiscussionSimulatedLike>();
+    public DbSet<DiscussionSimulationDay> DiscussionSimulationDays => Set<DiscussionSimulationDay>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -66,6 +68,20 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<DiscussionSimulatedLike>(e =>
+        {
+            e.HasIndex(x => new { x.DiscussionId, x.PersonaUserId }).IsUnique();
+            e.HasIndex(x => x.SeedRunId);
+            e.HasIndex(x => x.CreatedAt);
+            e.HasOne<DiscussionSeedRun>().WithMany().HasForeignKey(x => x.SeedRunId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Discussion>().WithMany().HasForeignKey(x => x.DiscussionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.PersonaUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<DiscussionSimulationDay>(e =>
+        {
+            e.HasKey(x => x.Day);
+            e.Property(x => x.ReservedCostUsd).HasPrecision(12, 6);
+        });
         modelBuilder.Entity<DiscussionSeedingControl>(e =>
         {
             e.Property(x => x.Id).ValueGeneratedNever();

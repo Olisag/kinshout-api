@@ -1,3 +1,5 @@
+> Production simulation operations and reporting are documented in [engagement-simulation.md](engagement-simulation.md). Legacy seeding details below apply when SimulationEnabled=false.
+
 # Developer-controlled imported discussion seeding
 
 `DiscussionSeeding__Enabled` is the single developer-owned switch in Azure App Service environment variables. `false` stops generation and publication; `true` starts the worker after the application restarts. Azure environment values override checked-in settings. The base default is false. Production configuration enables the feature as requested by the owner.

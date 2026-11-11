@@ -48,5 +48,8 @@ public static partial class DbSchemaPatcher
         // Never overwrite switches already set by an operator on a subsequent startup.
         await db.Database.ExecuteSqlRawAsync(DiscussionSeedingSchema.SeedControl, ct);
         await EnsureDiscussionSeedingPipelineSchemaAsync(db, connection, sqlServer, ct);
+        foreach (var (table, ddl) in DiscussionSimulationSchema.Tables(sqlServer))
+            if (!await TableExistsAsync(connection, sqlServer, table, ct))
+                await db.Database.ExecuteSqlRawAsync(ddl, ct);
     }
 }

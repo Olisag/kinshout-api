@@ -20,6 +20,7 @@ public class JwtTokenService(IOptions<JwtSettings> options) : IJwtTokenService
 
     public string CreateUserToken(User user, string clientId, out DateTime expiresAt)
     {
+        if (user.SeedRunId != null) throw new InvalidOperationException("Simulated profiles cannot authenticate.");
         var issuedAt = DateTimeOffset.UtcNow;
         expiresAt = issuedAt.UtcDateTime.AddMinutes(_settings.ExpirationMinutes);
         var claims = new List<Claim>

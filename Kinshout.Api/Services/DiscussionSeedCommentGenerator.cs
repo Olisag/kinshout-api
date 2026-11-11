@@ -14,7 +14,8 @@ public interface IDiscussionSeedCommentGenerator
     Task<string?> GenerateAsync(DiscussionSeedInput input, CancellationToken ct);
 }
 
-public sealed class DiscussionSeedCommentGenerator(IHttpClientFactory clients, IOptions<OpenAiSettings> settings)
+public sealed class DiscussionSeedCommentGenerator(IHttpClientFactory clients, IOptions<OpenAiSettings> settings,
+    ILogger<DiscussionSeedCommentGenerator>? logger = null)
     : IDiscussionSeedCommentGenerator
 {
     public async Task<string?> GenerateAsync(DiscussionSeedInput input, CancellationToken ct)
@@ -42,6 +43,7 @@ public sealed class DiscussionSeedCommentGenerator(IHttpClientFactory clients, I
         {
             model = config.Model,
             response_format = new { type = "json_object" },
+            max_completion_tokens = 200,
             messages = new object[]
             {
                 new { role = "system", content = """
@@ -69,6 +71,8 @@ public sealed class DiscussionSeedCommentGenerator(IHttpClientFactory clients, I
         using var response = await client.SendAsync(request, deadline.Token);
         response.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(deadline.Token));
+        if (doc.RootElement.TryGetProperty("usage", out var usage))
+            logger?.LogInformation("Simulation inference model={Model} usage={Usage}; provider invoice determines actual cost", config.Model, usage.GetRawText());
         var content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
         using var result = JsonDocument.Parse(content ?? "{}");
         var text = result.RootElement.TryGetProperty("comment", out var comment) && comment.ValueKind == JsonValueKind.String
@@ -76,7 +80,7 @@ public sealed class DiscussionSeedCommentGenerator(IHttpClientFactory clients, I
         return !string.IsNullOrWhiteSpace(text) && text.Length <= 220 && !HasPoliticalContent(text) ? text : null;
     }
 
-    private static bool HasPoliticalContent(string text) => Regex.IsMatch(text,
+    internal static bool HasPoliticalContent(string text) => Regex.IsMatch(text,
         @"\b(politique[s]?|political|politics|[ée]lection[s]?|electoral|[ée]lectoral(?:e|es|s)?|parlement(?:aire)?|parliament|s[ée]nat(?:eur)?|gouvernement|government|parti\s+politique|campagne\s+[ée]lectorale|vot(?:e[rz]?|ez)\s+(?:pour|for))\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
 

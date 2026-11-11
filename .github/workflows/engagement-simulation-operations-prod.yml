@@ -1,0 +1,37 @@
+name: Production engagement simulation controls and reporting
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Explicit operation (rollback hides simulated data only; never automatic)
+        required: true
+        type: choice
+        default: report
+        options: [report, verify, pause, resume, stop, preview, stop-and-hide]
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: engagement-simulation-operations-prod
+  cancel-in-progress: false
+jobs:
+  operate:
+    if: github.ref == 'refs/heads/Master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - name: Build operator tool
+        run: dotnet build tools/SeedingControl -c Release
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_19F6DFAABDC747A8B8A57AA4357F3312 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BA0E7AC063D7423B93689D49C6E14B50 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A4BFFEE8378E424FB38B9FDAFFB1C988 }}
+      - name: Run explicit operation
+        env:
+          SIMULATION_ACTION: ${{ inputs.action }}
+        run: python3 scripts/production-simulation.py "$SIMULATION_ACTION"

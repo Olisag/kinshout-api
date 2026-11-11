@@ -1,3 +1,5 @@
+> Production simulation operations and reporting are documented in [engagement-simulation.md](engagement-simulation.md). Legacy seeding details below apply when SimulationEnabled=false.
+
 # Developer stop and rollback
 
 The global switch is `DiscussionSeeding__Enabled` on the API's Azure App Service. Moderator controls and their HTTP endpoints have been removed.

@@ -11,7 +11,7 @@ public sealed record DiscussionSeedingFlags(
     bool CombinedLikesEnabled = false);
 
 public sealed record DiscussionSeedRollbackResult(
-    int Runs, int PendingJobs, int VisibleComments, int VisibleProfiles);
+    int Runs, int PendingJobs, int VisibleComments, int VisibleProfiles, int VisibleLikes = 0);
 
 public sealed record DiscussionSeedJobReview(Guid Id, Guid RunId, Guid DiscussionId, string Persona,
     string Body, string Status, DateTime ScheduledAt, DateTime? PublishedAt);
@@ -138,11 +138,27 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             }
             await comments.ExecuteUpdateAsync(s => s.SetProperty(x => x.SeedHiddenAt, (DateTime?)now), ct);
 
+            await db.DiscussionSimulatedLikes.Where(x => (runId == null || x.SeedRunId == runId) && x.HiddenAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.HiddenAt, (DateTime?)now), ct);
+
             await db.Users.Where(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.SeedHiddenAt, (DateTime?)now), ct);
 
             return affected;
         }, ct);
+
+    /// <summary>Terminal stop, retaining every published interaction and profile.</summary>
+    public Task<int> StopAsync(Guid actorId, CancellationToken ct = default) => ExecuteLockedAsync(async db =>
+    {
+        var now = DateTime.UtcNow;
+        await db.DiscussionSeedingControls.Where(c => c.Id == 1).ExecuteUpdateAsync(s => s
+            .SetProperty(c => c.GenerationEnabled, false).SetProperty(c => c.PublishingEnabled, false)
+            .SetProperty(c => c.UpdatedAt, (DateTime?)now).SetProperty(c => c.UpdatedByUserId, (Guid?)actorId), ct);
+        await db.DiscussionSeedJobs.Where(j => j.Status == DiscussionSeedJobStatuses.Pending).ExecuteUpdateAsync(s => s
+            .SetProperty(j => j.Status, DiscussionSeedJobStatuses.Cancelled).SetProperty(j => j.CancelledAt, (DateTime?)now), ct);
+        return await db.DiscussionSeedRuns.Where(r => r.StoppedAt == null).ExecuteUpdateAsync(s => s
+            .SetProperty(r => r.StoppedAt, (DateTime?)now).SetProperty(r => r.StoppedByUserId, (Guid?)actorId), ct);
+    }, ct);
 
     private static async Task EnsureRunExistsAsync(KinshoutDbContext db, Guid? runId, CancellationToken ct)
     {
@@ -155,7 +171,8 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             await db.DiscussionSeedRuns.CountAsync(x => (runId == null || x.Id == runId) && x.StoppedAt == null, ct),
             await db.DiscussionSeedJobs.CountAsync(x => (runId == null || x.SeedRunId == runId) && x.Status == DiscussionSeedJobStatuses.Pending, ct),
             await db.DiscussionReplies.IgnoreQueryFilters().CountAsync(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null, ct),
-            await db.Users.CountAsync(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null, ct));
+            await db.Users.CountAsync(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null, ct),
+            await db.DiscussionSimulatedLikes.CountAsync(x => (runId == null || x.SeedRunId == runId) && x.HiddenAt == null, ct));
 
     private async Task<T> ExecuteLockedAsync<T>(Func<KinshoutDbContext, Task<T>> action, CancellationToken ct)
     {

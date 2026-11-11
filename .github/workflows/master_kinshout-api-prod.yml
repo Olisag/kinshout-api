@@ -1,6 +1,10 @@
 # Deploy Kinshout API to production when Master branch is updated.
 name: Build and deploy ASP.Net Core app to Azure Web App - kinshout-api-prod
 
+concurrency:
+  group: kinshout-api-prod-deploy
+  cancel-in-progress: false
+
 on:
   push:
     branches:
@@ -9,6 +13,7 @@ on:
 
 jobs:
   build:
+    needs: sql-validation
     runs-on: windows-latest
     permissions:
       contents: read
@@ -24,8 +29,11 @@ jobs:
       - name: Build with dotnet
         run: dotnet build --configuration Release
 
+      - name: API regression, rollback and concurrency tests
+        run: dotnet test Kinshout.Api.Tests/Kinshout.Api.Tests.csproj -c Release --no-build --logger "trx;LogFileName=production-tests.trx"
+
       - name: dotnet publish
-        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+        run: dotnet publish Kinshout.Api/Kinshout.Api.csproj -c Release -o "${{env.DOTNET_ROOT}}/myapp"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -61,3 +69,53 @@ jobs:
           resource-group-name: 'Phpnet20211126011001ResourceGroup'
           slot-name: 'Production'
           package: .
+
+
+  verify:
+    runs-on: ubuntu-latest
+    needs: deploy
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign in with existing production deployment identity
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_19F6DFAABDC747A8B8A57AA4357F3312 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_BA0E7AC063D7423B93689D49C6E14B50 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A4BFFEE8378E424FB38B9FDAFFB1C988 }}
+      - name: Keep the in-process scheduler running
+        run: az webapp config set --resource-group Phpnet20211126011001ResourceGroup --name kinshout-api-prod --always-on true --output none
+      - name: Verify deployed SHA, configuration and advancing scheduler heartbeat
+        run: python3 scripts/production-simulation.py verify
+
+
+  sql-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: 'Simulation_TestOnly_4827!'
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Simulation_TestOnly_4827!' -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - name: SQL Server rollback, schema and concurrency tests on isolated databases
+        env:
+          KINSHOUT_SQLSERVER_TEST_CONNECTION: 'Server=localhost,1433;Database=master;User Id=sa;Password=Simulation_TestOnly_4827!;TrustServerCertificate=True;Encrypt=False'
+        run: bash scripts/test-backend.sh --filter 'FullyQualifiedName~EngagementSimulationTests|FullyQualifiedName~DiscussionSeeding'

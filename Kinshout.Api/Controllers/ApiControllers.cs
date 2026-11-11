@@ -1134,5 +1134,6 @@ public class HealthController : ControllerBase
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public IActionResult Get() => Ok(new { status = "ok", service = "kinshout-api", version = "1.0.0" });
+    public IActionResult Get() => Ok(new { status = "ok", service = "kinshout-api", version = typeof(HealthController).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().SingleOrDefault()?.InformationalVersion ?? "unknown" });
 }

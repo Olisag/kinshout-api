@@ -45,3 +45,25 @@ public class DiscussionSeedJob
     public DateTime? PublishedAt { get; set; }
     public DateTime? CancelledAt { get; set; }
 }
+
+/// <summary>Simulation likes never enter DiscussionLikes or organic LikeCount.</summary>
+public class DiscussionSimulatedLike
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SeedRunId { get; set; }
+    public Guid DiscussionId { get; set; }
+    public Guid PersonaUserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? HiddenAt { get; set; }
+}
+
+/// <summary>UTC daily budget reservations are durable even when inference fails.</summary>
+public class DiscussionSimulationDay
+{
+    public DateTime Day { get; set; }
+    public int GenerationAttempts { get; set; }
+    public decimal ReservedCostUsd { get; set; }
+    public DateTime? LastAttemptAt { get; set; }
+    public DateTime? LastLikeAt { get; set; }
+    public DateTime? HeartbeatAt { get; set; }
+}

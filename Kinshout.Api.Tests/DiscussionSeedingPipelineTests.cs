@@ -36,7 +36,7 @@ public sealed class DiscussionSeedingPipelineTests
     {
         await using var f = await Fixture.CreateAsync();
         await f.Db.DiscussionSeedRuns.ExecuteDeleteAsync();
-        await f.Control.SetFlagsAsync(f.Actor, new());
+        await f.Db.DiscussionSeedingControls.ExecuteUpdateAsync(s => s.SetProperty(c => c.UpdatedAt, (DateTime?)null));
         Assert.Equal(1, await f.Pipeline().InitializeAsync());
         Assert.Equal(1, await f.Pipeline().InitializeAsync());
         var run = await f.Db.DiscussionSeedRuns.SingleAsync();

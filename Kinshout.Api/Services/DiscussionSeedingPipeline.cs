@@ -10,14 +10,16 @@ using Microsoft.Extensions.Options;
 
 namespace Kinshout.Api.Services;
 
-public sealed class DiscussionSeedingPipeline(
+public sealed partial class DiscussionSeedingPipeline(
     DbContextOptions<KinshoutDbContext> options,
     IOptions<DiscussionSeedingSettings> settings,
     IDiscussionSeedCommentGenerator generator,
     IAdvertModerationService moderation,
     ILogger<DiscussionSeedingPipeline> logger,
-    TimeProvider? clock = null)
+    TimeProvider? clock = null,
+    IOptions<OpenAiSettings>? openAi = null)
 {
+    private bool ModerationReady => openAi is null || (openAi.Value.ModerationEnabled && !string.IsNullOrWhiteSpace(openAi.Value.ApiKey));
     private DateTime Now => (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
     private static readonly string[] Handles = ["MasoloYaKin", "RumbaNaBiso", "MwanaMboka", "KinCulture", "NdomboloClub", "LisoloYaLelo", "MbokaVibes", "SangoCulture", "KinMelodie", "BisoEnsemble", "RumbaCorner", "MasoloMix"];
     private static readonly string[] Styles = ["réaction concise et chaleureuse", "observation sur la musique et le rythme", "question courte sur le sujet", "avis culturel nuancé"];
@@ -29,6 +31,9 @@ public sealed class DiscussionSeedingPipeline(
         return LockedAsync(async db =>
         {
             if (!settings.Value.Enabled) return 0;
+            // An operator pause/stop survives restarts. Bootstrap only a fresh installation.
+            if (await db.DiscussionSeedRuns.AnyAsync(ct)) return 1;
+            if (await db.DiscussionSeedingControls.AnyAsync(c => c.Id == 1 && c.UpdatedAt != null, ct)) return 0;
             if (!await db.DiscussionSeedRuns.AnyAsync(r => r.StoppedAt == null, ct))
                 db.DiscussionSeedRuns.Add(new DiscussionSeedRun
                 {
@@ -50,7 +55,8 @@ public sealed class DiscussionSeedingPipeline(
     public async Task<int> GenerateAsync(CancellationToken ct = default)
     {
         var config = settings.Value;
-        if (!config.Enabled) return 0;
+        if (!config.Enabled || !ModerationReady) return 0;
+        if (config.SimulationEnabled) return await GenerateSimulationAsync(ct);
         await using var read = new KinshoutDbContext(options);
         if (!await read.DiscussionSeedingControls.AnyAsync(x => x.Id == 1 && x.GenerationEnabled, ct)) return 0;
         var run = await read.DiscussionSeedRuns.AsNoTracking().Where(x => x.StoppedAt == null)
@@ -128,13 +134,13 @@ public sealed class DiscussionSeedingPipeline(
 
     public async Task<int> PublishDueAsync(CancellationToken ct = default)
     {
-        if (!settings.Value.Enabled) return 0;
+        if (!settings.Value.Enabled || !ModerationReady) return 0;
         await using var read = new KinshoutDbContext(options);
         if (!await read.DiscussionSeedingControls.AnyAsync(x => x.Id == 1 && x.PublishingEnabled, ct)) return 0;
         var now = Now;
         var jobs = await read.DiscussionSeedJobs.AsNoTracking()
             .Where(j => j.Status == DiscussionSeedJobStatuses.Pending && j.ScheduledAt <= now)
-            .OrderBy(j => j.ScheduledAt).Take(Math.Clamp(settings.Value.MaxJobsPerTick, 1, 20)).ToListAsync(ct);
+            .OrderBy(j => j.ScheduledAt).Take(settings.Value.SimulationEnabled ? 1 : Math.Clamp(settings.Value.MaxJobsPerTick, 1, 20)).ToListAsync(ct);
         var published = 0;
         foreach (var candidate in jobs)
         {
@@ -152,6 +158,13 @@ public sealed class DiscussionSeedingPipeline(
                 var job = await db.DiscussionSeedJobs.FirstOrDefaultAsync(j => j.Id == candidate.Id, ct);
                 if (job is null || job.Status != DiscussionSeedJobStatuses.Pending || job.ScheduledAt > Now) return 0;
                 if (!settings.Value.Enabled || !await db.DiscussionSeedingControls.AnyAsync(x => x.Id == 1 && x.PublishingEnabled, ct)) return 0;
+                if (settings.Value.SimulationEnabled)
+                {
+                    var today = Now.Date;
+                    var due = DueInteractions(Now, settings.Value.DailyComments);
+                    if (await db.DiscussionSeedJobs.CountAsync(j => j.PublishedAt >= today, ct) >= due
+                        || await db.DiscussionSeedJobs.AnyAsync(j => j.PublishedAt > Now.AddSeconds(-Math.Clamp(settings.Value.MinDelaySeconds, 1, 3600)), ct)) return 0;
+                }
                 var thread = await Eligible(db).FirstOrDefaultAsync(d => d.Id == job.DiscussionId, ct);
                 var runActive = await db.DiscussionSeedRuns.AnyAsync(r => r.Id == job.SeedRunId && r.StoppedAt == null, ct);
                 var personaActive = await db.Users.AnyAsync(u => u.Id == job.PersonaUserId && u.SeedRunId == job.SeedRunId && u.SeedHiddenAt == null, ct);
@@ -244,7 +257,9 @@ public sealed class DiscussionSeedingWorker(IServiceScopeFactory scopes, IOption
                     initialized = true;
                 }
                 await pipeline.GenerateAsync(stoppingToken);
-                await pipeline.PublishDueAsync(stoppingToken);
+                var comments = await pipeline.PublishDueAsync(stoppingToken);
+                var likes = await pipeline.PublishSimulationLikesAsync(stoppingToken);
+                logger.LogInformation("Simulation scheduler heartbeat: publishedComments={Comments} publishedSimulatedLikes={Likes}", comments, likes);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogWarning(ex, "Discussion seeding tick failed; retrying on next tick"); }

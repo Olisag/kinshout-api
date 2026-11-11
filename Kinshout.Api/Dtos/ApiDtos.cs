@@ -442,7 +442,8 @@ public record DiscussionReplyDto(
     string? VideoUrl = null,
     DiscussionReplyLocationDto? Location = null,
     int LikeCount = 0,
-    [property: JsonPropertyName("isLiked")] bool IsLiked = false);
+    [property: JsonPropertyName("isLiked")] bool IsLiked = false,
+    bool IsSimulated = false);
 
 public record CreateDiscussionRequestDto(
     string Title,

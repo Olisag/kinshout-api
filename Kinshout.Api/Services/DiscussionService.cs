@@ -766,7 +766,8 @@ public class DiscussionService(
             reply.VideoUrl,
             ToReplyLocationDto(reply),
             reply.LikeCount,
-            isLiked);
+            isLiked,
+            reply.SeedRunId != null);
 
     private static DiscussionReplyDto ToReplyDto(DiscussionReply reply, User user, bool isLiked = false) =>
         new(
@@ -780,7 +781,8 @@ public class DiscussionService(
             reply.VideoUrl,
             ToReplyLocationDto(reply),
             reply.LikeCount,
-            isLiked);
+            isLiked,
+            reply.SeedRunId != null);
 
     private static DiscussionReplyLocationDto? ToReplyLocationDto(DiscussionReply reply)
     {
