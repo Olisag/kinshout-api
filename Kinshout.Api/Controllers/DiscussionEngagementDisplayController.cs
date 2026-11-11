@@ -22,6 +22,9 @@ public sealed class DiscussionEngagementDisplayController(IDiscussionSeedingServ
         label = "Simulated engagement; excluded from genuine traction",
         enabled = settings.Value.Enabled && settings.Value.SimulationEnabled,
         flags = await seeding.GetFlagsAsync(ct),
+        targets = new { settings.Value.ProfileCount, settings.Value.DailyComments, settings.Value.DailyLikes, settings.Value.DailyDiscussionPosts, settings.Value.WeeklyPublicCommunities },
+        simulatedPublicCommunities = await db.Communities.CountAsync(c => c.IsActive && c.Visibility == "public" && c.CreatedByUser.SeedRunId != null, ct),
+        simulatedDiscussionPostsToday = await db.Discussions.CountAsync(d => d.User.SeedRunId != null && d.CreatedAt >= DateTime.UtcNow.Date, ct),
         activeRuns = await db.DiscussionSeedRuns.CountAsync(r => r.StoppedAt == null, ct),
         activeSimulatedProfiles = await db.Users.CountAsync(u => u.SeedRunId != null && u.SeedHiddenAt == null
             && db.DiscussionSeedRuns.Any(r => r.Id == u.SeedRunId && r.StoppedAt == null), ct),

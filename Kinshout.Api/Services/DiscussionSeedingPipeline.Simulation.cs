@@ -35,25 +35,34 @@ public sealed partial class DiscussionSeedingPipeline
         return day;
     }
 
-    private async Task<List<User>> ProfilesAsync(KinshoutDbContext db, Guid run, CancellationToken ct)
+    private async Task<List<Guid>> ProfileIdsAsync(KinshoutDbContext db, Guid run, CancellationToken ct)
     {
-        var profiles = await db.Users.Where(u => u.SeedRunId == run && u.SeedHiddenAt == null).OrderBy(u => u.Email).ToListAsync(ct);
-        foreach (var profile in profiles)
-            if (!profile.DisplayName.StartsWith("Simulation_", StringComparison.Ordinal))
-                profile.DisplayName = "Simulation_" + profile.DisplayName;
-        var count = Math.Clamp(settings.Value.ProfileCount, 1, 1500);
-        for (var slot = profiles.Count; slot < count; slot++)
+        var active = db.Users.Where(u => u.SeedRunId == run && u.SeedHiddenAt == null);
+        await active.Where(u => !u.DisplayName.StartsWith("Simulation_")).ExecuteUpdateAsync(s => s
+            .SetProperty(u => u.DisplayName, u => "Simulation_" + u.DisplayName), ct);
+        var profileIds = await active.Select(u => u.Id).ToListAsync(ct);
+        var count = Math.Clamp(settings.Value.ProfileCount, 1, 5000);
+        if (profileIds.Count >= count) return profileIds;
+
+        // Include hidden slots when choosing new addresses. Hidden personas are never revived.
+        var usedEmails = (await db.Users.Where(u => u.SeedRunId == run).Select(u => u.Email).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var nextSlot = usedEmails.Count;
+        while (profileIds.Count < count)
         {
+            var slot = nextSlot++;
+            var email = $"simulation.{run:N}.{slot:D4}@kinoiserie.invalid";
+            if (!usedEmails.Add(email)) continue;
             var user = new User
             {
-                Email = $"simulation.{run:N}.{slot:D4}@kinoiserie.invalid",
+                Email = email,
                 DisplayName = $"Simulation_{Handles[slot % Handles.Length]}_{run.ToString("N")[..6]}_{slot:D4}",
                 SeedRunId = run,
             };
             db.Users.Add(user);
-            profiles.Add(user);
+            profileIds.Add(user.Id);
         }
-        return profiles;
+        return profileIds;
     }
 
     private async Task<Discussion?> TrendingAsync(KinshoutDbContext db, CancellationToken ct)
@@ -90,7 +99,7 @@ public sealed partial class DiscussionSeedingPipeline
             var run = await db.DiscussionSeedRuns.Where(r => r.StoppedAt == null).OrderByDescending(r => r.CreatedAt).FirstOrDefaultAsync(ct);
             if (run is null || !await CanGenerateAsync(db, run.Id, ct)) return 0;
             var day = await DayAsync(db, ct);
-            var profiles = await ProfilesAsync(db, run.Id, ct);
+            var profiles = await ProfileIdsAsync(db, run.Id, ct);
             var queued = await db.DiscussionSeedJobs.CountAsync(j => j.CreatedAt >= Now.Date
                 && (j.Status == DiscussionSeedJobStatuses.Pending || j.Status == DiscussionSeedJobStatuses.Published), ct);
             var config = settings.Value;
@@ -107,7 +116,7 @@ public sealed partial class DiscussionSeedingPipeline
             day.ReservedCostUsd += cost;
             day.LastAttemptAt = Now;
             runId = run.Id;
-            personaId = profiles[RandomNumberGenerator.GetInt32(profiles.Count)].Id;
+            personaId = profiles[RandomNumberGenerator.GetInt32(profiles.Count)];
             key = $"simulation:{Now:yyyyMMdd}:{day.GenerationAttempts}";
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Simulation budget {Day}: attempts={Attempts} reservedEstimateUsd={Cost} limitUsd={Limit}",
@@ -161,20 +170,21 @@ public sealed partial class DiscussionSeedingPipeline
             if (run is null || !await db.DiscussionSeedingControls.AnyAsync(c => c.Id == 1 && c.PublishingEnabled, ct)) return 0;
             var day = await DayAsync(db, ct);
             if (day.LastLikeAt > Now.AddSeconds(-Math.Clamp(settings.Value.TickSeconds, 10, 3600))) return 0;
-            var profiles = await ProfilesAsync(db, run.Id, ct);
             var count = await db.DiscussionSimulatedLikes.CountAsync(x => x.CreatedAt >= Now.Date, ct);
-            var needed = Math.Clamp(DueInteractions(Now, settings.Value.DailyLikes) - count, 0, 4);
+            var needed = Math.Clamp(DueInteractions(Now, settings.Value.DailyLikes) - count, 0, Math.Clamp(settings.Value.MaxLikesPerTick, 1, 10));
             var post = needed > 0 ? await TrendingAsync(db, ct) : null;
             var added = 0;
             if (post is not null)
             {
+                var profiles = await ProfileIdsAsync(db, run.Id, ct);
                 var used = await db.DiscussionSimulatedLikes.Where(x => x.DiscussionId == post.Id).Select(x => x.PersonaUserId).ToListAsync(ct);
-                var available = profiles.Where(p => !used.Contains(p.Id)).ToList();
+                var usedIds = used.ToHashSet();
+                var available = profiles.Where(p => !usedIds.Contains(p)).ToList();
                 while (added < needed && available.Count > 0)
                 {
                     var index = RandomNumberGenerator.GetInt32(available.Count);
                     db.DiscussionSimulatedLikes.Add(new() { SeedRunId = run.Id, DiscussionId = post.Id,
-                        PersonaUserId = available[index].Id, CreatedAt = Now });
+                        PersonaUserId = available[index], CreatedAt = Now });
                     available.RemoveAt(index);
                     added++;
                 }

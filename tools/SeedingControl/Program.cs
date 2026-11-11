@@ -44,6 +44,8 @@ try
                     utc = DateTime.UtcNow,
                     flags = await service.GetFlagsAsync(),
                     activeRuns = await db.DiscussionSeedRuns.CountAsync(r => r.StoppedAt == null),
+                    simulatedPublicCommunities = await db.Communities.CountAsync(c => c.IsActive && c.Visibility == "public" && c.CreatedByUser.SeedRunId != null),
+                    simulatedDiscussionPosts = await db.Discussions.CountAsync(d => d.User.SeedRunId != null),
                     simulatedProfiles = await db.Users.CountAsync(u => u.SeedRunId != null && u.SeedHiddenAt == null),
                     genuineUsers = await db.Users.CountAsync(u => u.SeedRunId == null && !u.Email.EndsWith("@kinshout.system")),
                     genuineComments = await db.DiscussionReplies.CountAsync(r => r.SeedRunId == null && r.User.SeedRunId == null && !r.User.Email.EndsWith("@kinshout.system")),

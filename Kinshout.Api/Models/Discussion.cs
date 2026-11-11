@@ -2,6 +2,8 @@ namespace Kinshout.Api.Models;
 
 public class Discussion
 {
+    internal const string ArchivedSimulationVisibility = "sim-archived";
+
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserId { get; set; }
     public Guid? CategoryId { get; set; }

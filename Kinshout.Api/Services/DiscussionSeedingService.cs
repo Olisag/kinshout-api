@@ -11,7 +11,7 @@ public sealed record DiscussionSeedingFlags(
     bool CombinedLikesEnabled = false);
 
 public sealed record DiscussionSeedRollbackResult(
-    int Runs, int PendingJobs, int VisibleComments, int VisibleProfiles, int VisibleLikes = 0);
+    int Runs, int PendingJobs, int VisibleComments, int VisibleProfiles, int VisibleLikes = 0, int ArchivedDiscussions = 0, int ArchivedCommunities = 0);
 
 public sealed record DiscussionSeedJobReview(Guid Id, Guid RunId, Guid DiscussionId, string Persona,
     string Body, string Status, DateTime ScheduledAt, DateTime? PublishedAt);
@@ -144,7 +144,24 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             await db.Users.Where(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(x => x.SeedHiddenAt, (DateTime?)now), ct);
 
-            return affected;
+            var archivedDiscussions = await ArchivableDiscussions(db, runId).ToListAsync(ct);
+            foreach (var discussion in archivedDiscussions)
+                discussion.Visibility = Discussion.ArchivedSimulationVisibility;
+            await db.SaveChangesAsync(ct);
+
+            var archivedCommunities = await ArchivableCommunities(db, runId).ToListAsync(ct);
+            foreach (var community in archivedCommunities)
+            {
+                community.IsActive = false;
+                community.Visibility = CommunityVisibilities.Private;
+            }
+            await db.SaveChangesAsync(ct);
+
+            return affected with
+            {
+                ArchivedDiscussions = archivedDiscussions.Count,
+                ArchivedCommunities = archivedCommunities.Count
+            };
         }, ct);
 
     /// <summary>Terminal stop, retaining every published interaction and profile.</summary>
@@ -172,7 +189,33 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             await db.DiscussionSeedJobs.CountAsync(x => (runId == null || x.SeedRunId == runId) && x.Status == DiscussionSeedJobStatuses.Pending, ct),
             await db.DiscussionReplies.IgnoreQueryFilters().CountAsync(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null, ct),
             await db.Users.CountAsync(x => x.SeedRunId != null && (runId == null || x.SeedRunId == runId) && x.SeedHiddenAt == null, ct),
-            await db.DiscussionSimulatedLikes.CountAsync(x => (runId == null || x.SeedRunId == runId) && x.HiddenAt == null, ct));
+            await db.DiscussionSimulatedLikes.CountAsync(x => (runId == null || x.SeedRunId == runId) && x.HiddenAt == null, ct),
+            await ArchivableDiscussions(db, runId).CountAsync(ct),
+            await ArchivableCommunities(db, runId, preview: true).CountAsync(ct));
+
+    // Keep any thread people have joined, liked, or replied to, and its containing community.
+    private static IQueryable<Discussion> ArchivableDiscussions(KinshoutDbContext db, Guid? runId) =>
+        db.Discussions.Where(d => d.User.SeedRunId != null && (runId == null || d.User.SeedRunId == runId)
+            && d.Community != null && d.Community.Slug.StartsWith("simulation-")
+            && d.Community.CreatedByUser.SeedRunId == d.User.SeedRunId
+            && !d.Replies.Any(r => r.SeedRunId == null && r.User.SeedRunId == null)
+            && !d.Participants.Any(p => p.User.SeedRunId == null)
+            && !db.LikedDiscussions.Any(l => l.DiscussionId == d.Id && l.User.SeedRunId == null)
+            && !db.LikedReplies.IgnoreQueryFilters().Any(l => l.Reply.DiscussionId == d.Id && l.User.SeedRunId == null));
+
+    private static IQueryable<Community> ArchivableCommunities(KinshoutDbContext db, Guid? runId, bool preview = false)
+    {
+        var retainedPosts = db.Discussions.AsQueryable();
+        if (preview)
+        {
+            var archivableIds = ArchivableDiscussions(db, runId).Select(d => d.Id);
+            retainedPosts = retainedPosts.Where(d => !archivableIds.Contains(d.Id));
+        }
+        return db.Communities.Where(c => c.IsActive && c.Slug.StartsWith("simulation-")
+            && c.CreatedByUser.SeedRunId != null && (runId == null || c.CreatedByUser.SeedRunId == runId)
+            && !c.Members.Any(m => m.User.SeedRunId == null)
+            && !retainedPosts.Any(d => d.CommunityId == c.Id));
+    }
 
     private async Task<T> ExecuteLockedAsync<T>(Func<KinshoutDbContext, Task<T>> action, CancellationToken ct)
     {

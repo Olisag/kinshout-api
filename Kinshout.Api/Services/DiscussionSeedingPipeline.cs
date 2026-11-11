@@ -198,7 +198,9 @@ public sealed partial class DiscussionSeedingPipeline(
     {
         var organicLimit = Math.Clamp(settings.Value.StopAfterOrganicReplies, 1, 20);
         return db.Discussions.Where(d =>
-        d.SourceProvider != null && d.SourceProvider != DiscussionSourceProvider.Kinshout
+        ((d.SourceProvider != null && d.SourceProvider != DiscussionSourceProvider.Kinshout)
+            || (settings.Value.SimulationEnabled && d.User.SeedRunId != null && d.User.SeedHiddenAt == null
+                && d.Community != null && d.Community.CreatedByUser.SeedRunId == d.User.SeedRunId))
         && d.Visibility == CommunityVisibilities.Public && !d.PublicFeedBlocked && d.TopicSlug != "politique"
         && (d.Community == null || (d.Community.IsActive && d.Community.Visibility == CommunityVisibilities.Public))
         && db.DiscussionReplies.Count(r => r.DiscussionId == d.Id && r.SeedRunId == null
@@ -259,6 +261,7 @@ public sealed class DiscussionSeedingWorker(IServiceScopeFactory scopes, IOption
                 await pipeline.GenerateAsync(stoppingToken);
                 var comments = await pipeline.PublishDueAsync(stoppingToken);
                 var likes = await pipeline.PublishSimulationLikesAsync(stoppingToken);
+                await pipeline.PublishSimulationCommunityContentAsync(stoppingToken);
                 logger.LogInformation("Simulation scheduler heartbeat: publishedComments={Comments} publishedSimulatedLikes={Likes}", comments, likes);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

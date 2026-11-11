@@ -174,6 +174,53 @@ public sealed class EngagementSimulationTests
         Assert.Equal(1500, await f.Db.Users.CountAsync(u => u.SeedRunId != null && u.SeedHiddenAt == null));
     }
 
+    [Fact]
+    public async Task CommunityContent_RespectsCapsAndArchivesOnlyUntouchedThreads()
+    {
+        await using var f = await Fixture.Create();
+        f.Config.ProfileCount = 12;
+        f.Config.DailyDiscussionPosts = 10;
+        f.Config.WeeklyPublicCommunities = 2;
+        await f.Pipeline().PublishSimulationLikesAsync();
+        Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        Assert.Equal(2, await f.Db.Communities.CountAsync(c => c.Slug.StartsWith("simulation-")));
+        Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        var posts = await f.Db.Discussions.Where(d => d.User.SeedRunId != null).OrderBy(d => d.Title).ToListAsync();
+        Assert.Equal(2, posts.Count);
+        Assert.All(posts, p => Assert.StartsWith("Simulation · ", p.Title));
+        var human = await f.Db.Users.SingleAsync(u => u.Email == "real@example.com");
+        f.Db.DiscussionReplies.Add(new() { DiscussionId = posts[0].Id, UserId = human.Id, Body = "Une contribution réelle." });
+        await f.Db.SaveChangesAsync();
+
+        var preview = await f.Control.PreviewRollbackAsync();
+        Assert.Equal(1, preview.ArchivedDiscussions);
+        Assert.Equal(1, preview.ArchivedCommunities);
+        var rolledBack = await f.Control.StopAndHideAsync(Guid.Empty);
+        Assert.Equal(preview.ArchivedDiscussions, rolledBack.ArchivedDiscussions);
+        Assert.Equal(preview.ArchivedCommunities, rolledBack.ArchivedCommunities);
+        Assert.True(await f.Db.Discussions.AnyAsync(d => d.Id == posts[0].Id));
+        Assert.False(await f.Db.Discussions.AnyAsync(d => d.Id == posts[1].Id));
+        Assert.True(await f.Db.DiscussionReplies.AnyAsync(r => r.DiscussionId == posts[0].Id && r.UserId == human.Id));
+        Assert.Equal(0, await f.Pipeline().PublishSimulationCommunityContentAsync());
+    }
+
+    [Fact]
+    public async Task ProfilePool_SupportsFiveThousandAndScaledLikeBatches()
+    {
+        await using var f = await Fixture.Create();
+        f.Config.ProfileCount = 5000;
+        f.Config.DailyLikes = 4000;
+        f.Config.MaxLikesPerTick = 6;
+        Assert.Equal(6, await f.Pipeline().PublishSimulationLikesAsync());
+        Assert.Equal(5000, await f.Db.Users.CountAsync(u => u.SeedRunId != null));
+        f.Clock.Utc = f.Clock.Utc.AddMinutes(2);
+        Assert.Equal(6, await f.Pipeline().PublishSimulationLikesAsync());
+        Assert.Equal(5000, await f.Db.Users.CountAsync(u => u.SeedRunId != null));
+        Assert.Equal(12, await f.Db.DiscussionSimulatedLikes.Select(l => l.PersonaUserId).Distinct().CountAsync());
+    }
+
     private sealed class Clock : TimeProvider
     {
         public DateTime Utc = new(2026, 11, 11, 12, 0, 0, DateTimeKind.Utc);

@@ -169,6 +169,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
 
         modelBuilder.Entity<Discussion>(e =>
         {
+            e.HasQueryFilter(d => d.Visibility != Discussion.ArchivedSimulationVisibility);
             e.Property(x => x.Title).HasMaxLength(200);
             e.Property(x => x.SourceReactionTextsJson).HasDefaultValue("[]");
             e.Property(x => x.SourceMetricsRevision).HasMaxLength(64);

@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 APP = ['--resource-group', 'Phpnet20211126011001ResourceGroup', '--name', 'kinshout-api-prod']
@@ -72,16 +73,32 @@ def main():
     request = urllib.request.Request(base + '/api/auth/client',
         data=json.dumps({'clientId': 'kinshout-web', 'clientSecret': secret}).encode(),
         headers={'Content-Type': 'application/json', 'Origin': 'https://kinoiserie.com'})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        auth = json.load(response)
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                auth = json.load(response)
+            break
+        except urllib.error.URLError as error:
+            if attempt == 5:
+                raise RuntimeError(f'Client authentication probe failed ({getattr(error, "code", type(error).__name__)})') from None
+            time.sleep(10)
     token = auth.get('clientToken')
     if not token: raise RuntimeError('Client authentication did not return a token')
     first = None
+    report = {}
     for attempt in range(12):
         request = urllib.request.Request(base + '/api/discussions/engagement-display/simulation',
             headers={'X-Kinshout-Client-Token': token, 'Origin': 'https://kinoiserie.com'})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            report = json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                report = json.load(response)
+        except urllib.error.URLError:
+            time.sleep(15)
+            continue
+        targets = report.get('targets', {})
+        if (targets.get('profileCount'), targets.get('dailyComments'), targets.get('dailyLikes'),
+            targets.get('dailyDiscussionPosts'), targets.get('weeklyPublicCommunities')) != (5000, 500, 4000, 10, 2):
+            raise RuntimeError('Production simulation targets do not match the expected settings')
         heartbeat = report.get('heartbeatAt')
         active = report['enabled'] and report['flags']['generationEnabled'] and report['flags']['publishingEnabled'] and report['activeRuns'] > 0
         if not active:
@@ -89,7 +106,7 @@ def main():
             continue
         if first is None:
             first = heartbeat
-        elif heartbeat and heartbeat != first and report['activeSimulatedProfiles'] >= 1500:
+        elif heartbeat and heartbeat != first and report['activeSimulatedProfiles'] >= 5000 and report['simulatedPublicCommunities'] >= 2:
             stamp = datetime.datetime.fromisoformat(heartbeat.rstrip('Z')).replace(tzinfo=datetime.timezone.utc)
             if (datetime.datetime.now(datetime.timezone.utc) - stamp).total_seconds() < 180:
                 print('REPORT', json.dumps(report))

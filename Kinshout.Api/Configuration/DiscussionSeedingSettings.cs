@@ -7,6 +7,9 @@ public sealed class DiscussionSeedingSettings
     public bool SimulationEnabled { get; set; }
     public int ProfileCount { get; set; } = 1500;
     public int DailyComments { get; set; } = 150;
+    public int DailyDiscussionPosts { get; set; }
+    public int WeeklyPublicCommunities { get; set; }
+    public int MaxLikesPerTick { get; set; } = 4;
     public int DailyLikes { get; set; } = 1200;
     // Conservative reservation per inference attempt, not a provider invoice.
     public decimal EstimatedCostPerAttemptUsd { get; set; } = 0.01m;
