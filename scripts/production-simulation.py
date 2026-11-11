@@ -71,7 +71,7 @@ def main():
     base = 'https://' + app['defaultHostName']
     request = urllib.request.Request(base + '/api/auth/client',
         data=json.dumps({'clientId': 'kinshout-web', 'clientSecret': secret}).encode(),
-        headers={'Content-Type': 'application/json'})
+        headers={'Content-Type': 'application/json', 'Origin': 'https://kinoiserie.com'})
     with urllib.request.urlopen(request, timeout=30) as response:
         auth = json.load(response)
     token = auth.get('clientToken')
@@ -79,7 +79,7 @@ def main():
     first = None
     for attempt in range(12):
         request = urllib.request.Request(base + '/api/discussions/engagement-display/simulation',
-            headers={'X-Kinshout-Client-Token': token})
+            headers={'X-Kinshout-Client-Token': token, 'Origin': 'https://kinoiserie.com'})
         with urllib.request.urlopen(request, timeout=30) as response:
             report = json.load(response)
         heartbeat = report.get('heartbeatAt')

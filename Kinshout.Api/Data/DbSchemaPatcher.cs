@@ -1432,6 +1432,13 @@ public static partial class DbSchemaPatcher
         DbConnection connection,
         CancellationToken ct)
     {
+        // Full-text is an optional SQL Server component (absent from the isolated
+        // validation container). Its absence must not block unrelated schema repairs.
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT FULLTEXTSERVICEPROPERTY('IsFullTextInstalled')";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct)) != 1) return;
+        }
         if (!await FullTextCatalogExistsAsync(connection, ct))
         {
             await db.Database.ExecuteSqlRawAsync(
