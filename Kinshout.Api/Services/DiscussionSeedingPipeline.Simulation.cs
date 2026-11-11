@@ -17,16 +17,6 @@ public sealed partial class DiscussionSeedingPipeline
         return (int)Math.Floor(Math.Clamp(cumulative, 0, 1) * Math.Clamp(daily, 0, 10000));
     }
 
-    internal static double TrendScore(Discussion post, int genuineReplies, DateTime utc)
-    {
-        var hours = Math.Max(0, (utc - (post.ExternalPublishedAt ?? post.CreatedAt)).TotalHours);
-        var source = Math.Log(1 + Math.Max(0, post.SourceLikeCount ?? 0))
-            + 0.25 * Math.Log(1 + Math.Max(0, post.SourceViewCount ?? 0))
-            + Math.Log(1 + Math.Max(0, post.SourceEngagementScore ?? 0));
-        return (1 + source + 2 * Math.Log(1 + Math.Max(0, post.LikeCount))
-            + 3 * Math.Log(1 + genuineReplies)) / Math.Pow(1 + hours / 12, 1.3);
-    }
-
     private async Task<DiscussionSimulationDay> DayAsync(KinshoutDbContext db, CancellationToken ct)
     {
         var day = await db.DiscussionSimulationDays.SingleOrDefaultAsync(x => x.Day == Now.Date, ct);
@@ -63,29 +53,33 @@ public sealed partial class DiscussionSeedingPipeline
         return profileIds;
     }
 
-    private async Task<Discussion?> TrendingAsync(KinshoutDbContext db, CancellationToken ct)
+    internal async Task<List<Discussion>> PopularCandidatesAsync(KinshoutDbContext db, CancellationToken ct)
     {
-        // Bound the scan and don't let our own activity feed back into ranking.
-        var posts = await Eligible(db).OrderByDescending(d => d.ExternalPublishedAt ?? d.CreatedAt)
-            .Take(500).ToListAsync(ct);
-        posts = posts.Where(p => !DiscussionSeedCommentGenerator.HasPoliticalContent(p.Title)
+        var posts = await DiscussionSourceMapper.OrderByPopular(Eligible(db).AsNoTracking())
+            .Take(100).ToListAsync(ct);
+        return posts.Where(p => !DiscussionSeedCommentGenerator.HasPoliticalContent(p.Title)
             && !DiscussionSeedCommentGenerator.HasPoliticalContent(p.SourceRawBody ?? p.Body)
             && !PoliticsFeedFilter.IsBlocked(null, null, p.Title + " " + (p.SourceRawBody ?? p.Body), null, null, null)).ToList();
-        if (posts.Count == 0) return null;
-        var ids = posts.Select(d => d.Id).ToArray();
-        var genuine = await db.DiscussionReplies.Where(r => ids.Contains(r.DiscussionId) && r.SeedRunId == null
-            && r.User.SeedRunId == null && !r.User.Email.EndsWith("@kinshout.system"))
-            .GroupBy(r => r.DiscussionId).Select(g => new { Id = g.Key, Count = g.Count() }).ToDictionaryAsync(g => g.Id, g => g.Count, ct);
-        var ranked = posts.Select(p => (Post: p, Score: TrendScore(p, genuine.GetValueOrDefault(p.Id), Now)))
-            .OrderByDescending(x => x.Score).Take(100).ToList();
-        var needle = RandomNumberGenerator.GetInt32(1_000_000) / 1_000_000d * ranked.Sum(x => x.Score);
-        foreach (var item in ranked)
-        {
-            needle -= item.Score;
-            if (needle <= 0) return item.Post;
-        }
-        return ranked[^1].Post;
     }
+
+    // Rank one receives twice the selection weight of rank two, and so on.
+    // Use the same allocation for likes and comments without feeding seeded totals into ranking.
+    internal static int PickPopularRank(int candidateCount, double fraction)
+    {
+        var total = 0d;
+        for (var rank = 1; rank <= candidateCount; rank++)
+            total += 1d / rank;
+        var remaining = total * fraction;
+        for (var rank = 1; rank <= candidateCount; rank++)
+        {
+            remaining -= 1d / rank;
+            if (remaining < 0) return rank - 1;
+        }
+        return candidateCount - 1;
+    }
+
+    private static int PickPopularRank(int candidateCount) =>
+        PickPopularRank(candidateCount, RandomNumberGenerator.GetInt32(1_000_000) / 1_000_000d);
 
     private async Task<int> GenerateSimulationAsync(CancellationToken ct)
     {
@@ -107,8 +101,9 @@ public sealed partial class DiscussionSeedingPipeline
                 || day.GenerationAttempts >= Math.Clamp(config.MaxDailyGenerationAttempts, 1, 1000)
                 || day.ReservedCostUsd + cost > config.DailyCostLimitUsd)
             { await db.SaveChangesAsync(ct); return 0; }
-            source = await TrendingAsync(db, ct);
-            if (source is null) { await db.SaveChangesAsync(ct); return 0; }
+            var candidates = await PopularCandidatesAsync(db, ct);
+            if (candidates.Count == 0) { await db.SaveChangesAsync(ct); return 0; }
+            source = candidates[PickPopularRank(candidates.Count)];
             // Budget reservations persist before external inference, including failed attempts.
             day.GenerationAttempts++;
             day.ReservedCostUsd += cost;
@@ -170,21 +165,32 @@ public sealed partial class DiscussionSeedingPipeline
             if (day.LastLikeAt > Now.AddSeconds(-Math.Clamp(settings.Value.TickSeconds, 10, 3600))) return 0;
             var count = await db.DiscussionSimulatedLikes.CountAsync(x => x.CreatedAt >= Now.Date, ct);
             var needed = Math.Clamp(DueInteractions(Now, settings.Value.DailyLikes) - count, 0, Math.Clamp(settings.Value.MaxLikesPerTick, 1, 10));
-            var post = needed > 0 ? await TrendingAsync(db, ct) : null;
             var added = 0;
-            if (post is not null)
+            if (needed > 0)
             {
-                var profiles = await ProfileIdsAsync(db, run.Id, ct);
-                var used = await db.DiscussionSimulatedLikes.Where(x => x.DiscussionId == post.Id).Select(x => x.PersonaUserId).ToListAsync(ct);
-                var usedIds = used.ToHashSet();
-                var available = profiles.Where(p => !usedIds.Contains(p)).ToList();
-                while (added < needed && available.Count > 0)
+                var candidates = await PopularCandidatesAsync(db, ct);
+                if (candidates.Count > 0)
                 {
-                    var index = RandomNumberGenerator.GetInt32(available.Count);
-                    db.DiscussionSimulatedLikes.Add(new() { SeedRunId = run.Id, DiscussionId = post.Id,
-                        PersonaUserId = available[index], CreatedAt = Now });
-                    available.RemoveAt(index);
-                    added++;
+                    var profiles = await ProfileIdsAsync(db, run.Id, ct);
+                    // A saturated discussion cannot take another like from this pool. Try
+                    // the next draw so it does not consume the entire tick's allowance.
+                    while (added < needed && candidates.Count > 0)
+                    {
+                        var rank = PickPopularRank(candidates.Count);
+                        var post = candidates[rank];
+                        candidates.RemoveAt(rank);
+                        var usedIds = (await db.DiscussionSimulatedLikes.Where(x => x.DiscussionId == post.Id)
+                            .Select(x => x.PersonaUserId).ToListAsync(ct)).ToHashSet();
+                        var available = profiles.Where(p => !usedIds.Contains(p)).ToList();
+                        while (added < needed && available.Count > 0)
+                        {
+                            var index = RandomNumberGenerator.GetInt32(available.Count);
+                            db.DiscussionSimulatedLikes.Add(new() { SeedRunId = run.Id, DiscussionId = post.Id,
+                                PersonaUserId = available[index], CreatedAt = Now });
+                            available.RemoveAt(index);
+                            added++;
+                        }
+                    }
                 }
             }
             day.LastLikeAt = Now;

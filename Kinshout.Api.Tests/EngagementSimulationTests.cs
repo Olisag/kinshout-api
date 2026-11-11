@@ -28,12 +28,53 @@ public sealed class EngagementSimulationTests
     }
 
     [Fact]
-    public void Ranking_PrefersFreshSourceAndGenuineEngagement()
+    public async Task PopularCandidates_UseFeedOrderAndExcludeIneligibleDiscussions()
     {
-        var now = DateTime.UtcNow;
-        var fresh = new Discussion { CreatedAt = now, SourceLikeCount = 100, LikeCount = 4 };
-        var stale = new Discussion { CreatedAt = now.AddDays(-30), SourceLikeCount = 100 };
-        Assert.True(DiscussionSeedingPipeline.TrendScore(fresh, 2, now) > DiscussionSeedingPipeline.TrendScore(stale, 0, now));
+        await using var f = await Fixture.Create();
+        var first = await f.Db.Discussions.SingleAsync();
+        first.ViewCount = 5;
+        first.SourceEngagementScore = 20;
+        var sameViews = new Discussion { UserId = first.UserId, Title = "Refrains de Kinshasa",
+            SourceProvider = "youtube", ViewCount = 5, SourceEngagementScore = 10, CreatedAt = first.CreatedAt.AddMinutes(1) };
+        var moreSourceEngagement = new Discussion { UserId = first.UserId, Title = "Chansons de la diaspora",
+            SourceProvider = "youtube", ViewCount = 4, SourceEngagementScore = 1000 };
+        var blocked = new Discussion { UserId = first.UserId, Title = "Discussion bloquée",
+            SourceProvider = "youtube", ViewCount = 500, PublicFeedBlocked = true };
+        f.Db.Discussions.AddRange(sameViews, moreSourceEngagement, blocked);
+        await f.Db.SaveChangesAsync();
+
+        var ranked = await f.Pipeline().PopularCandidatesAsync(f.Db, default);
+        Assert.Equal(new[] { first.Id, sameViews.Id, moreSourceEngagement.Id }, ranked.Select(d => d.Id));
+    }
+
+    [Fact]
+    public void RankWeights_GiveTopDiscussionsTheLargestShare()
+    {
+        var selections = new int[5];
+        for (var i = 0; i < 10000; i++)
+            selections[DiscussionSeedingPipeline.PickPopularRank(selections.Length, (i + 0.5) / 10000)]++;
+
+        for (var i = 1; i < selections.Length; i++)
+            Assert.True(selections[i - 1] > selections[i]);
+        Assert.InRange(selections[0] / (double)selections[1], 1.99, 2.01);
+    }
+
+    [Fact]
+    public async Task LikesFallBackWhenTheTopDiscussionHasUsedItsEntireProfilePool()
+    {
+        await using var f = await Fixture.Create();
+        f.Config.ProfileCount = 1;
+        Assert.Equal(1, await f.Pipeline().PublishSimulationLikesAsync());
+        var first = await f.Db.Discussions.SingleAsync();
+        var second = new Discussion { UserId = first.UserId, Title = "Musique de quartier",
+            SourceProvider = "youtube", ViewCount = 0 };
+        first.ViewCount = 10;
+        f.Db.Discussions.Add(second);
+        await f.Db.SaveChangesAsync();
+
+        f.Clock.Utc = f.Clock.Utc.AddMinutes(2);
+        Assert.Equal(1, await f.Pipeline().PublishSimulationLikesAsync());
+        Assert.Equal(1, await f.Db.DiscussionSimulatedLikes.CountAsync(l => l.DiscussionId == second.Id));
     }
 
     [Fact]
