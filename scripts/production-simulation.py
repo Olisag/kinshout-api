@@ -108,7 +108,7 @@ def main():
             first = heartbeat
         elif (heartbeat and heartbeat != first and report['activeSimulatedProfiles'] >= 5000
               and report['simulatedPublicCommunities'] >= 2 and report['legacyProfileNames'] == 0
-              and report['legacyCommunityNames'] == 0):
+              and report['legacyCommunityNames'] == 0 and report['legacyDiscussionTitles'] == 0):
             stamp = datetime.datetime.fromisoformat(heartbeat.rstrip('Z')).replace(tzinfo=datetime.timezone.utc)
             if (datetime.datetime.now(datetime.timezone.utc) - stamp).total_seconds() < 180:
                 print('REPORT', json.dumps(report))

@@ -189,8 +189,26 @@ public sealed class EngagementSimulationTests
         Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
         var posts = await f.Db.Discussions.Where(d => d.User.SeedRunId != null).OrderBy(d => d.Title).ToListAsync();
         Assert.Equal(2, posts.Count);
-        Assert.All(posts, p => Assert.StartsWith("Simulation · ", p.Title));
+        Assert.All(posts, p =>
+        {
+            Assert.DoesNotContain("Simulation", p.Title);
+            Assert.DoesNotContain("Demo", p.Title);
+            Assert.True(char.IsUpper(p.Title[0]));
+        });
         var human = await f.Db.Users.SingleAsync(u => u.Email == "real@example.com");
+        var originalTitles = posts.Select(p => p.Title).ToArray();
+        posts[0].Title = "Simulation · " + originalTitles[0];
+        posts[1].Title = "Démo · " + originalTitles[1];
+        var genuinePost = await f.Db.Discussions.SingleAsync(d => d.UserId == human.Id);
+        genuinePost.Title = "Simulation · Un sujet publié par un membre";
+        await f.Db.SaveChangesAsync();
+        await f.Pipeline().InitializeAsync();
+        f.Db.ChangeTracker.Clear();
+        for (var i = 0; i < posts.Count; i++)
+            Assert.Equal(originalTitles[i], (await f.Db.Discussions.FindAsync(posts[i].Id))!.Title);
+        Assert.Equal("Simulation · Un sujet publié par un membre", (await f.Db.Discussions.FindAsync(genuinePost.Id))!.Title);
+        Assert.Equal(0, await DiscussionSeedingPipeline.LegacySeededDiscussionTitles(f.Db).CountAsync());
+
         f.Db.DiscussionReplies.Add(new() { DiscussionId = posts[0].Id, UserId = human.Id, Body = "Une contribution réelle." });
         await f.Db.SaveChangesAsync();
 

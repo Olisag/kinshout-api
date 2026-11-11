@@ -19,12 +19,12 @@ public sealed partial class DiscussionSeedingPipeline
 
     private static readonly (string Title, string Question)[] DiscussionPrompts =
     [
-        ("Vos bonnes adresses pour {0}", "Quels endroits ou groupes recommanderiez-vous à quelqu’un qui découvre le sujet ?"),
-        ("Vos souvenirs autour de {0}", "Quel souvenir ou quelle tradition aimeriez-vous transmettre à la prochaine génération ?"),
-        ("Idées en famille autour de {0}", "Quelles idées simples peut-on essayer avec des enfants ou des proches ce week-end ?"),
-        ("Par où commencer avec {0} ?", "Quel conseil pratique donneriez-vous à une personne qui aimerait s’y mettre ?"),
-        ("Kinshasa et la diaspora : {0}", "Quelles habitudes retrouvez-vous dans les deux contextes ? Qu’est-ce qui change selon la ville ?"),
-        ("Vos découvertes autour de {0}", "Quelle ressource, activité ou initiative locale mériterait d’être mieux connue ?"),
+        ("{0} : vos bonnes adresses", "Quels endroits ou groupes recommanderiez-vous à quelqu’un qui découvre le sujet ?"),
+        ("{0} : les souvenirs à transmettre", "Quel souvenir ou quelle tradition aimeriez-vous transmettre à la prochaine génération ?"),
+        ("{0} : des idées pour les familles", "Quelles idées simples peut-on essayer avec des enfants ou des proches ce week-end ?"),
+        ("{0} : par où commencer ?", "Quel conseil pratique donneriez-vous à une personne qui aimerait s’y mettre ?"),
+        ("{0} : entre Kinshasa et la diaspora", "Quelles habitudes retrouvez-vous dans les deux contextes ? Qu’est-ce qui change selon la ville ?"),
+        ("{0} : vos découvertes à partager", "Quelle ressource, activité ou initiative locale mériterait d’être mieux connue ?"),
     ];
 
     public async Task<int> PublishSimulationCommunityContentAsync(CancellationToken ct = default)
@@ -82,8 +82,9 @@ public sealed partial class DiscussionSeedingPipeline
         var topicIndex = ordinal / available.Count;
         var topic = theme.Topics[topicIndex % theme.Topics.Length];
         var prompt = DiscussionPrompts[topicIndex / theme.Topics.Length % DiscussionPrompts.Length];
-        var title = "Simulation · " + string.Format(System.Globalization.CultureInfo.InvariantCulture, prompt.Title, topic);
-        var body = $"Parlons de ce sujet : {topic}. {prompt.Question}";
+        var title = string.Format(System.Globalization.CultureInfo.InvariantCulture, prompt.Title,
+            char.ToUpperInvariant(topic[0]) + topic[1..]);
+        var body = prompt.Question;
         if (!await ModerateCommunityContentAsync(title + "\n" + body, ct)) return 0;
 
         return await LockedAsync(async db =>
@@ -140,8 +141,20 @@ public sealed partial class DiscussionSeedingPipeline
             if (!await db.Communities.AnyAsync(c => c.Slug == newSlug, ct))
                 community.Slug = newSlug;
         }
+        var discussions = await LegacySeededDiscussionTitles(db).ToListAsync(ct);
+        foreach (var discussion in discussions)
+        {
+            var separator = discussion.Title.IndexOf(" · ", StringComparison.Ordinal);
+            discussion.Title = discussion.Title[(separator + 3)..].TrimStart();
+        }
         await db.SaveChangesAsync(ct);
     }
+
+    internal static IQueryable<Discussion> LegacySeededDiscussionTitles(KinshoutDbContext db) =>
+        db.Discussions.IgnoreQueryFilters()
+            .Where(d => d.User.SeedRunId != null && d.Community != null
+                && d.Community.CreatedByUser.SeedRunId == d.User.SeedRunId
+                && (d.Title.StartsWith("Simulation · ") || d.Title.StartsWith("Demo · ") || d.Title.StartsWith("Démo · ")));
 
     private static async Task<Guid?> PickActiveProfileAsync(KinshoutDbContext db, Guid runId, CancellationToken ct)
     {
