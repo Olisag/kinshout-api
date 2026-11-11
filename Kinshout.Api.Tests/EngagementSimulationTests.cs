@@ -52,7 +52,7 @@ public sealed class EngagementSimulationTests
         Assert.Equal(1500, await f.Db.Users.CountAsync(u => u.SeedRunId != null));
         Assert.Equal(ids.Order(), (await f.Db.Users.Where(u => u.SeedRunId != null).Select(u => u.Id).ToListAsync()).Order());
         Assert.Equal(7, (await f.Db.Discussions.AsNoTracking().SingleAsync()).LikeCount);
-        Assert.All(await f.Db.Users.Where(u => u.SeedRunId != null).ToListAsync(), u => { Assert.Null(u.PasswordHash); Assert.StartsWith("Simulation_", u.DisplayName); });
+        Assert.All(await f.Db.Users.Where(u => u.SeedRunId != null).ToListAsync(), u => { Assert.Null(u.PasswordHash); Assert.DoesNotContain("Simulation", u.DisplayName); });
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public sealed class EngagementSimulationTests
         await f.Pipeline().PublishSimulationLikesAsync();
         Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
         Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
-        Assert.Equal(2, await f.Db.Communities.CountAsync(c => c.Slug.StartsWith("simulation-")));
+        Assert.Equal(2, await f.Db.Communities.CountAsync(c => c.CreatedByUser.SeedRunId != null));
         Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
         Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
         var posts = await f.Db.Discussions.Where(d => d.User.SeedRunId != null).OrderBy(d => d.Title).ToListAsync();
@@ -219,6 +219,51 @@ public sealed class EngagementSimulationTests
         Assert.Equal(6, await f.Pipeline().PublishSimulationLikesAsync());
         Assert.Equal(5000, await f.Db.Users.CountAsync(u => u.SeedRunId != null));
         Assert.Equal(12, await f.Db.DiscussionSimulatedLikes.Select(l => l.PersonaUserId).Distinct().CountAsync());
+    }
+
+    [Fact]
+    public async Task StartupRenamesExistingProfilesAndCommunitiesWithoutChangingTheirLinks()
+    {
+        await using var f = await Fixture.Create();
+        f.Config.ProfileCount = 2;
+        f.Config.WeeklyPublicCommunities = 2;
+        f.Config.DailyDiscussionPosts = 10;
+        await f.Pipeline().PublishSimulationLikesAsync();
+        var persona = await f.Db.Users.FirstAsync(u => u.SeedRunId != null);
+        var genuine = await f.Db.Users.SingleAsync(u => u.Email == "real@example.com");
+        genuine.DisplayName = "Simulation_Real";
+        persona.DisplayName = "Simulation_MasoloYaKin_abcdef_0042";
+        var slug = $"simulation-{persona.SeedRunId:N}-vie-a-kin";
+        var community = new Community
+        {
+            Slug = slug,
+            Name = "Simulation · La vie à Kinshasa",
+            Description = "Les profils Simulation",
+            CreatedByUserId = persona.Id,
+            CreatedAt = f.Clock.Utc
+        };
+        f.Db.Communities.Add(community);
+        await f.Db.SaveChangesAsync();
+
+        await f.Pipeline().InitializeAsync();
+        await f.Pipeline().InitializeAsync();
+        f.Db.ChangeTracker.Clear();
+
+        Assert.Equal("MasoloYaKin_0043", (await f.Db.Users.FindAsync(persona.Id))!.DisplayName);
+        Assert.Equal("Simulation_Real", (await f.Db.Users.FindAsync(genuine.Id))!.DisplayName);
+        var renamed = await CommunitySlugHelper.BySlug(f.Db.Communities, slug).SingleAsync();
+        Assert.StartsWith("vie-a-kin-", renamed.Slug);
+        Assert.Equal(community.Id, renamed.Id);
+        Assert.Equal("La vie à Kinshasa", renamed.Name);
+        Assert.Contains("automatisées", renamed.Description);
+
+        Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        var newCommunity = await f.Db.Communities.SingleAsync(c => c.CreatedByUser.SeedRunId != null && c.Id != community.Id);
+        Assert.Equal("Congolais de la diaspora", newCommunity.Name);
+        Assert.StartsWith("diaspora-", newCommunity.Slug);
+        Assert.Equal(1, await f.Pipeline().PublishSimulationCommunityContentAsync());
+        var rolledBack = await f.Control.StopAndHideAsync(Guid.Empty);
+        Assert.Equal(2, rolledBack.ArchivedCommunities);
     }
 
     private sealed class Clock : TimeProvider

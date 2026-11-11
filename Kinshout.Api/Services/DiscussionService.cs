@@ -90,13 +90,15 @@ public class DiscussionService(
         if (communityId is not null)
             await communities.EnsureCanAccessAsync(communityId.Value, viewerUserId, ct);
 
+        Guid? filteredCommunityId = null;
         if (!string.IsNullOrWhiteSpace(communitySlug))
         {
             var slug = CommunitySlugHelper.Normalize(communitySlug);
-            var filteredCommunity = await db.Communities.AsNoTracking()
-                .FirstOrDefaultAsync(c => c.Slug == slug, ct)
+            var filteredCommunity = await CommunitySlugHelper.BySlug(db.Communities.AsNoTracking(), slug)
+                .FirstOrDefaultAsync(ct)
                 ?? throw new ArgumentException($"Communauté k/{slug} introuvable.");
             await communities.EnsureCanAccessAsync(filteredCommunity.Id, viewerUserId, ct);
+            filteredCommunityId = filteredCommunity.Id;
         }
 
         var q = db.Discussions
@@ -112,11 +114,8 @@ public class DiscussionService(
         if (communityId is not null)
             q = q.Where(d => d.CommunityId == communityId);
 
-        if (!string.IsNullOrWhiteSpace(communitySlug))
-        {
-            var slug = CommunitySlugHelper.Normalize(communitySlug);
-            q = q.Where(d => d.Community != null && d.Community.Slug == slug);
-        }
+        if (filteredCommunityId is Guid resolvedId)
+            q = q.Where(d => d.CommunityId == resolvedId);
 
         if (!string.IsNullOrWhiteSpace(query))
         {
@@ -1041,7 +1040,7 @@ public class DiscussionService(
         if (slug == CommunityDefaults.GeneralSlug)
             return await ResolveDefaultCommunityIdAsync(userId, ct);
 
-        var community = await db.Communities.AsNoTracking().FirstOrDefaultAsync(c => c.Slug == slug, ct)
+        var community = await CommunitySlugHelper.BySlug(db.Communities.AsNoTracking(), slug).FirstOrDefaultAsync(ct)
             ?? throw new ArgumentException($"Communauté k/{slug} introuvable.");
         return community.Id;
     }

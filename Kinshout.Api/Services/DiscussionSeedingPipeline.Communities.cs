@@ -41,16 +41,16 @@ public sealed partial class DiscussionSeedingPipeline
         var communities = await read.Communities.AsNoTracking()
             .Where(c => c.CreatedByUser.SeedRunId == runId)
             .OrderBy(c => c.Slug).ToListAsync(ct);
-        var nextTheme = CommunityThemes.FirstOrDefault(t => communities.All(c => c.Slug != CommunitySlug(runId, t.Slug)));
+        var nextTheme = CommunityThemes.FirstOrDefault(t => communities.All(c => !MatchesTheme(c.Slug, runId, t.Slug)));
         var now = Now;
         // Monday UTC anchors the community creation limit across worker restarts.
         var weekStart = now.Date.AddDays(-((int)now.DayOfWeek + 6) % 7);
         if (nextTheme.Slug is not null
             && communities.Count(c => c.CreatedAt >= weekStart) < Math.Clamp(config.WeeklyPublicCommunities, 1, 2))
         {
-            var slug = CommunitySlug(runId, nextTheme.Slug);
-            var name = "Simulation · " + nextTheme.Name;
-            var description = "Communauté de démonstration Kinoiserie. Les publications des profils Simulation sont générées pour la simulation.";
+            var slug = CommunitySlugHelper.SeededCommunitySlug(runId, nextTheme.Slug);
+            var name = nextTheme.Name;
+            var description = CommunityDescription;
             if (!await ModerateCommunityContentAsync(name + "\n" + description, ct)) return 0;
             return await LockedAsync(async db =>
             {
@@ -78,7 +78,7 @@ public sealed partial class DiscussionSeedingPipeline
         if (today >= DueInteractions(now, daily)) return 0;
         var ordinal = (int)(now.Date - DateTime.UnixEpoch).TotalDays * daily + today;
         var communityForPost = available[ordinal % available.Count];
-        var theme = CommunityThemes.Single(t => communityForPost.Slug == CommunitySlug(runId, t.Slug));
+        var theme = CommunityThemes.Single(t => MatchesTheme(communityForPost.Slug, runId, t.Slug));
         var topicIndex = ordinal / available.Count;
         var topic = theme.Topics[topicIndex % theme.Topics.Length];
         var prompt = DiscussionPrompts[topicIndex / theme.Topics.Length % DiscussionPrompts.Length];
@@ -106,7 +106,42 @@ public sealed partial class DiscussionSeedingPipeline
         }, ct);
     }
 
-    private static string CommunitySlug(Guid runId, string theme) => $"simulation-{runId:N}-{theme}";
+    private const string CommunityDescription = "Un espace pour échanger sur la vie et la culture congolaises. Certaines publications et interactions sont automatisées.";
+
+    private static bool MatchesTheme(string slug, Guid runId, string theme) =>
+        slug == CommunitySlugHelper.SeededCommunitySlug(runId, theme) || slug == $"simulation-{runId:N}-{theme}";
+
+    private static async Task RefreshPublicNamesAsync(KinshoutDbContext db, CancellationToken ct)
+    {
+        const string profilePrefix = "Simulation_";
+        const string communityPrefix = "Simulation · ";
+        var profiles = await db.Users.Where(u => u.SeedRunId != null && u.DisplayName.StartsWith(profilePrefix)).ToListAsync(ct);
+        foreach (var profile in profiles)
+        {
+            var name = profile.DisplayName[profilePrefix.Length..];
+            var parts = name.Split('_');
+            profile.DisplayName = parts.Length == 3 && int.TryParse(parts[2], out var slot)
+                ? $"{parts[0]}_{slot + 1:D4}"
+                : name;
+        }
+
+        var communities = await db.Communities
+            .Where(c => c.CreatedByUser.SeedRunId != null && (c.Name.StartsWith(communityPrefix) || c.Slug.StartsWith("simulation-")))
+            .ToListAsync(ct);
+        foreach (var community in communities)
+        {
+            if (community.Name.StartsWith(communityPrefix, StringComparison.Ordinal))
+                community.Name = community.Name[communityPrefix.Length..];
+            community.Description = CommunityDescription;
+
+            if (!CommunitySlugHelper.TryParseLegacySlug(community.Slug, out var runId, out var theme)
+                || !CommunityThemes.Any(t => t.Slug == theme)) continue;
+            var newSlug = CommunitySlugHelper.SeededCommunitySlug(runId, theme);
+            if (!await db.Communities.AnyAsync(c => c.Slug == newSlug, ct))
+                community.Slug = newSlug;
+        }
+        await db.SaveChangesAsync(ct);
+    }
 
     private static async Task<Guid?> PickActiveProfileAsync(KinshoutDbContext db, Guid runId, CancellationToken ct)
     {

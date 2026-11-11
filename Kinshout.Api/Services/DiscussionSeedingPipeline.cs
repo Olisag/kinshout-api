@@ -31,6 +31,7 @@ public sealed partial class DiscussionSeedingPipeline(
         return LockedAsync(async db =>
         {
             if (!settings.Value.Enabled) return 0;
+            await RefreshPublicNamesAsync(db, ct);
             // An operator pause/stop survives restarts. Bootstrap only a fresh installation.
             if (await db.DiscussionSeedRuns.AnyAsync(ct)) return 1;
             if (await db.DiscussionSeedingControls.AnyAsync(c => c.Id == 1 && c.UpdatedAt != null, ct)) return 0;

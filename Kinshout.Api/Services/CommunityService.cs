@@ -198,9 +198,8 @@ public class CommunityService(
         CancellationToken ct = default)
     {
         var slug = CommunitySlugHelper.Normalize(slugOrRoute);
-        var community = await db.Communities
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Slug == slug, ct);
+        var community = await CommunitySlugHelper.BySlug(db.Communities.AsNoTracking(), slug)
+            .FirstOrDefaultAsync(ct);
         if (community is null)
             return null;
 
@@ -230,7 +229,7 @@ public class CommunityService(
             ? null
             : request.Description.Trim();
 
-        if (await db.Communities.AnyAsync(c => c.Slug == slug, ct))
+        if (await CommunitySlugHelper.BySlug(db.Communities, slug).AnyAsync(ct))
             throw new ArgumentException($"La communauté k/{slug} existe déjà.");
 
         var community = new Community
@@ -935,7 +934,7 @@ public class CommunityService(
     private async Task<Community> RequireCommunityAsync(string slugOrRoute, CancellationToken ct)
     {
         var slug = CommunitySlugHelper.Normalize(slugOrRoute);
-        return await db.Communities.FirstOrDefaultAsync(c => c.Slug == slug, ct)
+        return await CommunitySlugHelper.BySlug(db.Communities, slug).FirstOrDefaultAsync(ct)
             ?? throw new KeyNotFoundException("Communauté introuvable.");
     }
 

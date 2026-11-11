@@ -196,7 +196,7 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
     // Keep any thread people have joined, liked, or replied to, and its containing community.
     private static IQueryable<Discussion> ArchivableDiscussions(KinshoutDbContext db, Guid? runId) =>
         db.Discussions.Where(d => d.User.SeedRunId != null && (runId == null || d.User.SeedRunId == runId)
-            && d.Community != null && d.Community.Slug.StartsWith("simulation-")
+            && d.Community != null
             && d.Community.CreatedByUser.SeedRunId == d.User.SeedRunId
             && !d.Replies.Any(r => r.SeedRunId == null && r.User.SeedRunId == null)
             && !d.Participants.Any(p => p.User.SeedRunId == null)
@@ -211,7 +211,7 @@ public sealed class DiscussionSeedingService(DbContextOptions<KinshoutDbContext>
             var archivableIds = ArchivableDiscussions(db, runId).Select(d => d.Id);
             retainedPosts = retainedPosts.Where(d => !archivableIds.Contains(d.Id));
         }
-        return db.Communities.Where(c => c.IsActive && c.Slug.StartsWith("simulation-")
+        return db.Communities.Where(c => c.IsActive
             && c.CreatedByUser.SeedRunId != null && (runId == null || c.CreatedByUser.SeedRunId == runId)
             && !c.Members.Any(m => m.User.SeedRunId == null)
             && !retainedPosts.Any(d => d.CommunityId == c.Id));

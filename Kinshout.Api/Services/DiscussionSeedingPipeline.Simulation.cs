@@ -38,8 +38,6 @@ public sealed partial class DiscussionSeedingPipeline
     private async Task<List<Guid>> ProfileIdsAsync(KinshoutDbContext db, Guid run, CancellationToken ct)
     {
         var active = db.Users.Where(u => u.SeedRunId == run && u.SeedHiddenAt == null);
-        await active.Where(u => !u.DisplayName.StartsWith("Simulation_")).ExecuteUpdateAsync(s => s
-            .SetProperty(u => u.DisplayName, u => "Simulation_" + u.DisplayName), ct);
         var profileIds = await active.Select(u => u.Id).ToListAsync(ct);
         var count = Math.Clamp(settings.Value.ProfileCount, 1, 5000);
         if (profileIds.Count >= count) return profileIds;
@@ -56,7 +54,7 @@ public sealed partial class DiscussionSeedingPipeline
             var user = new User
             {
                 Email = email,
-                DisplayName = $"Simulation_{Handles[slot % Handles.Length]}_{run.ToString("N")[..6]}_{slot:D4}",
+                DisplayName = $"{Handles[slot % Handles.Length]}_{slot + 1:D4}",
                 SeedRunId = run,
             };
             db.Users.Add(user);

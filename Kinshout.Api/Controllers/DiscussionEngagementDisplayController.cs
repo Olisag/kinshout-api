@@ -23,6 +23,8 @@ public sealed class DiscussionEngagementDisplayController(IDiscussionSeedingServ
         enabled = settings.Value.Enabled && settings.Value.SimulationEnabled,
         flags = await seeding.GetFlagsAsync(ct),
         targets = new { settings.Value.ProfileCount, settings.Value.DailyComments, settings.Value.DailyLikes, settings.Value.DailyDiscussionPosts, settings.Value.WeeklyPublicCommunities },
+        legacyProfileNames = await db.Users.CountAsync(u => u.SeedRunId != null && u.DisplayName.StartsWith("Simulation_"), ct),
+        legacyCommunityNames = await db.Communities.CountAsync(c => c.CreatedByUser.SeedRunId != null && (c.Name.StartsWith("Simulation · ") || c.Slug.StartsWith("simulation-")), ct),
         simulatedPublicCommunities = await db.Communities.CountAsync(c => c.IsActive && c.Visibility == "public" && c.CreatedByUser.SeedRunId != null, ct),
         simulatedDiscussionPostsToday = await db.Discussions.CountAsync(d => d.User.SeedRunId != null && d.CreatedAt >= DateTime.UtcNow.Date, ct),
         activeRuns = await db.DiscussionSeedRuns.CountAsync(r => r.StoppedAt == null, ct),
