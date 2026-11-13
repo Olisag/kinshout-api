@@ -38,8 +38,15 @@ public class OAuthSettings
 
 public class GoogleOAuthSettings
 {
+    /// <summary>Primary web OAuth client ID (ID token <c>aud</c> from the website and from native apps that set serverClientId).</summary>
     public string ClientId { get; set; } = string.Empty;
     public string ClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Extra accepted audiences (e.g. the iOS OAuth client ID). Native Google Sign-In can mint
+    /// tokens whose <c>aud</c> is the iOS client when no server client is configured.
+    /// </summary>
+    public string[] AdditionalClientIds { get; set; } = [];
 }
 
 public class AppleOAuthSettings

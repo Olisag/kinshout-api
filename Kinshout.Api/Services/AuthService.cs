@@ -83,7 +83,7 @@ public class AuthService(
                 idToken,
                 new GoogleJsonWebSignature.ValidationSettings
                 {
-                    Audience = string.IsNullOrWhiteSpace(_oauth.Google.ClientId) ? null : [_oauth.Google.ClientId],
+                    Audience = GoogleAcceptedAudiences(_oauth.Google),
                 });
         }
         catch (InvalidJwtException ex)
@@ -91,7 +91,7 @@ public class AuthService(
             logger.LogWarning(ex, "Google ID token validation failed.");
             var hint = string.IsNullOrWhiteSpace(_oauth.Google.ClientId)
                 ? " Configure OAuth:Google:ClientId on the API so the token audience matches."
-                : " Ensure the token was issued for the configured Google OAuth client ID.";
+                : " Ensure the token was issued for a configured Google OAuth client ID (web or native).";
             throw new UnauthorizedAccessException($"Invalid Google ID token.{hint}");
         }
 
@@ -643,6 +643,25 @@ public class AuthService(
         }
 
         return trimmed;
+    }
+
+    /// <summary>
+    /// Web client ID plus any extra native client IDs. Null means accept any Google audience
+    /// (legacy when OAuth:Google:ClientId is unset).
+    /// </summary>
+    private static List<string>? GoogleAcceptedAudiences(GoogleOAuthSettings google)
+    {
+        var audiences = new List<string>();
+        if (!string.IsNullOrWhiteSpace(google.ClientId))
+            audiences.Add(google.ClientId.Trim());
+        foreach (var extra in google.AdditionalClientIds ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(extra)) continue;
+            var id = extra.Trim();
+            if (!audiences.Contains(id, StringComparer.Ordinal))
+                audiences.Add(id);
+        }
+        return audiences.Count == 0 ? null : audiences;
     }
 
     private static EmailAuthException InvalidCredentials() =>
