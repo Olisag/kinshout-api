@@ -22,8 +22,9 @@ public class OpenAiSettings
     /// <summary>When false, text/image/document moderation checks are skipped.</summary>
     public bool ModerationEnabled { get; set; } = true;
     /// <summary>
-    /// When false, photo/avatar image moderation is skipped even if
+    /// When false, photo/avatar and video-frame moderation is skipped even if
     /// <see cref="ModerationEnabled"/> is true. Text and document checks are unchanged.
+    /// Blocks adult content, hate/racism, and Congolese party politics / eastern war imagery.
     /// </summary>
     public bool ImageModerationEnabled { get; set; } = true;
     /// <summary>

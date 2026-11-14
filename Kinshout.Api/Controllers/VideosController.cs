@@ -79,6 +79,10 @@ public class VideosController(
         {
             return BadRequest(new { error = ex.Message });
         }
+        catch (AdvertModerationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
         catch (KeyNotFoundException)
         {
             return NotFound(new { error = "Vidéo introuvable." });
@@ -126,6 +130,10 @@ public class VideosController(
             return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
         }
         catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (AdvertModerationException ex)
         {
             return BadRequest(new { error = ex.Message });
         }

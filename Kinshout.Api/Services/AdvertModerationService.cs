@@ -82,16 +82,9 @@ public class AdvertModerationService(
 
     public async Task EnsureImageAllowedAsync(Stream imageStream, string contentType, CancellationToken ct = default)
     {
-        if (!_settings.ModerationEnabled || !_settings.ImageModerationEnabled)
+        if (!IsMediaModerationActive())
         {
             logger.LogWarning("Image moderation is disabled; skipping image check.");
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
-        {
-            logger.LogWarning(
-                "OpenAI ApiKey is not configured; skipping image moderation for this upload.");
             return;
         }
 
@@ -104,6 +97,54 @@ public class AdvertModerationService(
         if (!result.Allowed)
             throw new AdvertModerationException(result.Reason ?? "Photo non autorisée.");
     }
+
+    public async Task EnsureVideoAllowedAsync(
+        Stream videoStream,
+        string contentType,
+        Stream? posterStream = null,
+        string? posterContentType = null,
+        CancellationToken ct = default)
+    {
+        if (!IsMediaModerationActive())
+        {
+            logger.LogWarning("Video moderation is disabled; skipping video check.");
+            return;
+        }
+
+        if (posterStream is not null)
+        {
+            await EnsureImageAllowedAsync(posterStream, posterContentType ?? "image/jpeg", ct);
+        }
+
+        await using var videoBuffer = new MemoryStream();
+        await videoStream.CopyToAsync(videoBuffer, ct);
+        if (videoBuffer.Length == 0)
+            throw new ArgumentException("Vidéo vide.");
+
+        videoBuffer.Position = 0;
+        var frames = await TryExtractVideoFramesAsync(videoBuffer, ct);
+        if (frames.Count == 0)
+        {
+            if (posterStream is not null)
+                return;
+
+            logger.LogWarning(
+                "Could not sample video frames for moderation (ffmpeg unavailable); allowing upload without frame check.");
+            return;
+        }
+
+        foreach (var frame in frames)
+        {
+            var result = await ModerateImageWithOpenAiAsync(frame, "image/jpeg", ct);
+            if (!result.Allowed)
+                throw new AdvertModerationException(result.Reason ?? "Vidéo non autorisée.");
+        }
+    }
+
+    private bool IsMediaModerationActive() =>
+        _settings.ModerationEnabled
+        && _settings.ImageModerationEnabled
+        && !string.IsNullOrWhiteSpace(_settings.ApiKey);
 
     public async Task EnsureDocumentAllowedAsync(
         Stream fileStream,
@@ -182,26 +223,33 @@ public class AdvertModerationService(
         var client = CreateClient();
         var dataUrl = ToDataUrl(imageBytes, contentType);
         var prompt = """
-            Tu es la modération Kinshout (petites annonces à Kinshasa).
-            Analyse cette photo et réponds UNIQUEMENT en JSON:
+            Tu es la modération média de Kinoiserie (discussions à Kinshasa / RDC).
+            Analyse cette image (photo ou image extraite d'une vidéo) et réponds UNIQUEMENT en JSON:
             {
               "allowed": true/false,
-              "violations": ["sexual_content", "hate_content", "non_genuine_image"],
+              "violations": ["sexual_content", "hate_content", "political_content"],
               "reason": "explication courte en français pour l'utilisateur"
             }
 
-            Refuser (allowed=false) si:
-            - contenu sexuel, érotique, nudité ou suggestif pour adultes (violations: sexual_content)
-            - symboles haineux, propos ou images discriminatoires, racistes ou offensants (violations: hate_content)
-            - photo stock / banque d'images (Unsplash, Shutterstock, Getty, iStock, Adobe Stock, etc.)
-            - photo professionnelle d'agence immobilière ou catalogue produit téléchargée depuis Internet
-            - filigrane, logo de banque d'images, capture d'écran de site web (violations: non_genuine_image)
-            - image promotionnelle générique manifestement non prise par le vendeur
+            Refuser (allowed=false) UNIQUEMENT si:
+            1) Contenu adulte / obscénité / pornographie (violations: sexual_content)
+               - nudité sexuelle, pornographie, contenu érotique explicite, obscénité sexuelle
+            2) Haine / racisme (violations: hate_content)
+               - symboles haineux, racisme, discrimination ethnique ou religieuse agressive
+            3) Politique congolaise / guerre à l'est (violations: political_content)
+               - figures ou familles politiques congolaises (ex. Kabila, Olive Lembe / Maman wa Roho,
+                 Tshisekedi / Fatshi, Fayulu, Katumbi, Kamerhe, Jean-Pierre Bemba / MLC,
+                 Corneille Nangaa / Naanga, UDPS, FCC, etc.)
+               - campagne électorale, partis, gouvernement, présidence, parlement congolais
+               - guerre / groupes armés à l'est (M23, AFC, FARDC, FDLR, CODECO, ADF, FRN,
+                 rebelles, milices, conflit Rwanda / Kigali lié à la RDC)
 
-            Accepter uniquement des photos authentiques prises par l'utilisateur (souvent au téléphone):
-            objet, véhicule, logement, pièce avec éclairage imparfait, environnement réel.
+            Accepter (allowed=true) le reste de la vie quotidienne à Kinshasa: musique, sport,
+            nourriture, quartier, humour, culture, écoles, commerce, nature, famille non politique.
+            N'invente pas de refus pour "photo non authentique" ou banque d'images.
 
-            En cas de doute sur l'authenticité ou le contenu, refuse.
+            En cas de doute léger hors des 3 catégories ci-dessus, autorise.
+            En cas de doute sur politique / adulte / haine, refuse.
             """;
 
         var body = new
@@ -238,7 +286,7 @@ public class AdvertModerationService(
             .GetString() ?? "{}";
 
         var parsed = JsonSerializer.Deserialize<VisionModerationResponse>(json, JsonOptions)
-            ?? new VisionModerationResponse(false, ["non_genuine_image"], "Photo non autorisée.");
+            ?? new VisionModerationResponse(false, ["policy_violation"], "Média non autorisé.");
 
         if (parsed.Allowed)
             return Allowed();
@@ -249,7 +297,108 @@ public class AdvertModerationService(
             reason,
             string.Join(", ", parsed.Violations));
 
-        return Blocked(reason, parsed.Violations.Count > 0 ? parsed.Violations : ["non_genuine_image"]);
+        return Blocked(reason, parsed.Violations.Count > 0 ? parsed.Violations : ["policy_violation"]);
+    }
+
+    /// <summary>
+    /// Samples up to two JPEG frames (early + mid) via ffmpeg when available on PATH.
+    /// </summary>
+    private async Task<IReadOnlyList<byte[]>> TryExtractVideoFramesAsync(
+        Stream videoStream,
+        CancellationToken ct)
+    {
+        var frames = new List<byte[]>();
+        var tempDir = Path.Combine(Path.GetTempPath(), "kinoiserie-mod-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var videoPath = Path.Combine(tempDir, "input.bin");
+        var framePaths = new[]
+        {
+            (Path.Combine(tempDir, "frame1.jpg"), "00:00:01"),
+            (Path.Combine(tempDir, "frame2.jpg"), "00:00:05"),
+        };
+
+        try
+        {
+            await using (var file = File.Create(videoPath))
+            {
+                await videoStream.CopyToAsync(file, ct);
+            }
+
+            foreach (var (framePath, seek) in framePaths)
+            {
+                ct.ThrowIfCancellationRequested();
+                var ok = await RunFfmpegFrameAsync(videoPath, framePath, seek, ct);
+                if (!ok || !File.Exists(framePath))
+                    continue;
+
+                var bytes = await File.ReadAllBytesAsync(framePath, ct);
+                if (bytes.Length > 0)
+                    frames.Add(bytes);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Video frame extraction for moderation failed.");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+            catch
+            {
+                // best-effort cleanup
+            }
+        }
+
+        return frames;
+    }
+
+    private async Task<bool> RunFfmpegFrameAsync(
+        string videoPath,
+        string framePath,
+        string seek,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "ffmpeg",
+                    ArgumentList =
+                    {
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-ss",
+                        seek,
+                        "-i",
+                        videoPath,
+                        "-frames:v",
+                        "1",
+                        "-q:v",
+                        "3",
+                        "-y",
+                        framePath,
+                    },
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+            };
+            process.Start();
+            await process.WaitForExitAsync(ct);
+            return process.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "ffmpeg not available for video moderation at {Seek}", seek);
+            return false;
+        }
     }
 
     private static AdvertModerationCheckResult FallbackTextCheck(string text)
@@ -292,12 +441,15 @@ public class AdvertModerationService(
     private static string BuildDefaultImageBlockReason(IReadOnlyList<string> violations)
     {
         if (violations.Contains("sexual_content"))
-            return "Cette photo contient un contenu sexuel ou adulte non autorisé.";
+            return "Ce média contient un contenu sexuel, obscène ou adulte non autorisé.";
 
         if (violations.Contains("hate_content"))
-            return "Cette photo contient un contenu discriminatoire ou haineux non autorisé.";
+            return "Ce média contient un contenu discriminatoire, raciste ou haineux non autorisé.";
 
-        return "Seules vos propres photos sont autorisées. Les images téléchargées depuis Internet sont interdites.";
+        if (violations.Contains("political_content"))
+            return "Ce média évoque la politique congolaise ou la guerre à l'est, non autorisées sur Kinoiserie.";
+
+        return "Ce média ne respecte pas les règles de Kinoiserie.";
     }
 
     private static string ExtractDocumentText(byte[] bytes, string extension)

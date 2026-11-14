@@ -107,6 +107,12 @@ public class UploadService(
             ValidateSize(buffer.Length, MaxVideoBytes);
 
             buffer.Position = 0;
+            await moderation.EnsureVideoAllowedAsync(
+                buffer,
+                file.ContentType ?? "video/mp4",
+                ct: ct);
+
+            buffer.Position = 0;
             var extension = ValidateExtension(file.FileName, VideoExtensions);
             var fileId = Guid.NewGuid().ToString("N");
             var fileName = $"{fileId}{extension.ToLowerInvariant()}";

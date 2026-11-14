@@ -14,7 +14,7 @@ namespace Kinshout.Api.Controllers;
 public class UploadsController(IUploadService uploads) : ControllerBase
 {
     /// <summary>
-    /// Upload one or more advert photos (optional, max 10). OpenAI verifies authenticity and blocks sexual or web-sourced images.
+    /// Upload one or more advert photos (optional, max 10). OpenAI blocks adult, hate/racist, and Congolese political imagery.
     /// Returns public URLs for use in <c>POST /api/adverts</c>.
     /// </summary>
     [HttpPost("images")]
@@ -51,7 +51,7 @@ public class UploadsController(IUploadService uploads) : ControllerBase
 
     /// <summary>
     /// Upload one or more discussion videos (max 5, mp4/webm/mov, 50MB each).
-    /// Prefer <c>POST /api/videos</c> for Reddit-style upload with optional poster preview and delete-by-id.
+    /// Same media policy as photos (adult / hate / Congolese politics). Prefer <c>POST /api/videos</c> when possible.
     /// </summary>
     [HttpPost("videos")]
     [Consumes("multipart/form-data")]
@@ -76,6 +76,10 @@ public class UploadsController(IUploadService uploads) : ControllerBase
             return Ok(new UploadResponseDto(urls));
         }
         catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (AdvertModerationException ex)
         {
             return BadRequest(new { error = ex.Message });
         }

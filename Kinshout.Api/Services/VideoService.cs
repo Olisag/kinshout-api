@@ -54,7 +54,8 @@ public class VideoService(
     IAdvertImageProcessor imageProcessor,
     ILogger<VideoService> logger,
     IVideoProcessingQueue? processingQueue = null,
-    IOptions<VideoProcessingSettings>? processingOptions = null) : IVideoService
+    IOptions<VideoProcessingSettings>? processingOptions = null,
+    IAdvertModerationService? moderation = null) : IVideoService
 {
     public const long MaxVideoBytes = 50 * 1024 * 1024;
     public const long MaxPosterBytes = 512 * 1024;
@@ -94,6 +95,31 @@ public class VideoService(
         await using var videoBuffer = new MemoryStream();
         await video.CopyToAsync(videoBuffer, ct);
         videoBuffer.Position = 0;
+
+        MemoryStream? posterBuffer = null;
+        if (poster is not null && poster.Length > 0)
+        {
+            posterBuffer = new MemoryStream();
+            await poster.CopyToAsync(posterBuffer, ct);
+            posterBuffer.Position = 0;
+        }
+
+        await using (posterBuffer)
+        {
+            if (moderation is not null)
+            {
+                await moderation.EnsureVideoAllowedAsync(
+                    videoBuffer,
+                    contentType,
+                    posterBuffer,
+                    poster?.ContentType,
+                    ct);
+                videoBuffer.Position = 0;
+                if (posterBuffer is not null)
+                    posterBuffer.Position = 0;
+            }
+        }
+
         var videoUrl = await storage.SaveNamedAsync("videos", userId, videoBuffer, fileName, ct);
 
         string? posterUrl = null;
@@ -195,6 +221,32 @@ public class VideoService(
         }
 
         ValidateTrim(trimStartSeconds, trimEndSeconds);
+
+        if (moderation is not null)
+        {
+            var source = await storage.OpenReadAsync(asset.SourceUrl, ct)
+                ?? throw new ArgumentException("La vidéo n'a pas été reçue. Réessayez.");
+            await using (source.Stream)
+            {
+                MemoryStream? posterBuffer = null;
+                if (poster is not null && poster.Length > 0)
+                {
+                    posterBuffer = new MemoryStream();
+                    await poster.CopyToAsync(posterBuffer, ct);
+                    posterBuffer.Position = 0;
+                }
+
+                await using (posterBuffer)
+                {
+                    await moderation.EnsureVideoAllowedAsync(
+                        source.Stream,
+                        asset.ContentType,
+                        posterBuffer,
+                        poster?.ContentType,
+                        ct);
+                }
+            }
+        }
 
         if (poster is not null && poster.Length > 0)
         {

@@ -68,6 +68,24 @@ public class AdvertModerationServiceTests
     }
 
     [Fact]
+    public async Task EnsureVideoAllowedAsync_WithoutApiKey_SkipsModeration()
+    {
+        var service = CreateService();
+        await using var stream = new MemoryStream([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+
+        await service.EnsureVideoAllowedAsync(stream, "video/mp4");
+    }
+
+    [Fact]
+    public async Task EnsureVideoAllowedAsync_WhenImageModerationDisabled_SkipsCheck()
+    {
+        var service = CreateService(apiKey: "test-key", imageModerationEnabled: false);
+        await using var stream = new MemoryStream([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+
+        await service.EnsureVideoAllowedAsync(stream, "video/mp4");
+    }
+
+    [Fact]
     public async Task EnsureTextAllowedAsync_WhenModerationDisabled_AllowsBlockedKeywords()
     {
         var service = CreateService(moderationEnabled: false);
