@@ -82,9 +82,9 @@ public class AdvertModerationService(
 
     public async Task EnsureImageAllowedAsync(Stream imageStream, string contentType, CancellationToken ct = default)
     {
-        if (!_settings.ModerationEnabled)
+        if (!_settings.ModerationEnabled || !_settings.ImageModerationEnabled)
         {
-            logger.LogWarning("Content moderation is disabled; skipping image check.");
+            logger.LogWarning("Image moderation is disabled; skipping image check.");
             return;
         }
 

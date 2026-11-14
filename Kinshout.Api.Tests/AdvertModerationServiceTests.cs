@@ -11,6 +11,7 @@ public class AdvertModerationServiceTests
     private static AdvertModerationService CreateService(
         string apiKey = "",
         bool moderationEnabled = true,
+        bool imageModerationEnabled = true,
         bool discussionModerationEnabled = false) =>
         new(
             new TestHttpClientFactory(),
@@ -18,6 +19,7 @@ public class AdvertModerationServiceTests
             {
                 ApiKey = apiKey,
                 ModerationEnabled = moderationEnabled,
+                ImageModerationEnabled = imageModerationEnabled,
                 DiscussionModerationEnabled = discussionModerationEnabled,
             }),
             Mock.Of<ILogger<AdvertModerationService>>());
@@ -51,6 +53,15 @@ public class AdvertModerationServiceTests
     public async Task EnsureImageAllowedAsync_WithoutApiKey_SkipsModeration()
     {
         var service = CreateService();
+        await using var stream = new MemoryStream([0xFF, 0xD8, 0xFF, 0x00]);
+
+        await service.EnsureImageAllowedAsync(stream, "image/jpeg");
+    }
+
+    [Fact]
+    public async Task EnsureImageAllowedAsync_WhenImageModerationDisabled_SkipsCheck()
+    {
+        var service = CreateService(apiKey: "test-key", imageModerationEnabled: false);
         await using var stream = new MemoryStream([0xFF, 0xD8, 0xFF, 0x00]);
 
         await service.EnsureImageAllowedAsync(stream, "image/jpeg");

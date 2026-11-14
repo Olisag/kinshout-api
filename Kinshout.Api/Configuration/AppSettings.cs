@@ -22,6 +22,11 @@ public class OpenAiSettings
     /// <summary>When false, text/image/document moderation checks are skipped.</summary>
     public bool ModerationEnabled { get; set; } = true;
     /// <summary>
+    /// When false, photo/avatar image moderation is skipped even if
+    /// <see cref="ModerationEnabled"/> is true. Text and document checks are unchanged.
+    /// </summary>
+    public bool ImageModerationEnabled { get; set; } = true;
+    /// <summary>
     /// When false, OpenAI/text moderation is skipped for discussion posts and replies.
     /// Independent from <see cref="ModerationEnabled"/>, which still covers adverts and uploads.
     /// </summary>
