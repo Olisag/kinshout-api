@@ -33,14 +33,16 @@ public class PoliticsFeedFilterTests
     [InlineData("Traffic à Gombe", "Embouteillage sur le boulevard du 30 juin à Kinshasa.")]
     [InlineData("Concert Fally", "Fally Ipupa en live à Kinshasa, RDC.")]
     [InlineData("Mode Sape", "La sape et la sapologie à Kinshasa.")]
+    [InlineData("Journée de la Francophonie", "Atelier de langue et lecture à Kinshasa.")]
+    [InlineData("Club OIF à l'école", "Activité culturelle francophone pour les élèves.")]
     public void IsBlocked_KeepsKinshasaCityLife(string title, string body)
     {
         Assert.False(PoliticsFeedFilter.IsBlocked(null, title, body, null, null, null));
     }
 
     [Fact]
-    public void RuleVersion_IsAtLeastFour_ForGenocideWarFrancophoniePass()
+    public void RuleVersion_IsAtLeastFive_ForCulturalFrancophoniePass()
     {
-        Assert.True(PoliticsFeedFilter.RuleVersion >= 4);
+        Assert.True(PoliticsFeedFilter.RuleVersion >= 5);
     }
 }

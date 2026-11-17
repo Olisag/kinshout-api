@@ -169,7 +169,7 @@ internal static class KinshasaSocialPostFilter
             "rwandais",
             "rwandaise",
             "kigali",
-            // Institutional / diplomatic politics (incl. OIF / Francophonie)
+            // Institutional politics
             "gouvernement",
             "président",
             "president",
@@ -180,16 +180,55 @@ internal static class KinshasaSocialPostFilter
             "assemblée nationale",
             "assemblee nationale",
             "coup d'état",
-            "coup d'etat",
-            " oif",
-            "oif ",
-            "#oif",
-            "(oif",
-            "oif/",
-            "oif)",
-            "francophonie",
-            "organisation internationale de la francophonie",
-            "sommet de la francophonie");
+            "coup d'etat")
+            || LooksLikePoliticalFrancophonie(blob);
+    }
+
+    /// <summary>
+    /// Language / culture / activity around Francophonie stays in.
+    /// Diplomatic or institutional politics around OIF / Francophonie stays out.
+    /// </summary>
+    public static bool LooksLikePoliticalFrancophonie(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var blob = text.ToLowerInvariant();
+        if (!ContainsAny(
+                blob,
+                "francophonie",
+                "organisation internationale de la francophonie",
+                " oif",
+                "oif ",
+                "#oif",
+                "(oif",
+                "oif/",
+                "oif)"))
+        {
+            return false;
+        }
+
+        return ContainsAny(
+            blob,
+            "sommet",
+            "chef d'état",
+            "chef d'etat",
+            "chefs d'état",
+            "chefs d'etat",
+            "président",
+            "president",
+            "diplomatie",
+            "diplomatique",
+            "gouvernement",
+            "ministre",
+            "ambassadeur",
+            "politique",
+            "élection",
+            "election",
+            "états membres",
+            "etats membres",
+            "états-membres",
+            "etats-membres");
     }
 
     /// <summary>Republic of the Congo (Brazzaville), not Congo-Kinshasa / DRC.</summary>

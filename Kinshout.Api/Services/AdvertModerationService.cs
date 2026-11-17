@@ -241,13 +241,16 @@ public class AdvertModerationService(
                  Tshisekedi / Fatshi, Fayulu, Katumbi, Kamerhe, Jean-Pierre Bemba / MLC,
                  Corneille Nangaa / Naanga, Mobutu, UDPS, FCC, etc.)
                - campagne électorale, partis, gouvernement, présidence, parlement congolais
-               - diplomatie institutionnelle: OIF, Francophonie, sommets diplomatiques politiques
+               - diplomatie institutionnelle autour de l'OIF / Francophonie
+                 (sommets, chefs d'État, ministres, ambassadeurs) — pas la culture
+                 ou la langue francophones en elles-mêmes
                - guerre / génocide / massacres / bombardements / groupes armés à l'est
                  (M23, AFC, FARDC, FDLR, CODECO, ADF, FRN, Minembwe, rebelles, milices,
                  conflit Rwanda / Kigali lié à la RDC)
 
             Accepter (allowed=true) le reste de la vie quotidienne à Kinshasa: musique, sport,
-            nourriture, quartier, humour, culture, écoles, commerce, nature, famille non politique.
+            nourriture, quartier, humour, culture, écoles, commerce, nature, famille non politique,
+            ainsi que Francophonie / OIF dans un cadre culturel, linguistique ou d'activité locale.
             N'invente pas de refus pour "photo non authentique" ou banque d'images.
 
             En cas de doute léger hors des 3 catégories ci-dessus, autorise.

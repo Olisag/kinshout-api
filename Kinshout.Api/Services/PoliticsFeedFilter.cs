@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 4;
+    public const int RuleVersion = 5;
 
     private static readonly string[] Terms =
     [
@@ -101,7 +101,7 @@ public static class PoliticsFeedFilter
         "rwandais",
         "rwandaise",
         "kigali",
-        // Institutional / diplomatic politics (incl. OIF / Francophonie)
+        // Institutional politics
         "gouvernement",
         "président",
         "president",
@@ -113,15 +113,6 @@ public static class PoliticsFeedFilter
         "assemblee nationale",
         "coup d'état",
         "coup d'etat",
-        " oif",
-        "oif ",
-        "#oif",
-        "(oif",
-        "oif/",
-        "oif)",
-        "francophonie",
-        "organisation internationale de la francophonie",
-        "sommet de la francophonie",
         // Congo-Brazzaville (not Kinshasa / DRC)
         "brazzaville",
         "pointe-noire",
@@ -136,6 +127,45 @@ public static class PoliticsFeedFilter
         "republic of congo",
         "#congobrazzaville",
         "#brazzaville",
+    ];
+
+    /// <summary>
+    /// Francophonie / OIF are allowed for language, culture, and community activity.
+    /// Block only when they appear with diplomatic / institutional politics.
+    /// </summary>
+    private static readonly string[] FrancophonieMarkers =
+    [
+        "francophonie",
+        "organisation internationale de la francophonie",
+        " oif",
+        "oif ",
+        "#oif",
+        "(oif",
+        "oif/",
+        "oif)",
+    ];
+
+    private static readonly string[] FrancophoniePoliticalContext =
+    [
+        "sommet",
+        "chef d'état",
+        "chef d'etat",
+        "chefs d'état",
+        "chefs d'etat",
+        "président",
+        "president",
+        "diplomatie",
+        "diplomatique",
+        "gouvernement",
+        "ministre",
+        "ambassadeur",
+        "politique",
+        "élection",
+        "election",
+        "états membres",
+        "etats membres",
+        "états-membres",
+        "etats-membres",
     ];
 
     public static IQueryable<Discussion> WhereAllowed(IQueryable<Discussion> query) =>
@@ -170,6 +200,25 @@ public static class PoliticsFeedFilter
         foreach (var term in Terms)
         {
             if (haystack.Contains(term, StringComparison.Ordinal))
+                return true;
+        }
+
+        return IsPoliticalFrancophonie(haystack);
+    }
+
+    private static bool IsPoliticalFrancophonie(string haystack)
+    {
+        if (!ContainsAny(haystack, FrancophonieMarkers))
+            return false;
+
+        return ContainsAny(haystack, FrancophoniePoliticalContext);
+    }
+
+    private static bool ContainsAny(string haystack, string[] needles)
+    {
+        foreach (var needle in needles)
+        {
+            if (haystack.Contains(needle, StringComparison.Ordinal))
                 return true;
         }
 
