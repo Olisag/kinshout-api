@@ -11,6 +11,10 @@ public class PoliticsFeedFilterTests
     [InlineData("Élections", "Le président Tshisekedi parle politique.")]
     [InlineData("Kabila à Kinshasa", "Joseph Kabila et Olive Lembe en déplacement.")]
     [InlineData("Maman wa Roho", "Discours de Maman wa Roho sur la politique.")]
+    [InlineData("Un génocide se déroule", "Un génocide se déroule en silence dans la zone de minembwe.")]
+    [InlineData("Bombardements à Minembwe", "Le complexe scolaire a subi des bombardements.")]
+    [InlineData("Sommet OIF", "La Francophonie et l'OIF réunissent les chefs d'État.")]
+    [InlineData("Mobutu quitta Kinshasa", "Il y a 30 ans, Mobutu a quitté Kinshasa.")]
     public void IsBlocked_HidesPoliticsAndConflict(string title, string body)
     {
         Assert.True(PoliticsFeedFilter.IsBlocked(null, title, body, null, null, null));
@@ -35,8 +39,8 @@ public class PoliticsFeedFilterTests
     }
 
     [Fact]
-    public void RuleVersion_IsAtLeastThree_ForKabilaCirclePass()
+    public void RuleVersion_IsAtLeastFour_ForGenocideWarFrancophoniePass()
     {
-        Assert.True(PoliticsFeedFilter.RuleVersion >= 3);
+        Assert.True(PoliticsFeedFilter.RuleVersion >= 4);
     }
 }

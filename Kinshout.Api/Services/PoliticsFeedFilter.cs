@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 3;
+    public const int RuleVersion = 4;
 
     private static readonly string[] Terms =
     [
@@ -40,6 +40,7 @@ public static class PoliticsFeedFilter
         "naanga",
         "nangaa",
         "kanambe",
+        "mobutu",
         // Armed groups / conflict — including FRN
         " frn",
         "frn ",
@@ -82,11 +83,25 @@ public static class PoliticsFeedFilter
         "bataille",
         "attaque armée",
         "attaque armee",
+        "bombardement",
+        "bombardements",
+        "bombardé",
+        "bombarde",
+        "bombing",
+        "génocide",
+        "genocide",
+        "massacre",
+        "massacres",
+        "crimes de guerre",
+        "crime de guerre",
+        "minembwe",
+        " war ",
+        "#war",
         "rwanda",
         "rwandais",
         "rwandaise",
         "kigali",
-        // Institutional politics
+        // Institutional / diplomatic politics (incl. OIF / Francophonie)
         "gouvernement",
         "président",
         "president",
@@ -98,6 +113,15 @@ public static class PoliticsFeedFilter
         "assemblee nationale",
         "coup d'état",
         "coup d'etat",
+        " oif",
+        "oif ",
+        "#oif",
+        "(oif",
+        "oif/",
+        "oif)",
+        "francophonie",
+        "organisation internationale de la francophonie",
+        "sommet de la francophonie",
         // Congo-Brazzaville (not Kinshasa / DRC)
         "brazzaville",
         "pointe-noire",

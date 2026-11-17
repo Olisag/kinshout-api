@@ -236,13 +236,15 @@ public class AdvertModerationService(
                - nudité sexuelle, pornographie, contenu érotique explicite, obscénité sexuelle
             2) Haine / racisme (violations: hate_content)
                - symboles haineux, racisme, discrimination ethnique ou religieuse agressive
-            3) Politique congolaise / guerre à l'est (violations: political_content)
+            3) Politique / guerre / génocide (violations: political_content)
                - figures ou familles politiques congolaises (ex. Kabila, Olive Lembe / Maman wa Roho,
                  Tshisekedi / Fatshi, Fayulu, Katumbi, Kamerhe, Jean-Pierre Bemba / MLC,
-                 Corneille Nangaa / Naanga, UDPS, FCC, etc.)
+                 Corneille Nangaa / Naanga, Mobutu, UDPS, FCC, etc.)
                - campagne électorale, partis, gouvernement, présidence, parlement congolais
-               - guerre / groupes armés à l'est (M23, AFC, FARDC, FDLR, CODECO, ADF, FRN,
-                 rebelles, milices, conflit Rwanda / Kigali lié à la RDC)
+               - diplomatie institutionnelle: OIF, Francophonie, sommets diplomatiques politiques
+               - guerre / génocide / massacres / bombardements / groupes armés à l'est
+                 (M23, AFC, FARDC, FDLR, CODECO, ADF, FRN, Minembwe, rebelles, milices,
+                 conflit Rwanda / Kigali lié à la RDC)
 
             Accepter (allowed=true) le reste de la vie quotidienne à Kinshasa: musique, sport,
             nourriture, quartier, humour, culture, écoles, commerce, nature, famille non politique.

@@ -108,6 +108,7 @@ internal static class KinshasaSocialPostFilter
             "hyppolite kanambe",
             "hippolyte kanambe",
             "kanambe",
+            "mobutu",
             // Armed groups / conflict — including FRN
             " frn",
             "frn ",
@@ -150,11 +151,25 @@ internal static class KinshasaSocialPostFilter
             "bataille",
             "attaque armée",
             "attaque armee",
+            "bombardement",
+            "bombardements",
+            "bombardé",
+            "bombarde",
+            "bombing",
+            "génocide",
+            "genocide",
+            "massacre",
+            "massacres",
+            "crimes de guerre",
+            "crime de guerre",
+            "minembwe",
+            " war ",
+            "#war",
             "rwanda",
             "rwandais",
             "rwandaise",
             "kigali",
-            // Institutional politics
+            // Institutional / diplomatic politics (incl. OIF / Francophonie)
             "gouvernement",
             "président",
             "president",
@@ -165,7 +180,16 @@ internal static class KinshasaSocialPostFilter
             "assemblée nationale",
             "assemblee nationale",
             "coup d'état",
-            "coup d'etat");
+            "coup d'etat",
+            " oif",
+            "oif ",
+            "#oif",
+            "(oif",
+            "oif/",
+            "oif)",
+            "francophonie",
+            "organisation internationale de la francophonie",
+            "sommet de la francophonie");
     }
 
     /// <summary>Republic of the Congo (Brazzaville), not Congo-Kinshasa / DRC.</summary>
