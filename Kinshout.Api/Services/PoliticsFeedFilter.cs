@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 6;
+    public const int RuleVersion = 7;
 
     private static readonly string[] Terms =
     [
@@ -42,9 +42,6 @@ public static class PoliticsFeedFilter
         "kanambe",
         "mobutu",
         "kayikwamba",
-        // Forced-exit slogans / institutional pressure rhetoric
-        "de gré ou de force",
-        "de gre ou de force",
         // Armed groups / conflict — including FRN
         " frn",
         "frn ",

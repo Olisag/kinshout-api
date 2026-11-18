@@ -241,10 +241,11 @@ public class AdvertModerationService(
                  Tshisekedi / Fatshi, Fayulu, Katumbi, Kamerhe, Jean-Pierre Bemba / MLC,
                  Corneille Nangaa / Naanga, Mobutu, Kayikwamba, UDPS, FCC, etc.)
                - campagne électorale, partis, gouvernement, présidence, parlement congolais
-               - slogans de départ forcé (« de gré ou de force »)
                - diplomatie institutionnelle autour de l'OIF / Francophonie
                  (sommets, chefs d'État, ministres, ambassadeurs, adhésion / quitter)
                  — pas la culture ou la langue francophones en elles-mêmes
+                 — une expression comme « de gré ou de force » seule (couple, humour,
+                   travail) n'est pas politique sans contexte institutionnel
                - guerre / génocide / massacres / bombardements / groupes armés à l'est
                  (M23, AFC, FARDC, FDLR, CODECO, ADF, FRN, Minembwe, rebelles, milices,
                  conflit Rwanda / Kigali lié à la RDC)

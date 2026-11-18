@@ -110,8 +110,6 @@ internal static class KinshasaSocialPostFilter
             "kanambe",
             "mobutu",
             "kayikwamba",
-            "de gré ou de force",
-            "de gre ou de force",
             // Armed groups / conflict — including FRN
             " frn",
             "frn ",
