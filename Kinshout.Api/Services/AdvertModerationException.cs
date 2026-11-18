@@ -6,7 +6,8 @@ public class AdvertModerationException(string message) : Exception(message);
 public record AdvertModerationCheckResult(
     bool Allowed,
     string? Reason,
-    IReadOnlyList<string> Violations);
+    IReadOnlyList<string> Violations,
+    bool Skipped = false);
 
 public interface IAdvertModerationService
 {

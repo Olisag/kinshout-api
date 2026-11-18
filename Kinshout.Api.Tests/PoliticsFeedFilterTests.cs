@@ -43,8 +43,24 @@ public class PoliticsFeedFilterTests
     }
 
     [Fact]
-    public void RuleVersion_IsAtLeastSeven_ForNonPoliticalForcedExitPass()
+    public void Mark_HidesHardBlockedExternalPoliticalScreenshot()
     {
-        Assert.True(PoliticsFeedFilter.RuleVersion >= 7);
+        var discussion = new Kinshout.Api.Models.Discussion
+        {
+            Title = "Vous allez la quitter de gré ou de force",
+            Body = "Blague entre amis.",
+            SourceExternalId = "2122617735444119718",
+        };
+
+        PoliticsFeedFilter.Mark(discussion);
+
+        Assert.True(discussion.PublicFeedBlocked);
+        Assert.Equal(PoliticsFeedFilter.RuleVersion, discussion.PublicFeedRuleVersion);
+    }
+
+    [Fact]
+    public void RuleVersion_IsAtLeastEight_ForHardBlockedScreenshotPass()
+    {
+        Assert.True(PoliticsFeedFilter.RuleVersion >= 8);
     }
 }

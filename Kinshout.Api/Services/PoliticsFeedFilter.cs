@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 7;
+    public const int RuleVersion = 8;
 
     private static readonly string[] Terms =
     [
@@ -182,6 +182,15 @@ public static class PoliticsFeedFilter
             !d.PublicFeedBlocked
             && (d.TopicSlug == null || d.TopicSlug != "politique"));
 
+    /// <summary>
+    /// Known imported posts whose politics live only in the screenshot / media.
+    /// Cleared once vision backfill is trusted to catch the same cases.
+    /// </summary>
+    private static readonly HashSet<string> HardBlockedExternalIds = new(StringComparer.Ordinal)
+    {
+        "2122617735444119718", // Kayikwamba / OIF screenshot mocked as « de gré ou de force »
+    };
+
     public static void Mark(Discussion discussion)
     {
         discussion.PublicFeedBlocked = IsBlocked(
@@ -190,9 +199,14 @@ public static class PoliticsFeedFilter
             discussion.Body,
             discussion.SourceRawBody,
             discussion.SourceOriginalAuthor,
-            discussion.SourceExternalUrl);
+            discussion.SourceExternalUrl)
+            || IsHardBlockedExternal(discussion.SourceExternalId);
         discussion.PublicFeedRuleVersion = RuleVersion;
     }
+
+    private static bool IsHardBlockedExternal(string? externalId) =>
+        !string.IsNullOrWhiteSpace(externalId)
+        && HardBlockedExternalIds.Contains(externalId.Trim());
 
     public static bool IsBlocked(
         string? topicSlug,

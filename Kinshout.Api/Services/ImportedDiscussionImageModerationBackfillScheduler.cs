@@ -42,13 +42,14 @@ public sealed class ImportedDiscussionImageModerationBackfillScheduler(
                 var moderation = scope.ServiceProvider.GetRequiredService<IAdvertModerationService>();
                 var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
 
+                // Newest first so recent political screenshots leave Accueil sooner.
                 var batch = await db.Discussions
                     .Where(d =>
                         d.PublicFeedMediaRuleVersion < ImportedDiscussionImageModeration.RuleVersion
                         && d.ImageUrlsJson != "[]"
                         && d.ImageUrlsJson != null
                         && d.ImageUrlsJson != "")
-                    .OrderBy(d => d.Id)
+                    .OrderByDescending(d => d.CreatedAt)
                     .Take(BatchSize)
                     .ToListAsync();
 

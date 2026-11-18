@@ -95,7 +95,7 @@ public class AdvertModerationService(
         if (!IsMediaModerationActive())
         {
             logger.LogWarning("Image moderation is disabled; skipping image check.");
-            return Allowed();
+            return Skipped();
         }
 
         await using var buffer = new MemoryStream();
@@ -537,6 +537,8 @@ public class AdvertModerationService(
     }
 
     private static AdvertModerationCheckResult Allowed() => new(true, null, []);
+
+    private static AdvertModerationCheckResult Skipped() => new(true, null, [], Skipped: true);
 
     private static AdvertModerationCheckResult Blocked(string reason, IReadOnlyList<string> violations) =>
         new(false, reason, violations);

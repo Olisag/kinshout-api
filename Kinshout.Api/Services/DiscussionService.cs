@@ -279,6 +279,14 @@ public class DiscussionService(
         if (d is null)
             return null;
 
+        // Hidden from Accueil also hide on direct links for ordinary viewers.
+        if (d.PublicFeedBlocked
+            && viewerUserId != d.UserId
+            && (d.Community?.CreatedByUserId != viewerUserId))
+        {
+            return null;
+        }
+
         await participation.EnsureCanViewAsync(d, viewerUserId, ct);
 
         var viewCount = await IncrementViewCountAsync(id, d.ViewCount, ct);
