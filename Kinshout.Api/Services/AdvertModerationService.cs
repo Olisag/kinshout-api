@@ -239,11 +239,12 @@ public class AdvertModerationService(
             3) Politique / guerre / génocide (violations: political_content)
                - figures ou familles politiques congolaises (ex. Kabila, Olive Lembe / Maman wa Roho,
                  Tshisekedi / Fatshi, Fayulu, Katumbi, Kamerhe, Jean-Pierre Bemba / MLC,
-                 Corneille Nangaa / Naanga, Mobutu, UDPS, FCC, etc.)
+                 Corneille Nangaa / Naanga, Mobutu, Kayikwamba, UDPS, FCC, etc.)
                - campagne électorale, partis, gouvernement, présidence, parlement congolais
+               - slogans de départ forcé (« de gré ou de force »)
                - diplomatie institutionnelle autour de l'OIF / Francophonie
-                 (sommets, chefs d'État, ministres, ambassadeurs) — pas la culture
-                 ou la langue francophones en elles-mêmes
+                 (sommets, chefs d'État, ministres, ambassadeurs, adhésion / quitter)
+                 — pas la culture ou la langue francophones en elles-mêmes
                - guerre / génocide / massacres / bombardements / groupes armés à l'est
                  (M23, AFC, FARDC, FDLR, CODECO, ADF, FRN, Minembwe, rebelles, milices,
                  conflit Rwanda / Kigali lié à la RDC)

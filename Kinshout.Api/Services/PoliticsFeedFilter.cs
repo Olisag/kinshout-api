@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 5;
+    public const int RuleVersion = 6;
 
     private static readonly string[] Terms =
     [
@@ -41,6 +41,10 @@ public static class PoliticsFeedFilter
         "nangaa",
         "kanambe",
         "mobutu",
+        "kayikwamba",
+        // Forced-exit slogans / institutional pressure rhetoric
+        "de gré ou de force",
+        "de gre ou de force",
         // Armed groups / conflict — including FRN
         " frn",
         "frn ",
@@ -137,12 +141,14 @@ public static class PoliticsFeedFilter
     [
         "francophonie",
         "organisation internationale de la francophonie",
+        "oifrancophonie",
         " oif",
         "oif ",
         "#oif",
         "(oif",
         "oif/",
         "oif)",
+        "@oif",
     ];
 
     private static readonly string[] FrancophoniePoliticalContext =
@@ -166,6 +172,12 @@ public static class PoliticsFeedFilter
         "etats membres",
         "états-membres",
         "etats-membres",
+        "quitter",
+        "quittera",
+        "adhésion",
+        "adhesion",
+        "membre",
+        "kayikwamba",
     ];
 
     public static IQueryable<Discussion> WhereAllowed(IQueryable<Discussion> query) =>

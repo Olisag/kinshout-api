@@ -109,6 +109,9 @@ internal static class KinshasaSocialPostFilter
             "hippolyte kanambe",
             "kanambe",
             "mobutu",
+            "kayikwamba",
+            "de gré ou de force",
+            "de gre ou de force",
             // Armed groups / conflict — including FRN
             " frn",
             "frn ",
@@ -198,12 +201,14 @@ internal static class KinshasaSocialPostFilter
                 blob,
                 "francophonie",
                 "organisation internationale de la francophonie",
+                "oifrancophonie",
                 " oif",
                 "oif ",
                 "#oif",
                 "(oif",
                 "oif/",
-                "oif)"))
+                "oif)",
+                "@oif"))
         {
             return false;
         }
@@ -228,7 +233,13 @@ internal static class KinshasaSocialPostFilter
             "états membres",
             "etats membres",
             "états-membres",
-            "etats-membres");
+            "etats-membres",
+            "quitter",
+            "quittera",
+            "adhésion",
+            "adhesion",
+            "membre",
+            "kayikwamba");
     }
 
     /// <summary>Republic of the Congo (Brazzaville), not Congo-Kinshasa / DRC.</summary>

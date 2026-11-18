@@ -15,6 +15,8 @@ public class PoliticsFeedFilterTests
     [InlineData("Bombardements à Minembwe", "Le complexe scolaire a subi des bombardements.")]
     [InlineData("Sommet OIF", "La Francophonie et l'OIF réunissent les chefs d'État.")]
     [InlineData("Mobutu quitta Kinshasa", "Il y a 30 ans, Mobutu a quitté Kinshasa.")]
+    [InlineData("#RDC: Vous allez la quitter de gré ou de force", "Du vrai n'importe quoi !")]
+    [InlineData("Clarification Kayikwamba", "La RDC ne quittera pas l'OIF / Francophonie.")]
     public void IsBlocked_HidesPoliticsAndConflict(string title, string body)
     {
         Assert.True(PoliticsFeedFilter.IsBlocked(null, title, body, null, null, null));
@@ -41,8 +43,8 @@ public class PoliticsFeedFilterTests
     }
 
     [Fact]
-    public void RuleVersion_IsAtLeastFive_ForCulturalFrancophoniePass()
+    public void RuleVersion_IsAtLeastSix_ForForcedExitAndKayikwambaPass()
     {
-        Assert.True(PoliticsFeedFilter.RuleVersion >= 5);
+        Assert.True(PoliticsFeedFilter.RuleVersion >= 6);
     }
 }
