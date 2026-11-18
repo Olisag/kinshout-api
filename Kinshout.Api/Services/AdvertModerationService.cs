@@ -82,10 +82,20 @@ public class AdvertModerationService(
 
     public async Task EnsureImageAllowedAsync(Stream imageStream, string contentType, CancellationToken ct = default)
     {
+        var result = await CheckImageAllowedAsync(imageStream, contentType, ct);
+        if (!result.Allowed)
+            throw new AdvertModerationException(result.Reason ?? "Photo non autorisée.");
+    }
+
+    public async Task<AdvertModerationCheckResult> CheckImageAllowedAsync(
+        Stream imageStream,
+        string contentType,
+        CancellationToken ct = default)
+    {
         if (!IsMediaModerationActive())
         {
             logger.LogWarning("Image moderation is disabled; skipping image check.");
-            return;
+            return Allowed();
         }
 
         await using var buffer = new MemoryStream();
@@ -93,9 +103,7 @@ public class AdvertModerationService(
         if (buffer.Length == 0)
             throw new ArgumentException("Image vide.");
 
-        var result = await ModerateImageWithOpenAiAsync(buffer.ToArray(), contentType, ct);
-        if (!result.Allowed)
-            throw new AdvertModerationException(result.Reason ?? "Photo non autorisée.");
+        return await ModerateImageWithOpenAiAsync(buffer.ToArray(), contentType, ct);
     }
 
     public async Task EnsureVideoAllowedAsync(

@@ -17,6 +17,43 @@ namespace Kinshout.Api.Tests;
 public class ExternalDiscussionImportTests
 {
     [Fact]
+    public async Task ImportAsync_BlocksDiscussionWhenImportedImageIsPolitical()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        const string imageUrl = "https://cdn.example.test/media/political-screenshot.jpg";
+        var moderation = new Mock<IAdvertModerationService>();
+        moderation.Setup(m => m.CheckImageAllowedAsync(
+                It.IsAny<Stream>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdvertModerationCheckResult(
+                false,
+                "Contenu politique détecté dans l'image.",
+                ["political_content"]));
+
+        var service = CreateService(
+            db,
+            new StaticImageClientFactory(imageUrl, [0xFF, 0xD8, 0xFF, 0x00]),
+            moderation.Object);
+
+        var dto = SampleImport("x-political-img", "Blague entre amis à Kinshasa ce soir.") with
+        {
+            ImageUrls = [imageUrl],
+        };
+        var result = await service.ImportAsync([dto]);
+
+        Assert.Equal(1, result.Created);
+        var discussion = await db.Discussions.SingleAsync();
+        Assert.True(discussion.PublicFeedBlocked);
+        Assert.Equal(PoliticsFeedFilter.RuleVersion, discussion.PublicFeedRuleVersion);
+        moderation.Verify(
+            m => m.CheckImageAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task ImportAsync_CreatesTransformedDiscussionAndStoresRawBody()
     {
         await using var db = TestDbFactory.Create();
@@ -193,7 +230,10 @@ public class ExternalDiscussionImportTests
     private static ExternalDiscussionImportService CreateService(KinshoutDbContext db) =>
         CreateService(db, new TestHttpClientFactory());
 
-    private static ExternalDiscussionImportService CreateService(KinshoutDbContext db, IHttpClientFactory httpClientFactory)
+    private static ExternalDiscussionImportService CreateService(
+        KinshoutDbContext db,
+        IHttpClientFactory httpClientFactory,
+        IAdvertModerationService? moderation = null)
     {
         var openAi = new Mock<IOpenAiService>();
         openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
@@ -202,6 +242,8 @@ public class ExternalDiscussionImportTests
         var communities = new Mock<ICommunityService>();
         communities.Setup(c => c.SuggestAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SuggestCommunityResponseDto(null, 0, "none", "none"));
+
+        moderation ??= PassThroughImageModeration().Object;
 
         return new ExternalDiscussionImportService(
             db,
@@ -212,7 +254,20 @@ public class ExternalDiscussionImportTests
             openAi.Object,
             new MemoryCache(new MemoryCacheOptions()),
             communities.Object,
-            httpClientFactory);
+            httpClientFactory,
+            moderation,
+            NullLogger<ExternalDiscussionImportService>.Instance);
+    }
+
+    private static Mock<IAdvertModerationService> PassThroughImageModeration()
+    {
+        var mock = new Mock<IAdvertModerationService>();
+        mock.Setup(m => m.CheckImageAllowedAsync(
+                It.IsAny<Stream>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AdvertModerationCheckResult(true, null, []));
+        return mock;
     }
 
     private static ImportExternalDiscussionDto YouTubeImport(string externalId, string videoId, string title, string rawBody)
@@ -287,5 +342,32 @@ public class ExternalDiscussionImportTests
     private sealed class YouTubeTitleClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    private sealed class StaticImageClientFactory(string imageUrl, byte[] bytes) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) =>
+            new(new StaticImageHandler(imageUrl, bytes), disposeHandler: true);
+    }
+
+    private sealed class StaticImageHandler(string imageUrl, byte[] bytes) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (!string.Equals(request.RequestUri?.ToString(), imageUrl, StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(bytes)
+                {
+                    Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg") },
+                },
+            });
+        }
     }
 }
