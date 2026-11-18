@@ -95,10 +95,12 @@ public static class DiscussionMediaHelper
             {
                 // Hotlinked / imported clip (e.g. X): pair with a still poster when
                 // available. Never set PreviewUrl to the MP4 — clients cannot paint it.
+                // Keep Url as the playable stream so FE does not reclassify the row
+                // as an image when PreviewUrl is a JPEG on pbs.twimg.com.
                 var poster = TakeMatchingStillPoster(imageUrls, storageUrl, postersConsumed);
                 videoItems.Add(new Dtos.DiscussionMediaDto(
                     "video",
-                    poster ?? storageUrl,
+                    storageUrl,
                     poster,
                     storageUrl));
             }

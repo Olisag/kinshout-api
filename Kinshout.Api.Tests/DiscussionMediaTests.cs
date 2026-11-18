@@ -155,7 +155,7 @@ public class DiscussionMediaHelperTests
         var item = Assert.Single(media);
 
         Assert.Equal("video", item.Type);
-        Assert.Equal(poster, item.Url);
+        Assert.Equal(clip, item.Url);
         Assert.Equal(poster, item.PreviewUrl);
         Assert.Equal(clip, item.PlayUrl);
     }
@@ -170,6 +170,7 @@ public class DiscussionMediaHelperTests
         var item = Assert.Single(media);
 
         Assert.Equal("video", item.Type);
+        Assert.Equal(watch, item.Url);
         Assert.Equal(thumb, item.PreviewUrl);
         Assert.Equal(watch, item.PlayUrl);
     }
