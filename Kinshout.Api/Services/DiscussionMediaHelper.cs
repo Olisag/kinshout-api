@@ -70,8 +70,8 @@ public static class DiscussionMediaHelper
         IReadOnlyList<string> videoUrls,
         IReadOnlyDictionary<string, Models.VideoAsset>? videoAssetsByStorageUrl = null)
     {
-        var items = new List<Dtos.DiscussionMediaDto>(imageUrls.Count + videoUrls.Count);
-        items.AddRange(imageUrls.Select(url => new Dtos.DiscussionMediaDto("image", url)));
+        var postersConsumed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var videoItems = new List<Dtos.DiscussionMediaDto>(videoUrls.Count);
 
         foreach (var storageUrl in videoUrls)
         {
@@ -89,16 +89,72 @@ public static class DiscussionMediaHelper
                     Models.VideoAssetStatus.Failed => Models.VideoAssetStatus.Failed,
                     _ => Models.VideoAssetStatus.Processing,
                 };
-                items.Add(new Dtos.DiscussionMediaDto("video", previewUrl, previewUrl, playUrl, status));
+                videoItems.Add(new Dtos.DiscussionMediaDto("video", previewUrl, previewUrl, playUrl, status));
             }
             else
             {
-                // Unregistered legacy path — still point preview at stream until registered.
-                items.Add(new Dtos.DiscussionMediaDto("video", storageUrl, storageUrl, storageUrl));
+                // Hotlinked / imported clip (e.g. X): pair with a still poster when
+                // available. Never set PreviewUrl to the MP4 — clients cannot paint it.
+                var poster = TakeMatchingStillPoster(imageUrls, storageUrl, postersConsumed);
+                videoItems.Add(new Dtos.DiscussionMediaDto(
+                    "video",
+                    poster ?? storageUrl,
+                    poster,
+                    storageUrl));
             }
         }
 
+        var items = new List<Dtos.DiscussionMediaDto>(imageUrls.Count + videoItems.Count);
+        foreach (var url in imageUrls)
+        {
+            // Hide X/YouTube stills that were consumed as video PreviewUrl so the
+            // feed does not show the same cover twice (gallery + player).
+            if (postersConsumed.Contains(url))
+                continue;
+            if (videoItems.Count > 0 && DiscussionMultimedia.IsTwitterVideoPosterUrl(url))
+                continue;
+            items.Add(new Dtos.DiscussionMediaDto("image", url));
+        }
+
+        items.AddRange(videoItems);
         return items;
+    }
+
+    /// <summary>
+    /// Prefer an unused X video_thumb / amplify thumb, else any remaining still
+    /// that is not itself a playable MP4 (e.g. YouTube hqdefault).
+    /// </summary>
+    private static string? TakeMatchingStillPoster(
+        IReadOnlyList<string> imageUrls,
+        string videoUrl,
+        HashSet<string> consumed)
+    {
+        string? fallback = null;
+        foreach (var image in imageUrls)
+        {
+            if (consumed.Contains(image) || !DiscussionMultimedia.LooksLikeStillImageUrl(image))
+                continue;
+
+            if (DiscussionMultimedia.IsTwitterVideoPosterUrl(image))
+            {
+                consumed.Add(image);
+                return image;
+            }
+
+            fallback ??= image;
+        }
+
+        if (fallback is not null)
+            consumed.Add(fallback);
+
+        // Avoid returning the playable URL itself as a "poster".
+        if (fallback is not null
+            && string.Equals(fallback, videoUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return fallback;
     }
 
     /// <summary>Validates a single owned upload URL under /uploads/{folder}/{userId:N}/.</summary>

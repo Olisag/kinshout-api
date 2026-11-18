@@ -505,6 +505,16 @@ public class ExternalDiscussionImportService(
             && existing.SourceLastSeenAt >= (item.Source.LastSeenAt ?? DateTime.UtcNow).AddMinutes(-1))
         {
             existing.SourceLastSeenAt = item.Source.LastSeenAt ?? DateTime.UtcNow;
+            // Cheap heal: restore still posters dropped by older imports without
+            // re-running AI transform.
+            if (NeedsStillPosterHeal(existing, partitionedImages, playableVideos))
+            {
+                existing.ImageUrlsJson = DiscussionMediaHelper.SerializeUrlList(partitionedImages);
+                existing.VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(playableVideos);
+                existing.UpdatedAt = DateTime.UtcNow;
+                return UpsertOutcome.Updated;
+            }
+
             return UpsertOutcome.Unchanged;
         }
 
@@ -708,6 +718,29 @@ public class ExternalDiscussionImportService(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(DiscussionMediaHelper.MaxImages)
             .ToList();
+    }
+
+    /// <summary>
+    /// True when stored discussion has playable hotlinked video but no still
+    /// poster, while the incoming scrape includes one (common after the old
+    /// importer dropped X <c>media_url_https</c> thumbs).
+    /// </summary>
+    private static bool NeedsStillPosterHeal(
+        Discussion existing,
+        IReadOnlyList<string> incomingImages,
+        IReadOnlyList<string> incomingVideos)
+    {
+        var storedVideos = DiscussionMediaHelper.ParseUrlList(existing.VideoUrlsJson);
+        if (storedVideos.Count == 0 && incomingVideos.Count == 0)
+            return false;
+
+        var storedImages = DiscussionMediaHelper.ParseUrlList(existing.ImageUrlsJson);
+        var storedHasStill = storedImages.Any(DiscussionMultimedia.LooksLikeStillImageUrl);
+        if (storedHasStill)
+            return false;
+
+        return incomingImages.Any(DiscussionMultimedia.LooksLikeStillImageUrl)
+            && (storedVideos.Count > 0 || incomingVideos.Count > 0);
     }
 
     private static List<string> PartitionedImages(ImportExternalDiscussionDto item)

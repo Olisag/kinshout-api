@@ -165,12 +165,9 @@ public static partial class DiscussionMultimedia
                 AddVideo(trimmed);
         }
 
-        if (videos.Count > 0)
-        {
-            images = images
-                .Where(image => !IsTwitterVideoPosterUrl(image))
-                .ToList();
-        }
+        // Keep X video posters (…_thumb on pbs.twimg.com) in ImageUrls so
+        // ToMediaDtos can set PreviewUrl to a still. They are not emitted as
+        // gallery images when paired with a playable clip.
 
         // Same URL must not appear in both lists.
         images = images.Where(url => !seenVideos.Contains(url)).Take(DiscussionMediaHelper.MaxImages).ToList();

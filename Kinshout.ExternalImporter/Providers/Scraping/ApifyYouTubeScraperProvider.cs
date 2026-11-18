@@ -162,6 +162,9 @@ public sealed partial class ApifyYouTubeScraperProvider(HttpClient http, Externa
             SourceReactions = SourceReactionReader.Read(item),
             EngagementScore = score,
             Status = "active",
+            // Stable YouTube still for FE/iOS embed posters (hqdefault).
+            ImageUrls = [$"https://i.ytimg.com/vi/{id.Trim()}/hqdefault.jpg"],
+            VideoUrls = [url],
         };
     }
 

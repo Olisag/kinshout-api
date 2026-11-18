@@ -133,7 +133,7 @@ public class DiscussionMediaHelperTests
     }
 
     [Fact]
-    public void ToMediaDtos_VideoWithoutAsset_FallsBackToStorageUrl()
+    public void ToMediaDtos_VideoWithoutAsset_FallsBackToStorageUrlWithoutMp4Preview()
     {
         var storage = "/uploads/videos/abc/legacy.mp4";
         var media = DiscussionMediaHelper.ToMediaDtos([], [storage]);
@@ -141,15 +141,44 @@ public class DiscussionMediaHelperTests
 
         Assert.Equal("video", item.Type);
         Assert.Equal(storage, item.Url);
-        Assert.Equal(storage, item.PreviewUrl);
+        Assert.Null(item.PreviewUrl);
         Assert.Equal(storage, item.PlayUrl);
+    }
+
+    [Fact]
+    public void ToMediaDtos_XHotlink_UsesPbsThumbAsPreviewNotMp4()
+    {
+        var poster = "https://pbs.twimg.com/ext_tw_video_thumb/1/img/abc.jpg";
+        var clip = "https://video.twimg.com/amplify_video/1/vid/720x1280/clip.mp4";
+
+        var media = DiscussionMediaHelper.ToMediaDtos([poster], [clip]);
+        var item = Assert.Single(media);
+
+        Assert.Equal("video", item.Type);
+        Assert.Equal(poster, item.Url);
+        Assert.Equal(poster, item.PreviewUrl);
+        Assert.Equal(clip, item.PlayUrl);
+    }
+
+    [Fact]
+    public void ToMediaDtos_YouTubeThumb_UsedAsPreviewAndHiddenFromGallery()
+    {
+        var thumb = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
+        var watch = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+        var media = DiscussionMediaHelper.ToMediaDtos([thumb], [watch]);
+        var item = Assert.Single(media);
+
+        Assert.Equal("video", item.Type);
+        Assert.Equal(thumb, item.PreviewUrl);
+        Assert.Equal(watch, item.PlayUrl);
     }
 }
 
 public class DiscussionMultimediaPartitionTests
 {
     [Fact]
-    public void PartitionExternalMediaUrls_MovesXPosterOutOfVideos()
+    public void PartitionExternalMediaUrls_KeepsXPosterWithClip()
     {
         var poster = "https://pbs.twimg.com/ext_tw_video_thumb/1/img/abc.jpg";
         var clip = "https://video.twimg.com/amplify_video/1/vid/720x1280/clip.mp4";
@@ -158,7 +187,7 @@ public class DiscussionMultimediaPartitionTests
             [poster],
             [poster, clip]);
 
-        Assert.DoesNotContain(poster, images);
+        Assert.Contains(poster, images);
         Assert.DoesNotContain(poster, videos);
         Assert.Equal([clip], videos);
     }

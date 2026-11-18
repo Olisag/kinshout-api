@@ -228,13 +228,9 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var distinctImages = images.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var distinctVideos = videos.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-        // One display surface per asset: drop poster stills that duplicate a playable clip.
-        if (distinctVideos.Count > 0)
-        {
-            distinctImages = distinctImages
-                .Where(image => !IsTwitterPosterForAnyVideo(image, distinctVideos))
-                .ToList();
-        }
+        // Keep X video posters (pbs.twimg.com …_thumb) alongside clips so the API
+        // can set PreviewUrl to a still instead of the MP4. ToMediaDtos consumes
+        // them as previews and hides them from the photo gallery.
 
         // Never keep the same URL in both lists.
         var videoSet = new HashSet<string>(distinctVideos, StringComparer.OrdinalIgnoreCase);
@@ -267,11 +263,19 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
                 || type.Contains("animated_gif", StringComparison.Ordinal)
                 || type.Contains("gif", StringComparison.Ordinal))
             {
-                // media_url_https on X videos is the poster JPEG — never store it as a video.
+                // media_url_https on X videos is the poster JPEG — keep it as an
+                // image for PreviewUrl, never as a playable video URL.
                 if (!string.IsNullOrWhiteSpace(videoUrl))
+                {
                     addVideo(videoUrl);
+                    if (LooksLikeStillImageUrl(poster))
+                        addImage(poster);
+                }
                 else
+                {
                     addImage(poster);
+                }
+
                 continue;
             }
 
@@ -355,11 +359,23 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         return TryPickBestVariantFromArray(variants, out url);
     }
 
+    /// <summary>
+    /// Prefer ~480–720p / mid bitrate for Kinshasa networks instead of the
+    /// largest amplify variant (often 1280p+). Target band: 600k–2.2M bps.
+    /// </summary>
     private static bool TryPickBestVariantFromArray(JsonElement variants, out string? url)
     {
         url = null;
-        string? best = null;
-        var bestBitrate = -1;
+        string? preferred = null;
+        var preferredScore = int.MinValue;
+        string? fallback = null;
+        var fallbackBitrate = int.MaxValue;
+        string? any = null;
+        var anyBitrate = -1;
+
+        const int targetMinBitrate = 600_000;
+        const int targetMaxBitrate = 2_200_000;
+        const int idealBitrate = 1_200_000;
 
         foreach (var variant in variants.EnumerateArray())
         {
@@ -376,15 +392,63 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             }
 
             var bitrate = ReadInt(variant, "bitrate") ?? 0;
-            if (bitrate >= bestBitrate)
+            var widthHint = EstimateWidthFromUrl(candidate);
+
+            // Prefer mid-band bitrate; among those, prefer ~640–720 width.
+            if (bitrate >= targetMinBitrate && bitrate <= targetMaxBitrate)
             {
-                bestBitrate = bitrate;
-                best = candidate;
+                var score = -Math.Abs(bitrate - idealBitrate);
+                if (widthHint is >= 480 and <= 720)
+                    score += 500_000;
+                else if (widthHint is > 720 and <= 960)
+                    score += 100_000;
+
+                if (score > preferredScore)
+                {
+                    preferredScore = score;
+                    preferred = candidate;
+                }
+            }
+
+            // Fallback: smallest usable mp4 above ~200k (avoid tiny preview-only).
+            if (bitrate > 0 && bitrate < fallbackBitrate && bitrate >= 200_000)
+            {
+                fallbackBitrate = bitrate;
+                fallback = candidate;
+            }
+
+            if (bitrate >= anyBitrate)
+            {
+                anyBitrate = bitrate;
+                any = candidate;
             }
         }
 
-        url = best;
+        url = preferred ?? fallback ?? any;
         return !string.IsNullOrWhiteSpace(url);
+    }
+
+    /// <summary>Parse <c>/vid/720x1280/</c> style path segments when present.</summary>
+    private static int? EstimateWidthFromUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return null;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            uri.AbsolutePath,
+            @"/(\d{3,4})x(\d{3,4})/",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success)
+            return null;
+
+        if (!int.TryParse(match.Groups[1].Value, out var a)
+            || !int.TryParse(match.Groups[2].Value, out var b))
+        {
+            return null;
+        }
+
+        // Path is usually width x height for landscape, height x width for vertical.
+        return Math.Min(a, b);
     }
 
     /// <summary>X stores poster JPEGs on pbs.twimg.com; real clips live on video.twimg.com.</summary>
@@ -464,21 +528,6 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             uri.AbsolutePath,
             @"\.(mp4|mov|webm|m4v|m3u8)$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-    }
-
-    private static bool IsTwitterPosterForAnyVideo(string imageUrl, IReadOnlyList<string> videoUrls)
-    {
-        if (videoUrls.Count == 0 || !videoUrls.Any(LooksLikeVideoUrl))
-            return false;
-        if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri))
-            return false;
-
-        var path = uri.AbsolutePath;
-        // Drop video thumbs only — keep real photo attachments on mixed posts.
-        return path.Contains("video_thumb", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("ext_tw_video_thumb", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("amplify_video_thumb", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("tweet_video_thumb", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildTitle(string text)
