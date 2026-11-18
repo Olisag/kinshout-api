@@ -137,6 +137,7 @@ builder.Services.AddHostedService<DiscussionSeedingWorker>();
 builder.Services.AddScoped<IUnavailableSourceService, UnavailableSourceService>();
 builder.Services.AddSingleton<IDiscussionTopicBackfillScheduler, DiscussionTopicBackfillScheduler>();
 builder.Services.AddSingleton<IImportedDiscussionImageModerationBackfillScheduler, ImportedDiscussionImageModerationBackfillScheduler>();
+builder.Services.AddSingleton<IImportedDiscussionVideoPosterBackfillScheduler, ImportedDiscussionVideoPosterBackfillScheduler>();
 builder.Services.AddHostedService<KinshoutStartupHostedService>();
 builder.Services.AddHostedService<AbandonedVideoUploadCleanupService>();
 

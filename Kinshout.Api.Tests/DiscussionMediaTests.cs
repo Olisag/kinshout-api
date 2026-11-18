@@ -206,6 +206,32 @@ public class DiscussionMultimediaPartitionTests
     }
 }
 
+public class ImportedDiscussionVideoPosterBackfillTests
+{
+    [Theory]
+    [InlineData(
+        "https://x.com/ConscienceRDC/status/2122964537557103103",
+        "ConscienceRDC/status/2122964537557103103")]
+    [InlineData(
+        "https://twitter.com/ExplorezNews/status/2122994108490719255",
+        "ExplorezNews/status/2122994108490719255")]
+    public void TryParseTwitterStatusPath_AcceptsXAndTwitterUrls(string url, string expected)
+    {
+        Assert.True(
+            ImportedDiscussionVideoPosterBackfillScheduler.TryParseTwitterStatusPath(url, out var path));
+        Assert.Equal(expected, path);
+    }
+
+    [Fact]
+    public void TryParseTwitterStatusPath_RejectsNonStatusUrls()
+    {
+        Assert.False(
+            ImportedDiscussionVideoPosterBackfillScheduler.TryParseTwitterStatusPath(
+                "https://x.com/ConscienceRDC",
+                out _));
+    }
+}
+
 public class DiscussionMediaServiceTests
 {
     [Fact]

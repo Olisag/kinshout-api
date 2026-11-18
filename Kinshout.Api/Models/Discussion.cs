@@ -20,6 +20,11 @@ public class Discussion
     /// Older editions still need a backfill pass when the post has images.
     /// </summary>
     public int PublicFeedMediaRuleVersion { get; set; }
+    /// <summary>
+    /// Which edition of the X video still-poster backfill last reviewed this post.
+    /// Older editions with hotlinked MP4s and no ImageUrls still need a heal.
+    /// </summary>
+    public int PublicFeedVideoPosterRuleVersion { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public string Visibility { get; set; } = CommunityVisibilities.Public;
