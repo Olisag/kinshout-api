@@ -15,6 +15,11 @@ public class Discussion
     public bool PublicFeedBlocked { get; set; }
     /// <summary>Which edition of the public-feed rules last reviewed this post. An older edition still needs a review.</summary>
     public int PublicFeedRuleVersion { get; set; }
+    /// <summary>
+    /// Which edition of imported-image vision moderation last reviewed this post.
+    /// Older editions still need a backfill pass when the post has images.
+    /// </summary>
+    public int PublicFeedMediaRuleVersion { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public string Visibility { get; set; } = CommunityVisibilities.Public;

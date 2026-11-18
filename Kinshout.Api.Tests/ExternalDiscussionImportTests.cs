@@ -48,6 +48,7 @@ public class ExternalDiscussionImportTests
         var discussion = await db.Discussions.SingleAsync();
         Assert.True(discussion.PublicFeedBlocked);
         Assert.Equal(PoliticsFeedFilter.RuleVersion, discussion.PublicFeedRuleVersion);
+        Assert.Equal(ImportedDiscussionImageModeration.RuleVersion, discussion.PublicFeedMediaRuleVersion);
         moderation.Verify(
             m => m.CheckImageAllowedAsync(It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Once);

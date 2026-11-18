@@ -54,6 +54,7 @@ public sealed class KinshoutStartupHostedService(
             scope.ServiceProvider.GetRequiredService<IDiscussionTopicBackfillScheduler>().ScheduleBatchBackfill();
             scope.ServiceProvider.GetRequiredService<IAdvertImageVariantBackfillScheduler>().ScheduleBackfill();
             scope.ServiceProvider.GetRequiredService<IExternalAdvertImageMirrorBackfillScheduler>().ScheduleBackfill();
+            scope.ServiceProvider.GetRequiredService<IImportedDiscussionImageModerationBackfillScheduler>().ScheduleBackfill();
         }
         catch (Exception ex)
         {

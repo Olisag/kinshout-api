@@ -508,6 +508,14 @@ public static partial class DbSchemaPatcher
                 : "ALTER TABLE Discussions ADD COLUMN PublicFeedRuleVersion INTEGER NOT NULL DEFAULT 0";
             await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
         }
+
+        if (!await ColumnExistsAsync(connection, sqlServer, "Discussions", "PublicFeedMediaRuleVersion", ct))
+        {
+            var sql = sqlServer
+                ? "ALTER TABLE Discussions ADD PublicFeedMediaRuleVersion int NOT NULL CONSTRAINT DF_Discussions_PublicFeedMediaRuleVersion DEFAULT 0"
+                : "ALTER TABLE Discussions ADD COLUMN PublicFeedMediaRuleVersion INTEGER NOT NULL DEFAULT 0";
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken: ct);
+        }
     }
 
     private static async Task EnsureKinoiserieSchemaAsync(
