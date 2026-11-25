@@ -44,22 +44,22 @@ public partial class ExternalDiscussionTransformService(
         var author = string.IsNullOrWhiteSpace(originalAuthor) ? "inconnu" : originalAuthor.Trim();
         var platform = string.IsNullOrWhiteSpace(platformName) ? "réseau social" : platformName.Trim();
         var prompt = $$"""
-            Transforme une publication sur Kinshasa en sujet de discussion Kinshout (style forum Reddit).
+            Nettoie une publication pour Kinshout. Le titre et le corps doivent dire la même chose que le texte source.
 
             Réponds UNIQUEMENT en JSON:
             {
-              "title": "libellé court du sujet (max 70 caractères, PAS de point d'interrogation, pas d'emoji ni hashtag)",
-              "body": "2 à 4 phrases en français (contexte, réaction ou résumé). Une question ouverte est OPTIONNELLE — ne l'ajoute que si elle apporte vraiment quelque chose."
+              "title": "le sujet réel, max 70 caractères, sans point d'interrogation, sans emoji ni hashtag",
+              "body": "les faits du texte source, en français. Pas une nouvelle histoire."
             }
 
             Règles:
-            - title = le sujet seulement (ex: "Retour des Léopards à Kinshasa", "Résultats EXETAT 2026 — Kinshasa Lukunga")
-            - body = contexte factuel tiré du texte; ton vivant, style discussion Kinshasa/RDC
-            - Ne termine PAS toujours par une question; variez (résumé, constat, réaction). Question seulement parfois.
-            - Ne pas inventer de faits absents du texte source
-            - Si le texte commence par « Titre: », ce titre est le sujet réel (événement, date, culte, chanson). Nomme-le dans title et dans body. N'utilise pas un pied de page répété (partenariat, contacts, dons, abonnement) comme titre
-            - Pas de emojis, hashtags, ni MAJUSCULES agressives dans title/body
-            - Si le texte source contient une URL YouTube (youtube.com/watch, youtu.be, shorts), conserve-la telle quelle sur sa propre ligne à la fin du body
+            - title nomme ce dont parle le texte (personne, chanson, objet, lieu, événement). Pas un autre sujet
+            - body reprend les détails présents: prix, lieu, date, description. Une phrase déclarative suffit
+            - N'ajoute pas de question. Pas de « qu'en pensez-vous », « quelqu'un connaît », ni d'invitation absente du texte
+            - Garde les numéros, e-mails et URL du texte, chacun sur sa ligne en fin de body s'ils ne sont pas déjà dans une phrase
+            - N'invente aucun fait
+            - Si le texte commence par « Titre: », ce titre est le sujet. Ne le remplace pas par un pied de page (partenariat, dons, abonnement)
+            - Pas d'emoji, de hashtag, ni de majuscules agressives
 
             Auteur source: {{author}}
             Plateforme: {{platform}}
@@ -106,10 +106,10 @@ public partial class ExternalDiscussionTransformService(
             model = _settings.Model,
             messages = new object[]
             {
-                new { role = "system", content = "Tu transformes des posts sociaux en sujets de discussion pour Kinshout (Kinshasa, RDC). Réponds en JSON uniquement." },
+                new { role = "system", content = "Tu nettoies un post pour Kinshout. Tu gardes le sujet, les faits, les liens et les contacts. Tu n'ajoutes ni question ni fait absent du texte. Réponds en JSON uniquement." },
                 new { role = "user", content = prompt },
             },
-            temperature = 0.2,
+            temperature = 0.1,
             response_format = new { type = "json_object" },
         };
 
@@ -126,25 +126,45 @@ public partial class ExternalDiscussionTransformService(
 
     private static string CleanTitle(string? title, string rawFallback)
     {
-        var value = string.IsNullOrWhiteSpace(title) ? BuildFallbackTitle(CleanRawText(rawFallback)) : CleanRawText(title);
+        var source = SourceProse(rawFallback);
+        var value = string.IsNullOrWhiteSpace(title) ? BuildFallbackTitle(CleanRawText(source)) : CleanRawText(title);
         value = value.Trim().TrimEnd('?', '.', '!', ' ');
+        if (!DiscussionSourceText.TryReadMarkedTitle(rawFallback, out _)
+            && !SharesDistinctiveToken(value, source))
+        {
+            value = BuildFallbackTitle(CleanRawText(source));
+        }
+
         return value.Length <= 70 ? value : value[..67] + "...";
     }
 
     private static string CleanBody(string? body, string rawFallback)
     {
         if (string.IsNullOrWhiteSpace(body))
-            return BuildFallbackBody(DiscussionSourceText.WithoutMarkedTitle(rawFallback));
+            return BuildFallbackBody(rawFallback);
 
-        var value = body.Trim();
-        // Preserve YouTube URLs from the raw source when the model dropped them.
-        value = EnsureYouTubeUrlPreserved(value, rawFallback);
+        return PrepareBody(body, rawFallback);
+    }
+
+    /// <summary>
+    /// Drops a question the source did not ask, and puts back links and contacts the rewrite left out.
+    /// A body about a different subject is replaced by the source wording.
+    /// </summary>
+    internal static string PrepareBody(string body, string raw)
+    {
+        var source = SourceProse(raw);
+        var value = DropAddedQuestions(body.Trim(), source);
+        if (!SharesDistinctiveToken(value, source))
+            value = SourceSentences(source);
+
+        value = AppendMissingUrls(value, raw);
+        value = AppendMissingContacts(value, source);
         return value.Length <= 1200 ? value : TruncatePreservingUrl(value, 1200);
     }
 
     private static string BuildFallbackTitle(string cleaned)
     {
-        var sentence = SplitSentences(cleaned).FirstOrDefault() ?? cleaned;
+        var sentence = SplitSentences(cleaned).FirstOrDefault(piece => piece.Length > 10) ?? cleaned;
         sentence = HashtagRegex().Replace(sentence, "").Trim();
         sentence = sentence.Trim().TrimEnd('?', '.', '!', ' ');
         if (sentence.Length > 70)
@@ -152,34 +172,170 @@ public partial class ExternalDiscussionTransformService(
         return string.IsNullOrWhiteSpace(sentence) ? "Sujet Kinshasa" : sentence;
     }
 
-    private static string BuildFallbackBody(string raw)
+    private static string BuildFallbackBody(string raw) => PrepareBody(SourceSentences(SourceProse(raw)), raw);
+
+    private static string SourceProse(string raw) => DiscussionSourceText.WithoutMarkedTitle(raw);
+
+    private static string SourceSentences(string source)
     {
-        var youtubeUrl = ExtractYouTubeUrl(raw);
-        var cleaned = CleanRawText(raw);
-        var sentences = SplitSentences(cleaned).Take(3).ToList();
+        var cleaned = CleanRawText(source);
+        var sentences = SplitSentences(cleaned).Take(4).ToList();
         var context = string.Join(" ", sentences).Trim();
-        if (context.Length > 400)
-            context = context[..397] + "...";
+        if (context.Length > 800)
+            context = context[..797] + "...";
 
-        if (string.IsNullOrWhiteSpace(context))
-            context = "Discussion partagée depuis une source externe.";
-
-        return string.IsNullOrWhiteSpace(youtubeUrl)
-            ? context
-            : $"{context}\n\n{youtubeUrl}";
+        return string.IsNullOrWhiteSpace(context)
+            ? "Discussion partagée depuis une source externe."
+            : context;
     }
 
-    private static string EnsureYouTubeUrlPreserved(string body, string rawFallback)
+    private static string DropAddedQuestions(string body, string source)
     {
-        if (ExtractYouTubeUrl(body) is not null)
+        if (source.Contains('?', StringComparison.Ordinal))
             return body;
 
-        var youtubeUrl = ExtractYouTubeUrl(rawFallback);
-        if (youtubeUrl is null)
-            return body;
+        var value = body;
+        while (value.TrimEnd().EndsWith('?'))
+        {
+            var cut = LastBreak(value);
+            var next = cut < 0 ? "" : value[..cut].Trim();
+            if (string.IsNullOrWhiteSpace(next))
+                return "";
 
-        return $"{body.TrimEnd()}\n\n{youtubeUrl}";
+            value = next;
+        }
+
+        return value;
     }
+
+    private static int LastBreak(string value)
+    {
+        var trimmed = value.TrimEnd();
+        for (var i = trimmed.Length - 2; i >= 0; i--)
+        {
+            if (trimmed[i] is '.' or '!' or '\n')
+                return i + 1;
+        }
+
+        return -1;
+    }
+
+    private static string AppendMissingUrls(string body, string raw)
+    {
+        var value = body.Trim();
+        foreach (Match match in UrlRegex().Matches(raw))
+        {
+            var url = match.Value.TrimEnd(')', ']', '.', ',', ';', '"', '\'');
+            if (!KeepUrl(url))
+                continue;
+
+            var stored = IsYouTubeVideoUrl(url) ? NormalizeYouTubeUrl(url) : url;
+            if (value.Contains(stored, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            value = string.IsNullOrWhiteSpace(value) ? stored : $"{value.TrimEnd()}\n\n{stored}";
+        }
+
+        return value;
+    }
+
+    private static bool KeepUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        if (IsYouTubeVideoUrl(url))
+            return true;
+
+        var host = uri.Host.Replace("www.", "", StringComparison.OrdinalIgnoreCase);
+        if (host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return uri.AbsolutePath.Length > 1;
+    }
+
+    private static string AppendMissingContacts(string body, string source)
+    {
+        var value = body.Trim();
+        foreach (Match match in EmailRegex().Matches(source))
+            value = AppendIfMissing(value, match.Value);
+
+        foreach (Match match in PhoneRegex().Matches(source))
+        {
+            var phone = match.Value.Trim();
+            if (phone.Count(char.IsDigit) < 8)
+                continue;
+            if (DigitsOf(value).Contains(DigitsOf(phone), StringComparison.Ordinal))
+                continue;
+
+            value = string.IsNullOrWhiteSpace(value) ? phone : $"{value.TrimEnd()}\n\n{phone}";
+        }
+
+        return value;
+    }
+
+    private static string AppendIfMissing(string body, string token)
+    {
+        if (body.Contains(token, StringComparison.OrdinalIgnoreCase))
+            return body;
+
+        return string.IsNullOrWhiteSpace(body) ? token : $"{body.TrimEnd()}\n\n{token}";
+    }
+
+    private static string DigitsOf(string value)
+    {
+        var digits = new char[value.Length];
+        var count = 0;
+        foreach (var ch in value)
+        {
+            if (char.IsDigit(ch))
+                digits[count++] = ch;
+        }
+
+        return new string(digits, 0, count);
+    }
+
+    private static bool SharesDistinctiveToken(string text, string source)
+    {
+        var found = false;
+        foreach (var token in DistinctiveTokens(source))
+        {
+            found = true;
+            if (text.Contains(token, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return !found;
+    }
+
+    private static IEnumerable<string> DistinctiveTokens(string source)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in source.Split([' ', '\n', '\r', '\t', ',', '.', '!', '?', ':', ';', '"', '\'', '’', '(', ')', '[', ']', '#', '/', '-', '—'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var token = raw.Trim();
+            if (token.Length < 5 && !token.Any(char.IsDigit))
+                continue;
+            if (StopWords.Contains(token))
+                continue;
+            if (token.All(ch => !char.IsLetterOrDigit(ch)))
+                continue;
+            if (seen.Add(token))
+                yield return token;
+        }
+    }
+
+    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "kinshasa", "kinois", "kinoise", "congo", "congolais", "congolaise",
+        "video", "vidéo", "nouveau", "nouvelle", "officiel", "officielle",
+        "discussion", "pensez", "aujourd", "demain", "comme", "cette", "votre",
+        "notre", "avec", "pour", "dans", "plus", "tout", "tous", "chez", "donc",
+        "alors", "aussi", "bien", "leur", "leurs", "apres", "après", "être",
+        "etre", "fait", "faire", "sont", "vous", "nous", "mais", "dont",
+    };
 
     private static string? ExtractYouTubeUrl(string text)
     {
@@ -301,7 +457,7 @@ public partial class ExternalDiscussionTransformService(
 
     private static IEnumerable<string> SplitSentences(string text) =>
         text.Split(['.', '!', '?', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(s => s.Length > 10);
+            .Where(s => s.Length > 10 || s.Any(char.IsDigit));
 
     [GeneratedRegex(@"#\w+", RegexOptions.IgnoreCase)]
     private static partial Regex HashtagRegex();
@@ -311,4 +467,10 @@ public partial class ExternalDiscussionTransformService(
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
+
+    [GeneratedRegex(@"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", RegexOptions.IgnoreCase)]
+    private static partial Regex EmailRegex();
+
+    [GeneratedRegex(@"(?:\+|00)?\d[\d\s().-]{6,}\d", RegexOptions.IgnoreCase)]
+    private static partial Regex PhoneRegex();
 }

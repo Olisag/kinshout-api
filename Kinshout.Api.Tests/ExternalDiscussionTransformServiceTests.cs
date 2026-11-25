@@ -92,6 +92,59 @@ public class ExternalDiscussionTransformServiceTests
         Assert.Equal(4, results.Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 
+    [Fact]
+    public async Task TransformAsync_FallbackKeepsListingFactsWithoutAddingAQuestion()
+    {
+        const string raw = """
+            Appartement 3 pièces à Gombe. 450 $. Salon et cuisine.
+            Contact: +243 81 000 0000
+            https://www.facebook.com/marketplace/item/123
+            """;
+
+        var result = await CreateService().TransformAsync(raw, "Marché", "Facebook");
+
+        Assert.Contains("Appartement", result.Title, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("?", result.Title);
+        Assert.False(result.Body.TrimEnd().EndsWith('?'));
+        Assert.Contains("450", result.Body, StringComparison.Ordinal);
+        Assert.Contains("810000000", Digits(result.Body), StringComparison.Ordinal);
+        Assert.Contains("https://www.facebook.com/marketplace/item/123", result.Body, StringComparison.Ordinal);
+        Assert.True(result.UsedFallback);
+    }
+
+    [Fact]
+    public void PrepareBody_DropsAnAddedQuestionAndADifferentSubject()
+    {
+        const string raw = "Appartement 3 pièces à Gombe. 450 $. Salon et cuisine.";
+
+        var questioned = ExternalDiscussionTransformService.PrepareBody(
+            "Un logement est proposé à Gombe pour 450 $. Quelqu'un connaît cet immeuble ?",
+            raw);
+        Assert.False(questioned.TrimEnd().EndsWith('?'));
+        Assert.Contains("450", questioned, StringComparison.Ordinal);
+        Assert.Contains("Gombe", questioned, StringComparison.OrdinalIgnoreCase);
+
+        var mismatched = ExternalDiscussionTransformService.PrepareBody(
+            "Le concert de rumba a rempli le stade.",
+            raw);
+        Assert.Contains("Appartement", mismatched, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("450", mismatched, StringComparison.Ordinal);
+        Assert.DoesNotContain("stade", mismatched, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Digits(string value)
+    {
+        var digits = new char[value.Length];
+        var count = 0;
+        foreach (var ch in value)
+        {
+            if (char.IsDigit(ch))
+                digits[count++] = ch;
+        }
+
+        return new string(digits, 0, count);
+    }
+
     private static ExternalDiscussionTransformService CreateService() =>
         new(
             new TestHttpClientFactory(),
