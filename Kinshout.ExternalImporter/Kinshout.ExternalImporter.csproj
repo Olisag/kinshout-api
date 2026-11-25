@@ -15,4 +15,8 @@
     <Content Include="Configuration/source-registry.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kinshout.Api.Tests" />
+  </ItemGroup>
+
 </Project>

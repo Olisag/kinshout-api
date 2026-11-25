@@ -123,14 +123,6 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var body = text.Trim();
         var (images, videos) = ExtractMedia(item, body);
 
-        // Visual-first: keep media/YouTube links. If the search query already forces filter:media,
-        // trust Twitter's media filter even when the scraper omits attachment URLs.
-        var queryForcesMedia = settings.SearchQueries.Any(q =>
-            !string.IsNullOrWhiteSpace(q)
-            && q.Contains("filter:media", StringComparison.OrdinalIgnoreCase));
-        if (images.Count == 0 && videos.Count == 0 && !ContainsVisualLink(body) && !queryForcesMedia)
-            return null;
-
         if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
             return null;
 
@@ -143,7 +135,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var likes = ReadInt(item, "likeCount") ?? ReadInt(item, "likes") ?? 0;
         var replies = ReadInt(item, "replyCount") ?? ReadInt(item, "replies") ?? 0;
         var retweets = ReadInt(item, "retweetCount") ?? ReadInt(item, "retweets") ?? 0;
-        var score = likes + replies * 2 + retweets * 3;
+        var score = BuzzGate.Score(likes, replies, retweets);
         if (score < minEngagement)
             return null;
 
@@ -168,17 +160,6 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             ImageUrls = images,
             VideoUrls = videos,
         };
-    }
-
-    private static bool ContainsVisualLink(string text)
-    {
-        var lower = text.ToLowerInvariant();
-        return lower.Contains("youtube.com/", StringComparison.Ordinal)
-            || lower.Contains("youtu.be/", StringComparison.Ordinal)
-            || lower.Contains("tiktok.com/", StringComparison.Ordinal)
-            || lower.Contains("instagram.com/", StringComparison.Ordinal)
-            || lower.Contains("fb.watch/", StringComparison.Ordinal)
-            || lower.Contains("twimg.com/", StringComparison.Ordinal);
     }
 
     private static (List<string> Images, List<string> Videos) ExtractMedia(JsonElement item, string text)

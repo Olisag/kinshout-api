@@ -2,12 +2,13 @@ namespace Kinshout.ExternalImporter.Providers.Scraping;
 
 /// <summary>
 /// Files a Congolese social post by what it is about.
-/// A joke or a piece of gossip stays in humour even when a name is mentioned.
-/// Everyday talk that names no topic goes to the general room.
+/// A joke stays in humour. "Buzz" and "insolite" do not, so a passed-around
+/// photo or story can be filed by its subject instead of as a sketch.
+/// Unknown posts return null and the API picks a community.
 /// </summary>
 internal static class CongoleseSocialTopic
 {
-    public static string Slug(string? title, string? body)
+    public static string? Slug(string? title, string? body)
     {
         var blob = $"{title} {body}".ToLowerInvariant();
 
@@ -16,7 +17,7 @@ internal static class CongoleseSocialTopic
 
         if (Contains(blob,
                 "sketch", "blague", "mdr", "ptdr", "humour", "humor", "comedie", "comédie",
-                "stand-up", "standup", "potin", "rumeur", "cancan", "buzz", "tendance", "insolite"))
+                "stand-up", "standup"))
             return "humour";
 
         if (Contains(blob,
@@ -34,7 +35,7 @@ internal static class CongoleseSocialTopic
                 "fally", "ipupa", "ferre gola", "wenge", "ndombolo", "rumba congolaise"))
             return "musique";
 
-        return "general";
+        return null;
     }
 
     private static bool Contains(string blob, params string[] needles) =>

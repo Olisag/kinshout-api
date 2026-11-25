@@ -10,9 +10,13 @@ namespace Kinshout.Api.Services;
 public static partial class DiscussionMultimedia
 {
     /// <summary>
-    /// Source engagement above which a text-only post may stay (popular X/FB trends).
-    /// Tuned for X-style scores (likes + 2*replies + 3*reposts), not YouTube view counts.
+    /// Reaction score above which a post is buzzing.
+    /// The importer weights comments and shares above likes. Views are not the score.
+    /// A video, a photo, and a text post use this same floor.
     /// </summary>
+    public const int BuzzEngagementFloor = 20;
+
+    /// <summary>Kept so older callers still compile. New imports use <see cref="BuzzEngagementFloor"/>.</summary>
     public const int AbsoluteHitEngagementScore = 120;
 
     /// <summary>On-platform likes that also qualify a text-only post as a hit.</summary>
@@ -73,11 +77,12 @@ public static partial class DiscussionMultimedia
         if (HasVisualMedia(discussion))
             return true;
 
-        // Absolute-hit exception is for true text virals only — not broken FB CDN videos.
+        // A text post stays when people are reacting. A broken Facebook video does not.
         if (HasOnlyUnplayableHotlinkedVideo(discussion))
             return false;
 
-        return IsAbsoluteHit(discussion);
+        return IsBuzzingEngagement(discussion.SourceEngagementScore)
+            || discussion.LikeCount >= AbsoluteHitLikeCount;
     }
 
     public static bool HasOnlyUnplayableHotlinkedVideo(Discussion discussion)
@@ -233,8 +238,11 @@ public static partial class DiscussionMultimedia
             || path.Contains("tweet_video_thumb", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsBuzzingEngagement(int? engagementScore) =>
+        engagementScore.GetValueOrDefault() >= BuzzEngagementFloor;
+
     public static bool IsAbsoluteHitEngagement(int? engagementScore) =>
-        engagementScore.GetValueOrDefault() >= AbsoluteHitEngagementScore;
+        IsBuzzingEngagement(engagementScore);
 
     public static bool HasConcreteYouTubeUrl(string? text) =>
         HasConcreteEmbeddableVideoUrl(text);

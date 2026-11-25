@@ -30,7 +30,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.YoutubeChannelId))
             .Where(source => settings.ClassiquesBackfill
                 ? source.Backfill
-                : source.WebSub)
+                : source.WebSub || source.HitsOnly)
             .ToList();
         var limit = settings.ClassiquesBackfill
             ? 30
@@ -53,7 +53,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             {
                 if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
                     continue;
-                if (!settings.ClassiquesBackfill && video.ViewCount < BuzzMinimumViews)
+                if (!settings.ClassiquesBackfill && !BuzzGate.IsBuzzing(video.EngagementScore, ReactionFloor))
                     continue;
 
                 video.OriginalAuthor = source.Name;
@@ -84,7 +84,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             {
                 if (string.IsNullOrWhiteSpace(video.ExternalId) || seen.Contains(video.ExternalId))
                     continue;
-                if (video.ViewCount < BuzzMinimumViews)
+                if (!BuzzGate.IsBuzzing(video.EngagementScore, ReactionFloor))
                     continue;
                 if (!Mentions(source, video.Title, video.Body))
                     continue;
@@ -134,7 +134,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             {
                 if (string.IsNullOrWhiteSpace(video.ExternalId) || seen.Contains(video.ExternalId))
                     continue;
-                if (video.ViewCount < ShowHitMinimumViews)
+                if (!BuzzGate.IsBuzzing(video.EngagementScore, ReactionFloor))
                     continue;
                 if (video.PublishedAt is null || video.PublishedAt < since)
                     continue;
@@ -173,7 +173,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             {
                 if (string.IsNullOrWhiteSpace(video.ExternalId) || seen.Contains(video.ExternalId))
                     continue;
-                if (video.ViewCount < BuzzMinimumViews)
+                if (!BuzzGate.IsBuzzing(video.EngagementScore, ReactionFloor))
                     continue;
                 if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
                     continue;
@@ -189,10 +189,10 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
 
     private static readonly string[] CommunityBuzzQueries =
     [
-        "Kinshasa (humour OR sketch OR potins OR buzz OR insolite)",
-        "Kinshasa (quartier OR embouteillage OR marché OR kinois OR tendance)",
-        "(Congolais OR Kinois) (diaspora OR Bruxelles OR Paris OR Montréal OR Johannesburg)",
-        "\"RDC\" (buzz OR viral OR tendance OR insolite)",
+        "congolais",
+        "kinois",
+        "kinshasa",
+        "(congolais OR kinois) (diaspora OR Bruxelles OR Paris OR Montréal OR Johannesburg)",
     ];
 
     private static SourceRegistryEntry? FindSubject(
@@ -270,8 +270,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         return ids;
     }
 
-    private const int BuzzMinimumViews = 1000;
-    private const int ShowHitMinimumViews = 5000;
+    private int ReactionFloor => settings.MinEngagementScore > 0 ? settings.MinEngagementScore : BuzzGate.Floor;
 
     private static bool Mentions(SourceRegistryEntry source, string? title, string? body)
     {
@@ -422,6 +421,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                 : null;
             var views = ReadStat(item, "viewCount");
             var likes = ReadStat(item, "likeCount");
+            var comments = ReadStat(item, "commentCount");
             discussions.Add(new SourceFeedDiscussion
             {
                 ExternalId = id,
@@ -435,7 +435,7 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                 ViewCount = views,
                 LikeCount = item.TryGetProperty("statistics", out var sourceStats) && sourceStats.TryGetProperty("likeCount", out _) ? likes : null,
                 SourceReactions = (await Kinshout.ExternalImporter.Import.YouTubeSourceReactions.FetchWhenEnabledAsync(http, apiKey, id, ct))?.ToList(),
-                EngagementScore = views + (likes * 5),
+                EngagementScore = BuzzGate.Score(likes, comments, 0),
                 Status = "active",
                 ImageUrls = string.IsNullOrWhiteSpace(thumb) ? [] : [thumb],
                 VideoUrls = [watchUrl],

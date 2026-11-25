@@ -3,7 +3,10 @@ using Kinshout.ExternalImporter.Configuration;
 
 namespace Kinshout.ExternalImporter.Providers.Scraping;
 
-/// <summary>Daily TikTok search for Congolese jokes, gossip, and everyday clips. Not a list of famous accounts.</summary>
+/// <summary>
+/// Daily TikTok search for what Congolese people are passing around, plus the
+/// watched profiles. A clip stays only when people are reacting to it.
+/// </summary>
 public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProviderSettings settings) : IExternalDiscussionProvider
 {
     private const string DefaultActorId = "clockworks/tiktok-scraper";
@@ -24,7 +27,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             settings.ApifyActorId = DefaultActorId;
 
         var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
-        var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : 2000;
+        var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : BuzzGate.Floor;
         var client = new ApifyClient(http, settings);
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -58,17 +61,50 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             using (doc)
             {
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                    Collect(doc.RootElement, query);
+                    Collect(doc.RootElement, query, limit);
             }
         }
 
-        if (discussions.Count == 0 && failed == queries.Count)
-            throw new InvalidOperationException($"TikTok: all {failed} searches failed.");
+        var profiles = SourceRegistry.Load()
+            .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.Tiktok))
+            .Select(source => source.Tiktok!.Trim().TrimStart('@'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var profileFailed = 0;
+        foreach (var profile in profiles)
+        {
+            JsonDocument doc;
+            try
+            {
+                doc = await client.RunActorAndGetDatasetAsync(new
+                {
+                    profiles = new[] { profile },
+                    resultsPerPage = 8,
+                    shouldDownloadVideos = false,
+                    shouldDownloadCovers = false,
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                profileFailed++;
+                Console.WriteLine($"  TikTok profile @{profile} failed: {ex.Message}");
+                continue;
+            }
 
-        Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} Congolese search(es).");
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    Collect(doc.RootElement, $"@{profile}", limit + (profiles.Count * 3));
+            }
+        }
+
+        if (discussions.Count == 0 && failed == queries.Count && profileFailed == profiles.Count && queries.Count + profiles.Count > 0)
+            throw new InvalidOperationException($"TikTok: all {failed} searches and {profileFailed} profiles failed.");
+
+        Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} search(es) and {profiles.Count} profile(s).");
         return DiscussionFetchResult.From(discussions, seen);
 
-        void Collect(JsonElement items, string query)
+        void Collect(JsonElement items, string query, int maxCount)
         {
             var before = discussions.Count;
             foreach (var item in items.EnumerateArray())
@@ -78,7 +114,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
                 if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url) || !seen.Add(id))
                     continue;
 
-                if (discussions.Count >= limit)
+                if (discussions.Count >= maxCount)
                     break;
 
                 var author = ReadAuthor(item);
@@ -90,8 +126,11 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
                     || KinshasaSocialPostFilter.LooksLikeCongoBrazzaville($"{title} {text}"))
                     continue;
 
-                var score = ReadInt(item, "playCount") + (ReadInt(item, "diggCount") * 5);
-                if (score < minScore)
+                var score = BuzzGate.Score(
+                    ReadInt(item, "diggCount"),
+                    ReadInt(item, "commentCount"),
+                    ReadInt(item, "shareCount"));
+                if (!BuzzGate.IsBuzzing(score, minScore))
                     continue;
 
                 discussions.Add(new SourceFeedDiscussion

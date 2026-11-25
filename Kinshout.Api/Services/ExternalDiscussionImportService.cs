@@ -461,7 +461,6 @@ public class ExternalDiscussionImportService(
         var rawBody = item.Body.Trim();
         var engagement = item.EngagementScore;
 
-        // Visual-first: skip text-only / unplayable-hotlink-only imports unless absolute hits.
         // Reclassify X poster JPEGs that scrapers put in VideoUrls before judging visuals.
         var (partitionedImages, partitionedVideos) = DiscussionMultimedia.PartitionExternalMediaUrls(
             SanitizeExternalMediaUrls(item.ImageUrls),
@@ -482,7 +481,12 @@ public class ExternalDiscussionImportService(
             hasVisual = true;
         }
 
-        if (!hasVisual && !DiscussionMultimedia.IsAbsoluteHitEngagement(engagement))
+        // Buzz gate: a video, a photo, and a text post stay when people are reacting.
+        // A Facebook file that cannot be played is not a post.
+        var onlyBrokenVideo = !hasVisual
+            && partitionedVideos.Count > 0
+            && partitionedVideos.All(DiscussionMultimedia.IsUnplayableHotlinkedVideo);
+        if (!DiscussionMultimedia.IsBuzzingEngagement(engagement) || onlyBrokenVideo)
         {
             if (existing is not null)
             {

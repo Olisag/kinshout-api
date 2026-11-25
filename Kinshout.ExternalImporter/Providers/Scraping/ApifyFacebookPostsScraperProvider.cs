@@ -119,9 +119,6 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             return null;
 
         var (images, videos) = ExtractMedia(item);
-        // Visual-first feed: skip text-only Facebook posts.
-        if (images.Count == 0 && videos.Count == 0)
-            return null;
 
         var author = item.TryGetProperty("author", out var authorNode)
             ? ReadAuthorName(authorNode)
@@ -143,7 +140,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         var likes = ReadInt(item, "reactionsCount") ?? ReadInt(item, "likesCount") ?? 0;
         var comments = ReadInt(item, "commentsCount") ?? 0;
         var shares = ReadInt(item, "sharesCount") ?? 0;
-        var score = likes + comments * 2 + shares * 3;
+        var score = BuzzGate.Score(likes, comments, shares);
         if (score < minEngagement)
             return null;
 
