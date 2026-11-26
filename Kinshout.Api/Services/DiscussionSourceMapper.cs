@@ -32,8 +32,14 @@ internal static class DiscussionSourceMapper
             discussion.SourceViewCount);
     }
 
-    public static DateTime SortDate(Discussion discussion) =>
-        discussion.ExternalPublishedAt ?? discussion.CreatedAt;
+    /// <summary>
+    /// When the discussion showed up on Kinoiserie. An import keeps the source date separately
+    /// and does not move again when a later scrape sees the same post.
+    /// </summary>
+    public static DateTime AppearedAt(Discussion discussion) =>
+        discussion.SourceImportedAt ?? discussion.CreatedAt;
+
+    public static DateTime SortDate(Discussion discussion) => AppearedAt(discussion);
 
     public static IQueryable<Discussion> OrderByPopular(IQueryable<Discussion> query) =>
         query.OrderByDescending(d => d.ViewCount)

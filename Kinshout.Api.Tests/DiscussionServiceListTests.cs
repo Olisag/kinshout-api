@@ -47,6 +47,28 @@ public class DiscussionServiceListTests
     }
 
     [Fact]
+    public async Task ListAsync_RecentOrdersByWhenThePostArrived()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+
+        var arrived = CreateDiscussion(user, category, "Arrived today", createdAt: DateTime.UtcNow.AddDays(-5));
+        arrived.SourceImportedAt = DateTime.UtcNow.AddHours(-2);
+        arrived.ExternalPublishedAt = DateTime.UtcNow.AddDays(-5);
+        var native = CreateDiscussion(user, category, "Posted yesterday", createdAt: DateTime.UtcNow.AddDays(-1));
+        db.Discussions.AddRange(arrived, native);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListAsync(sort: ListSortHelper.Recent, pageSize: 10);
+
+        Assert.Equal(["Arrived today", "Posted yesterday"], results.Items.Select(d => d.Title).ToArray());
+        Assert.Equal("Il y a 2 h", results.Items[0].Time);
+        var detail = await service.GetByIdAsync(arrived.Id);
+        Assert.Equal("Il y a 2 h", detail!.Time);
+    }
+
+    [Fact]
     public async Task ListAsync_FiltersAndPaginatesInDatabase()
     {
         await using var db = TestDbFactory.Create();

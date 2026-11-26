@@ -536,7 +536,10 @@ public class SearchService(
         {
 
             var meta = discussionMeta[discussion.Id];
-            feed.Add(("discussion", null, discussion, meta.CreatedAt, meta.ViewCount, meta.SourceEngagementScore ?? 0));
+            var when = sort == ListSortHelper.Popular
+                ? meta.CreatedAt
+                : DiscussionSourceMapper.AppearedAt(meta);
+            feed.Add(("discussion", null, discussion, when, meta.ViewCount, meta.SourceEngagementScore ?? 0));
 
         }
         feed = sort == ListSortHelper.Popular
@@ -624,7 +627,7 @@ public class SearchService(
         var query = discussions.AsEnumerable();
         return sort == ListSortHelper.Popular
             ? DiscussionSourceMapper.OrderByPopular(query).ToList()
-            : query.OrderByDescending(d => d.CreatedAt).ToList();
+            : query.OrderByDescending(DiscussionSourceMapper.AppearedAt).ToList();
 
     }
     private Task RecordSearchQueryAsync(string query, CancellationToken ct = default) =>

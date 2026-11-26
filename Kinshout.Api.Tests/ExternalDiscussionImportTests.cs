@@ -228,13 +228,100 @@ public class ExternalDiscussionImportTests
         Assert.DoesNotContain(titles, title => title.Contains("partenariat", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task ImportAsync_SkipsARepeatedCaptionAndLeavesTheEarlierPost()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        const string caption = "Une maman que certains Congolais croyaient deja decedee a ete retrouvee en train de se balader dans les rues de Kinshasa ce matin";
+
+        var first = await service.ImportAsync([SampleImport("tt-first", caption)]);
+        var second = await service.ImportAsync([SampleImport("tt-second", caption) with { EngagementScore = 80 }]);
+
+        Assert.Equal(1, first.Created);
+        Assert.Equal(1, second.Skipped);
+        var saved = await db.Discussions.SingleAsync();
+        Assert.Equal("tt-first", saved.SourceExternalId);
+    }
+
+    [Fact]
+    public async Task ImportAsync_KeepsThePostPeopleAreReactingToWhenTheWordingDiffers()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var transform = new Mock<IExternalDiscussionTransformService>();
+        transform.Setup(t => t.TransformAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<IReadOnlyList<string>?>()))
+            .ReturnsAsync((string raw, string? _, string? _, CancellationToken _, IReadOnlyList<string>? recent) =>
+                new ExternalDiscussionTransformResult("Sujet Kinshasa", raw, false, recent is { Count: > 0 }));
+        var service = CreateService(db, new TestHttpClientFactory(), transform: transform.Object);
+
+        const string walking = "Une maman que certains Congolais croyaient deja decedee a ete retrouvee en train de se balader dans les rues de Kinshasa.";
+        const string filmed = "Une video troublante au Congo montre une dame revenue a la vie trois ans apres son deces presume. La foule tente de la filmer pendant qu'elle continue son chemin.";
+        var quiet = SampleImport("tt-quiet", filmed) with
+        {
+            Title = "Video troublante au Congo",
+            EngagementScore = 40,
+        };
+        var loud = SampleImport("tt-loud", walking) with
+        {
+            Title = "Une maman retrouvee dans les rues de Kinshasa",
+            EngagementScore = 400,
+        };
+
+        var result = await service.ImportAsync([quiet, loud]);
+
+        Assert.Equal(1, result.Created);
+        Assert.Equal(1, result.Skipped);
+        var saved = await db.Discussions.SingleAsync();
+        Assert.Equal("tt-loud", saved.SourceExternalId);
+    }
+
+    [Fact]
+    public async Task ImportAsync_PublishesWhenTheRewriteCannotTellTheStoriesApart()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var transform = new Mock<IExternalDiscussionTransformService>();
+        transform.Setup(t => t.TransformAsync(
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>(),
+                It.IsAny<IReadOnlyList<string>?>()))
+            .ReturnsAsync((string raw, string? _, string? _, CancellationToken _, IReadOnlyList<string>? _) =>
+                new ExternalDiscussionTransformResult("Sujet Kinshasa", raw, true, false));
+        var service = CreateService(db, new TestHttpClientFactory(), transform: transform.Object);
+
+        var result = await service.ImportAsync([
+            SampleImport("tt-walk", "Une maman retrouvee en train de marcher a Kinshasa apres une rumeur de deces.") with
+            {
+                Title = "Maman retrouvee a Kinshasa",
+            },
+            SampleImport("tt-speaks", "La dame filmee a Kinshasa prend la parole et dement etre la personne que l'on disait morte.") with
+            {
+                Title = "Elle dement la rumeur",
+                EngagementScore = 30,
+            },
+        ]);
+
+        Assert.Equal(2, result.Created);
+        Assert.Equal(2, await db.Discussions.CountAsync());
+    }
+
     private static ExternalDiscussionImportService CreateService(KinshoutDbContext db) =>
         CreateService(db, new TestHttpClientFactory());
 
     private static ExternalDiscussionImportService CreateService(
         KinshoutDbContext db,
         IHttpClientFactory httpClientFactory,
-        IAdvertModerationService? moderation = null)
+        IAdvertModerationService? moderation = null,
+        IExternalDiscussionTransformService? transform = null)
     {
         var openAi = new Mock<IOpenAiService>();
         openAi.Setup(o => o.AnalyzeDiscussionAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Category>>(), It.IsAny<CancellationToken>()))
@@ -262,7 +349,7 @@ public class ExternalDiscussionImportTests
 
         return new ExternalDiscussionImportService(
             db,
-            new ExternalDiscussionTransformService(
+            transform ?? new ExternalDiscussionTransformService(
                 httpClientFactory,
                 Options.Create(new OpenAiSettings { ApiKey = "", Model = "gpt-4o-mini" }),
                 NullLogger<ExternalDiscussionTransformService>.Instance),

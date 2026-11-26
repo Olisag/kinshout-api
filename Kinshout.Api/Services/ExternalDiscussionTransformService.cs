@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kinshout.Api.Services;
 
-public record ExternalDiscussionTransformResult(string Title, string Body, bool UsedFallback);
+public record ExternalDiscussionTransformResult(string Title, string Body, bool UsedFallback, bool SameStory = false);
 
 public interface IExternalDiscussionTransformService
 {
@@ -15,7 +15,8 @@ public interface IExternalDiscussionTransformService
         string rawText,
         string? originalAuthor,
         string? platformName,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        IReadOnlyList<string>? recentStories = null);
 }
 
 public partial class ExternalDiscussionTransformService(
@@ -29,7 +30,8 @@ public partial class ExternalDiscussionTransformService(
         string rawText,
         string? originalAuthor,
         string? platformName,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<string>? recentStories = null)
     {
         var raw = rawText.Trim();
         if (string.IsNullOrWhiteSpace(raw))
@@ -41,15 +43,38 @@ public partial class ExternalDiscussionTransformService(
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
             return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
+        var stories = (recentStories ?? [])
+            .Select(story => story.Trim())
+            .Where(story => story.Length > 0)
+            .Take(ImportedStoryMatch.StoriesForModel)
+            .ToList();
         var author = string.IsNullOrWhiteSpace(originalAuthor) ? "inconnu" : originalAuthor.Trim();
         var platform = string.IsNullOrWhiteSpace(platformName) ? "réseau social" : platformName.Trim();
+        var sameStoryField = stories.Count == 0
+            ? ""
+            : ",\n              \"sameStory\": null";
+        var storyBlock = stories.Count == 0
+            ? ""
+            : "\nPublications déjà sur Kinoiserie:\n"
+                + string.Join("\n", stories.Select((story, index) => $"{index + 1}. {OneLine(story)}"))
+                + "\n";
+        var sameStoryRules = stories.Count == 0
+            ? ""
+            : """
+            - sameStory est le numéro de la publication qui raconte le même fait, ou null
+            - Même personne, même affirmation et même lieu: sameStory, même si les mots diffèrent
+            - Un nom seul ne suffit pas. Deux histoires différentes sur la même personne restent null
+            - Un démenti, la personne qui s'exprime, un fait nouveau, une autre séance ou une autre date reste null
+            - En cas de doute, null
+
+            """;
         var prompt = $$"""
             Prépare une discussion Kinoiserie à partir d'une publication importée. Le titre et le corps doivent rester fidèles au texte source.
 
             Réponds UNIQUEMENT en JSON:
             {
               "title": "le sujet réel, max 70 caractères, sans emoji ni hashtag. Une question seulement si le texte la porte vraiment.",
-              "body": "les faits du texte source, en français. Une question courte et précise est permise seulement si le texte la rend possible."
+              "body": "les faits du texte source, en français. Une question courte et précise est permise seulement si le texte la rend possible."{{sameStoryField}}
             }
 
             Règles:
@@ -61,10 +86,10 @@ public partial class ExternalDiscussionTransformService(
             - Garde les numéros, e-mails et URL du texte
             - Si le texte commence par « Titre: », ce titre est le sujet. Ne le remplace pas par un pied de page (partenariat, dons, abonnement)
             - Pas d'emoji, de hashtag, ni de majuscules agressives. Français naturel. Lingala seulement si le texte source est en lingala
-
+            {{sameStoryRules}}
             Auteur source: {{author}}
             Plateforme: {{platform}}
-
+            {{storyBlock}}
             Texte source:
             {{raw.Replace("\"", "\\\"")}}
             """;
@@ -79,7 +104,8 @@ public partial class ExternalDiscussionTransformService(
             if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(body))
                 return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
-            return DiscussionSourceText.ApplyTitle(new ExternalDiscussionTransformResult(title, body, false), raw);
+            var sameStory = ImportedStoryMatch.TryReadSameStory(root, stories.Count);
+            return DiscussionSourceText.ApplyTitle(new ExternalDiscussionTransformResult(title, body, false, sameStory), raw);
         }
         catch (Exception ex)
         {
@@ -87,6 +113,12 @@ public partial class ExternalDiscussionTransformService(
             return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
         }
     }
+
+    private static string OneLine(string story) =>
+        story.Replace("\"", "'", StringComparison.Ordinal)
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Trim();
 
     internal static ExternalDiscussionTransformResult FallbackTransform(string raw)
     {

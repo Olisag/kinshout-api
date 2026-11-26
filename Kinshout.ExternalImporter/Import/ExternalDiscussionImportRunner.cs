@@ -115,6 +115,8 @@ public sealed class ExternalDiscussionImportRunner(
                 var deduped = mapped
                     .GroupBy(d => $"{d.Source.Provider}:{d.Source.ExternalId}", StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.First())
+                    .OrderByDescending(d => d.EngagementScore ?? 0)
+                    .ThenBy(d => d.Source.ExternalId, StringComparer.Ordinal)
                     .ToList();
 
                 Console.WriteLine(

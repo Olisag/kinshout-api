@@ -64,7 +64,9 @@ public class ExternalDiscussionImportService(
         var unchanged = 0;
         var skipped = 0;
 
-        foreach (var item in discussions)
+        foreach (var item in discussions
+            .OrderByDescending(d => d.EngagementScore ?? 0)
+            .ThenBy(d => d.Source.ExternalId, StringComparer.Ordinal))
         {
             try
             {
@@ -522,12 +524,41 @@ public class ExternalDiscussionImportService(
             return UpsertOutcome.Unchanged;
         }
 
+        IReadOnlyList<string>? recentStories = null;
+        if (existing is null)
+        {
+            var recent = await LoadRecentStoriesAsync(ct);
+            if (recent.Any(story => ImportedStoryMatch.IsNearCopy(item.Title, rawBody, story.Title, story.Body)))
+            {
+                logger.LogInformation(
+                    "Skipped a repeated caption from {Provider} {ExternalId}.",
+                    provider,
+                    item.Source.ExternalId);
+                return UpsertOutcome.Skipped;
+            }
+
+            recentStories = recent
+                .Select(story => story.Blurb)
+                .Where(blurb => blurb.Length > 0)
+                .Take(ImportedStoryMatch.StoriesForModel)
+                .ToList();
+        }
+
         var platformName = item.Source.ProviderName ?? DiscussionSourceProvider.DisplayName(provider);
         var transformed = await transform.TransformAsync(
             DiscussionSourceText.ForTransform(item.Title, rawBody),
             item.OriginalAuthor,
             platformName,
-            ct);
+            ct,
+            recentStories);
+        if (existing is null && transformed.SameStory)
+        {
+            logger.LogInformation(
+                "Skipped a repeated story from {Provider} {ExternalId}.",
+                provider,
+                item.Source.ExternalId);
+            return UpsertOutcome.Skipped;
+        }
         var topicCategory = await AssignTopicCategoryAsync($"{transformed.Title}. {transformed.Body}", ct);
         var communityId = await ResolveImportCommunityIdAsync(item.CommunitySlug, transformed.Title, transformed.Body, ct);
         var host = ImportHostSeed.PickHost(hosts, transformed.Title, transformed.Body);
@@ -650,6 +681,28 @@ public class ExternalDiscussionImportService(
         if (general is null)
             throw new InvalidOperationException("Imported discussion held: k/general is missing or inactive.");
         return general.Id;
+    }
+
+    private sealed record RecentStory(string Title, string Body, string Blurb);
+
+    private async Task<IReadOnlyList<RecentStory>> LoadRecentStoriesAsync(CancellationToken ct)
+    {
+        var since = DateTime.UtcNow.AddDays(-ImportedStoryMatch.LookbackDays);
+        var rows = await db.Discussions
+            .AsNoTracking()
+            .Where(d => (d.SourceImportedAt ?? d.CreatedAt) >= since)
+            .OrderByDescending(d => d.SourceImportedAt ?? d.CreatedAt)
+            .Select(d => new { d.Title, d.Body, d.SourceRawBody })
+            .Take(ImportedStoryMatch.NearCopyScan)
+            .ToListAsync(ct);
+
+        return rows
+            .Select(row =>
+            {
+                var body = string.IsNullOrWhiteSpace(row.SourceRawBody) ? row.Body : row.SourceRawBody;
+                return new RecentStory(row.Title, body, ImportedStoryMatch.Blurb(row.Title, row.Body));
+            })
+            .ToList();
     }
 
     private static Discussion MapFields(
