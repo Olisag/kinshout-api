@@ -131,6 +131,14 @@ builder.Services.AddScoped<IYouTubeMetricService, YouTubeMetricService>();
 builder.Services.AddScoped<IEditorialDeskService, EditorialDeskService>();
 builder.Services.AddScoped<IDiscussionSeedingService, DiscussionSeedingService>();
 builder.Services.Configure<DiscussionSeedingSettings>(builder.Configuration.GetSection("DiscussionSeeding"));
+builder.Services.Configure<FeedImportDispatchSettings>(builder.Configuration.GetSection(FeedImportDispatchSettings.SectionName));
+builder.Services.AddHttpClient(FeedImportDispatchService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddScoped<FeedImportDispatchService>();
+builder.Services.AddHostedService<FeedImportDispatchWorker>();
 builder.Services.AddScoped<IDiscussionSeedCommentGenerator, DiscussionSeedCommentGenerator>();
 builder.Services.AddScoped<DiscussionSeedingPipeline>();
 builder.Services.AddHostedService<DiscussionSeedingWorker>();

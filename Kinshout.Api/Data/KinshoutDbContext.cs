@@ -34,6 +34,7 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<DiscussionSeedJob> DiscussionSeedJobs => Set<DiscussionSeedJob>();
     public DbSet<DiscussionSimulatedLike> DiscussionSimulatedLikes => Set<DiscussionSimulatedLike>();
     public DbSet<DiscussionSimulationDay> DiscussionSimulationDays => Set<DiscussionSimulationDay>();
+    public DbSet<FeedImportDispatch> FeedImportDispatches => Set<FeedImportDispatch>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -81,6 +82,12 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         {
             e.HasKey(x => x.Day);
             e.Property(x => x.ReservedCostUsd).HasPrecision(12, 6);
+        });
+        modelBuilder.Entity<FeedImportDispatch>(e =>
+        {
+            e.HasKey(x => x.SlotKey);
+            e.Property(x => x.SlotKey).HasMaxLength(80);
+            e.Property(x => x.Workflow).HasMaxLength(160);
         });
         modelBuilder.Entity<DiscussionSeedingControl>(e =>
         {

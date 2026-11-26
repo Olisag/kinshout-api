@@ -1,9 +1,7 @@
-# TikTok at 08:00, 14:00 and 20:00 Kinshasa (07:00, 13:00, 19:00 UTC).
+# Started by the API at 08:00, 14:00 and 20:00 Kinshasa.
 name: External discussion importer (prod, TikTok)
 
 on:
-  schedule:
-    - cron: "0 7,13,19 * * *"
   workflow_dispatch:
 
 concurrency:

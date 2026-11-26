@@ -1,9 +1,7 @@
-# X at 11:00 and 18:00 Kinshasa (10:00 and 17:00 UTC).
+# Started by the API at 11:00 and 18:00 Kinshasa.
 name: External discussion importer (prod, X)
 
 on:
-  schedule:
-    - cron: "0 10,17 * * *"
   workflow_dispatch:
 
 concurrency:
