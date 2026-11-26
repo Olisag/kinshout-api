@@ -152,7 +152,7 @@ public sealed partial class DiscussionSeedingPipeline(
         foreach (var candidate in jobs)
         {
             if (!settings.Value.Enabled || !await read.DiscussionSeedingControls.AnyAsync(x => x.Id == 1 && x.PublishingEnabled, ct)) break;
-            var cutoff = Now.AddSeconds(-Math.Clamp(settings.Value.MinDelaySeconds, 1, 3600));
+            var cutoff = Now.AddSeconds(-PublishGapSeconds());
             if (await read.DiscussionSeedJobs.AnyAsync(j => j.DiscussionId == candidate.DiscussionId
                 && j.PublishedAt > cutoff, ct)) continue;
             // The expensive check happens outside the database lock. Publication rechecks
@@ -170,7 +170,7 @@ public sealed partial class DiscussionSeedingPipeline(
                     var today = Now.Date;
                     var due = DueInteractions(Now, settings.Value.DailyComments);
                     if (await db.DiscussionSeedJobs.CountAsync(j => j.PublishedAt >= today, ct) >= due
-                        || await db.DiscussionSeedJobs.AnyAsync(j => j.PublishedAt > Now.AddSeconds(-Math.Clamp(settings.Value.MinDelaySeconds, 1, 3600)), ct)) return 0;
+                        || await db.DiscussionSeedJobs.AnyAsync(j => j.PublishedAt > Now.AddSeconds(-PublishGapSeconds()), ct)) return 0;
                 }
                 var thread = await Eligible(db).FirstOrDefaultAsync(d => d.Id == job.DiscussionId, ct);
                 var runActive = await db.DiscussionSeedRuns.AnyAsync(r => r.Id == job.SeedRunId && r.StoppedAt == null, ct);
@@ -178,7 +178,7 @@ public sealed partial class DiscussionSeedingPipeline(
                 if (!allowed || !runActive || !personaActive || thread is null || job.Body != candidate.Body
                     || PoliticsFeedFilter.IsBlocked(null, null, job.Body, null, null, null))
                 { job.Status = DiscussionSeedJobStatuses.Cancelled; job.CancelledAt = Now; await db.SaveChangesAsync(ct); return 0; }
-                var minimumPublishedAt = Now.AddSeconds(-Math.Clamp(settings.Value.MinDelaySeconds, 1, 3600));
+                var minimumPublishedAt = Now.AddSeconds(-PublishGapSeconds());
                 if (await db.DiscussionSeedJobs.AnyAsync(j => j.DiscussionId == job.DiscussionId
                     && j.PublishedAt > minimumPublishedAt, ct)) return 0;
                 // Deterministic reply ID also protects a retry after an ambiguous commit.
@@ -200,6 +200,13 @@ public sealed partial class DiscussionSeedingPipeline(
         }
         return published;
     }
+
+    /// <summary>
+    /// Simulated replies can follow one another after 15 seconds. The daily curve
+    /// still decides how many are allowed. Other seeding keeps its own delay.
+    /// </summary>
+    private int PublishGapSeconds() =>
+        settings.Value.SimulationEnabled ? 15 : Math.Clamp(settings.Value.MinDelaySeconds, 1, 3600);
 
     private IQueryable<Discussion> Eligible(KinshoutDbContext db)
     {

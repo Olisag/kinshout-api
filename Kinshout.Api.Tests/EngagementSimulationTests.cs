@@ -48,6 +48,42 @@ public sealed class EngagementSimulationTests
     }
 
     [Fact]
+    public void FreshPostsReceiveTheNextRepliesAndTheDailyTargetStaysPut()
+    {
+        var now = new DateTime(2026, 11, 25, 18, 0, 0, DateTimeKind.Utc);
+        var older = Guid.NewGuid();
+        var fresh = Guid.NewGuid();
+        var newest = Guid.NewGuid();
+        var choices = new[]
+        {
+            new DiscussionSeedingPipeline.SimulationCommentChoice(older, now.AddDays(-2), 0),
+            new DiscussionSeedingPipeline.SimulationCommentChoice(fresh, now.AddMinutes(-30), 0),
+            new DiscussionSeedingPipeline.SimulationCommentChoice(newest, now.AddMinutes(-2), 1),
+        };
+
+        Assert.Equal(fresh, DiscussionSeedingPipeline.PickSimulationCommentTarget(choices, now, 0, [older]));
+        Assert.InRange(DiscussionSeedingPipeline.ReplyDelaySeconds(0, 0), 20, 50);
+        Assert.InRange(DiscussionSeedingPipeline.ReplyDelaySeconds(2, 10), 25, 70);
+        Assert.InRange(DiscussionSeedingPipeline.DueInteractions(now.Date.AddDays(1).AddMinutes(-1), 500), 498, 500);
+        Assert.InRange(DiscussionSeedingPipeline.DueInteractions(now.Date.AddDays(1).AddMinutes(-1), 4000), 3984, 4000);
+    }
+
+    [Fact]
+    public void FinishedOpeningBurstsReturnToThePopularPool()
+    {
+        var now = new DateTime(2026, 11, 25, 18, 0, 0, DateTimeKind.Utc);
+        var popular = Guid.NewGuid();
+        var finished = Guid.NewGuid();
+        var choices = new[]
+        {
+            new DiscussionSeedingPipeline.SimulationCommentChoice(popular, now.AddDays(-1), 0),
+            new DiscussionSeedingPipeline.SimulationCommentChoice(finished, now.AddMinutes(-5), 4),
+        };
+
+        Assert.Equal(popular, DiscussionSeedingPipeline.PickSimulationCommentTarget(choices, now, 0, [popular, finished]));
+    }
+
+    [Fact]
     public void RankWeights_GiveTopDiscussionsTheLargestShare()
     {
         var selections = new int[5];
@@ -57,6 +93,31 @@ public sealed class EngagementSimulationTests
         for (var i = 1; i < selections.Length; i++)
             Assert.True(selections[i - 1] > selections[i]);
         Assert.InRange(selections[0] / (double)selections[1], 1.99, 2.01);
+    }
+
+    [Fact]
+    public async Task NewPostsReceiveTheNextLikesBeforeOlderPopularOnes()
+    {
+        await using var f = await Fixture.Create();
+        f.Config.MaxLikesPerTick = 4;
+        var older = await f.Db.Discussions.SingleAsync();
+        older.CreatedAt = f.Clock.Utc.AddDays(-3);
+        older.ViewCount = 5000;
+        var fresh = new Discussion
+        {
+            UserId = older.UserId,
+            Title = "Un clip vient de sortir",
+            Body = "Le refrain tourne déjà à Kinshasa.",
+            SourceProvider = "youtube",
+            CreatedAt = f.Clock.Utc.AddMinutes(-2),
+            ViewCount = 0,
+        };
+        f.Db.Discussions.Add(fresh);
+        await f.Db.SaveChangesAsync();
+
+        Assert.Equal(4, await f.Pipeline().PublishSimulationLikesAsync());
+        Assert.Equal(4, await f.Db.DiscussionSimulatedLikes.CountAsync(l => l.DiscussionId == fresh.Id));
+        Assert.Equal(0, await f.Db.DiscussionSimulatedLikes.CountAsync(l => l.DiscussionId == older.Id));
     }
 
     [Fact]
