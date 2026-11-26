@@ -1,9 +1,9 @@
-# X signal daily at 04:11 Kinshasa (03:11 UTC).
-name: External discussion importer (prod, X daily)
+# X at 11:00 and 18:00 Kinshasa (10:00 and 17:00 UTC).
+name: External discussion importer (prod, X)
 
 on:
   schedule:
-    - cron: "11 3 * * *"
+    - cron: "0 10,17 * * *"
   workflow_dispatch:
 
 concurrency:

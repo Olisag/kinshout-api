@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <Content Include="Configuration/source-registry.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Configuration/feed-candidate-catalogue.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -644,7 +644,7 @@ public class ExternalDiscussionImportService(
         try
         {
             var suggestion = await communities.SuggestAsync(title, body, ct);
-            if (suggestion.Community is not null)
+            if (suggestion.Community is { IsActive: true })
                 return suggestion.Community.Id;
         }
         catch
@@ -652,7 +652,11 @@ public class ExternalDiscussionImportService(
             // Fall through to the default community.
         }
 
-        var general = await CommunitySeed.EnsureGeneralCommunityAsync(db, ct);
+        var general = await db.Communities
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Slug == CommunityDefaults.GeneralSlug && c.IsActive, ct);
+        if (general is null)
+            throw new InvalidOperationException("Imported discussion held: k/general is missing or inactive.");
         return general.Id;
     }
 

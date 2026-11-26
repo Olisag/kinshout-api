@@ -16,6 +16,18 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
 
         var client = new ApifyClient(http, settings);
         var queries = ResolveQueries();
+        var rotated = settings.DiscoveryRotation
+            ? FeedDiscoveryPlanner.SelectForPlatform(
+                "facebook",
+                DateTime.UtcNow,
+                queries.Count,
+                FeedCandidateCatalogue.Subjects("facebook", SourceRegistry.Load()))
+            : [];
+        if (rotated.Count > 0)
+        {
+            queries = rotated.Select(query => query.Text).ToList();
+            Console.WriteLine("  Facebook discovery: " + string.Join(" | ", rotated.Select(query => $"{query.Lane}: {query.Text}")));
+        }
         var discussions = new List<SourceFeedDiscussion>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var keptIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -51,7 +63,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
 
                 try
                 {
-                    var mapped = MapPost(item, minEngagement, minPostedAt);
+                    var mapped = MapPost(item, minEngagement, minPostedAt, searchEstablishesRelevance: rotated.Count > 0);
                     if (mapped is null)
                     {
                         filteredOut++;
@@ -110,7 +122,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         };
     }
 
-    private SourceFeedDiscussion? MapPost(JsonElement item, int minEngagement, DateTime minPostedAt)
+    private SourceFeedDiscussion? MapPost(JsonElement item, int minEngagement, DateTime minPostedAt, bool searchEstablishesRelevance = false)
     {
         var id = ReadString(item, "postId") ?? ReadString(item, "id");
         var url = ReadString(item, "url") ?? ReadString(item, "postUrl");
@@ -128,7 +140,7 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         var title = BuildTitle(text);
         var body = text.Trim();
 
-        if (!KinshasaSocialPostFilter.IsKinshasaRelevant(location, title, body))
+        if (!searchEstablishesRelevance && !KinshasaSocialPostFilter.IsKinshasaRelevant(location, title, body))
             return null;
 
         if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, body))

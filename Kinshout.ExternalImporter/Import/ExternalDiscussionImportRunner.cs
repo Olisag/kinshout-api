@@ -24,6 +24,7 @@ public sealed class ExternalDiscussionImportRunner(
         {
             Console.WriteLine($"Could not load the registry from Kinshout ({ex.Message}); using the local file.");
         }
+        FeedCandidateCatalogue.Report();
         var totals = new ImportExternalDiscussionsResponseDto(0, 0, 0, 0);
 
         IReadOnlySet<string>? knownKeys = null;
@@ -69,6 +70,7 @@ public sealed class ExternalDiscussionImportRunner(
         {
             providerSettings.ClassiquesBackfill = settings.Schedule.ClassiquesBackfill;
             providerSettings.YouTubeBuzz = settings.Schedule.YouTubeBuzz;
+            providerSettings.DiscoveryRotation = settings.Schedule.DiscoveryRotation;
             if (string.IsNullOrWhiteSpace(providerSettings.Provider))
             {
                 Console.WriteLine($"Skipping discussion provider '{providerSettings.Name}' because Provider is empty.");

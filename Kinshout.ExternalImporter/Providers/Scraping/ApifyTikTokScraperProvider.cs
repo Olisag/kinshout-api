@@ -15,13 +15,27 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
 
     public async Task<DiscussionFetchResult> FetchAsync(CancellationToken ct)
     {
-        var queries = settings.SearchQueries
+        var configured = settings.SearchQueries
             .Where(query => !string.IsNullOrWhiteSpace(query))
             .Select(query => query.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (queries.Count == 0)
-            queries.Add("Kinshasa");
+        if (configured.Count == 0)
+            configured.Add("Kinshasa");
+        var rotated = settings.DiscoveryRotation
+            ? FeedDiscoveryPlanner.SelectForPlatform(
+                "tiktok",
+                DateTime.UtcNow,
+                configured.Count,
+                FeedCandidateCatalogue.Subjects("tiktok", SourceRegistry.Load()))
+            : [];
+        var queries = rotated.Count > 0
+            ? rotated.Select(query => query.Text).ToList()
+            : configured;
+        if (rotated.Count > 0)
+        {
+            Console.WriteLine("  TikTok discovery: " + string.Join(" | ", rotated.Select(query => $"{query.Lane}: {query.Text}")));
+        }
 
         if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
             settings.ApifyActorId = DefaultActorId;
@@ -61,7 +75,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             using (doc)
             {
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                    Collect(doc.RootElement, query, limit);
+                    Collect(doc.RootElement, query, limit, searchEstablishesRelevance: rotated.Count > 0);
             }
         }
 
@@ -94,7 +108,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             using (doc)
             {
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                    Collect(doc.RootElement, $"@{profile}", limit + (profiles.Count * 3));
+                    Collect(doc.RootElement, $"@{profile}", limit + (profiles.Count * 3), searchEstablishesRelevance: true);
             }
         }
 
@@ -104,7 +118,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} search(es) and {profiles.Count} profile(s).");
         return DiscussionFetchResult.From(discussions, seen);
 
-        void Collect(JsonElement items, string query, int maxCount)
+        void Collect(JsonElement items, string query, int maxCount, bool searchEstablishesRelevance)
         {
             var before = discussions.Count;
             foreach (var item in items.EnumerateArray())
@@ -120,7 +134,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
                 var author = ReadAuthor(item);
                 var text = ReadString(item, "text") ?? url;
                 var title = TrimTitle(text);
-                if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, text)
+                if (!(searchEstablishesRelevance || KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, text))
                     || KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
                     || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author)
                     || KinshasaSocialPostFilter.LooksLikeCongoBrazzaville($"{title} {text}"))

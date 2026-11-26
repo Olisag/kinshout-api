@@ -44,7 +44,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
 
             try
             {
-                var mapped = MapTweet(item, minEngagement, minPostedAt);
+                var mapped = MapTweet(item, minEngagement, minPostedAt, searchEstablishesRelevance: settings.DiscoveryRotation);
                 if (mapped is not null)
                 {
                     discussions.Add(mapped);
@@ -94,6 +94,14 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
     {
         var query = settings.SearchQueries.FirstOrDefault(q => !string.IsNullOrWhiteSpace(q))
             ?? $"Kinshasa lang:fr min_faves:{Math.Max(5, ResolveMinEngagement() / 4)}";
+        if (settings.DiscoveryRotation)
+        {
+            query = FeedDiscoveryPlanner.BuildXQuery(
+                query,
+                DateTime.UtcNow,
+                FeedCandidateCatalogue.Subjects("x", SourceRegistry.Load()));
+            Console.WriteLine("  X discovery query ready.");
+        }
 
         if (settings.SincePublishedAt is { } since
             && !query.Contains("since:", StringComparison.OrdinalIgnoreCase))
@@ -104,7 +112,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         return query;
     }
 
-    private SourceFeedDiscussion? MapTweet(JsonElement item, int minEngagement, DateTime minPostedAt)
+    private SourceFeedDiscussion? MapTweet(JsonElement item, int minEngagement, DateTime minPostedAt, bool searchEstablishesRelevance = false)
     {
         if (item.TryGetProperty("isRetweet", out var rt) && rt.ValueKind == JsonValueKind.True)
             return null;
@@ -123,7 +131,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var body = text.Trim();
         var (images, videos) = ExtractMedia(item, body);
 
-        if (!KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
+        if (!searchEstablishesRelevance && !KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, body))
             return null;
 
         if (KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, body))

@@ -34,6 +34,11 @@ public sealed class ImportScheduleSettings
     /// <summary>When set, the daemon waits until this local hour (see TimeZoneId) before each run.</summary>
     public int? RunAtHour { get; set; } = 3;
     public string TimeZoneId { get; set; } = "Africa/Kinshasa";
+    /// <summary>
+    /// Rotate buzz, insolite and the day's theme inside the existing search count.
+    /// Does not add requests, move schedules, or activate unverified accounts.
+    /// </summary>
+    public bool DiscoveryRotation { get; set; } = true;
     /// <summary>Skip adverts already stored in Kinshout (by provider + external id).</summary>
     public bool SkipExisting { get; set; } = true;
     /// <summary>Delete Kinshout rows for provider listings missing from the latest source crawl.</summary>
@@ -98,4 +103,7 @@ public sealed class ExternalProviderSettings
 
     [System.Text.Json.Serialization.JsonIgnore]
     public bool YouTubeBuzz { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool DiscoveryRotation { get; set; } = true;
 }

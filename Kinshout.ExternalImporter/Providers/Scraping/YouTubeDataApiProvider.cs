@@ -69,6 +69,9 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
     private async Task<DiscussionFetchResult> FetchBuzzAsync(string apiKey, CancellationToken ct)
     {
         var sources = SourceRegistry.Load().Where(source => source.Import).ToList();
+        if (settings.DiscoveryRotation)
+            return await FetchRotatedBuzzAsync(apiKey, sources, ct);
+
         var publishedAfter = DateTime.UtcNow.AddDays(-7).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -107,6 +110,66 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
             $"  YouTube buzz: kept {discussions.Count} video(s) from {sources.Count} people, {showHits.Count} show hit(s), and {communityHits.Count} community clip(s). Each search costs 100 quota units.");
         return DiscussionFetchResult.From(discussions, seen);
     }
+
+    /// <summary>
+    /// Eighteen searches a day, spent on the YouTube catalogue
+    /// and the people already in the registry. Channel upload checks stay on the
+    /// separate reconcile run.
+    /// </summary>
+    private async Task<DiscussionFetchResult> FetchRotatedBuzzAsync(
+        string apiKey,
+        IReadOnlyList<SourceRegistryEntry> sources,
+        CancellationToken ct)
+    {
+        const int searchBudget = 18;
+        var subjects = FeedCandidateCatalogue.Subjects("youtube", sources);
+        var plan = FeedDiscoveryPlanner.SelectForPlatform("youtube", DateTime.UtcNow, searchBudget, subjects);
+        var publishedAfter = DateTime.UtcNow.AddDays(-7).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        var discussions = new List<SourceFeedDiscussion>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var query in plan)
+        {
+            var subject = subjects.FirstOrDefault(item =>
+                string.Equals(item.Query, query.Text, StringComparison.OrdinalIgnoreCase));
+            var ids = await SearchIdsAsync(apiKey, query.Text, publishedAfter, ct);
+            if (ids.Count == 0)
+                continue;
+
+            foreach (var video in await LoadVideosAsync(apiKey, ids, ct))
+            {
+                if (string.IsNullOrWhiteSpace(video.ExternalId) || seen.Contains(video.ExternalId))
+                    continue;
+                if (!BuzzGate.IsBuzzing(video.EngagementScore, ReactionFloor))
+                    continue;
+                if (subject is not null && !Mentions(SubjectEntry(subject), video.Title, video.Body))
+                    continue;
+                if (IsBlocked(video.Title, video.Body, video.OriginalAuthor))
+                    continue;
+
+                seen.Add(video.ExternalId);
+                video.OriginalAuthor = subject?.Name ?? video.OriginalAuthor;
+                video.CommunitySlug = subject?.CommunitySlug ?? CongoleseSocialTopic.Slug(video.Title, video.Body);
+                discussions.Add(video);
+            }
+        }
+
+        var showHits = await FetchShowHitsAsync(apiKey, sources, seen, ct);
+        discussions.AddRange(showHits);
+        var catalogueNames = plan.Count(query => query.Lane == FeedDiscoveryPlanner.Lane.Catalogue);
+        Console.WriteLine(
+            $"  YouTube buzz: kept {discussions.Count} video(s) from {plan.Count} searches ({catalogueNames} catalogue names, {showHits.Count} show hit(s)). The full list continues on the next run. Each search costs 100 quota units.");
+        return DiscussionFetchResult.From(discussions, seen);
+    }
+
+    private static SourceRegistryEntry SubjectEntry(CatalogueSubject subject) => new()
+    {
+        Name = subject.Name,
+        SearchQuery = subject.Query,
+        CommunitySlug = subject.CommunitySlug,
+        Import = true,
+        Mentions = subject.Mentions.ToList(),
+    };
 
     /// <summary>
     /// Show and personality channels post a lot. Only a recent upload that Congolese viewers
