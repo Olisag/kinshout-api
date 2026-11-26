@@ -44,22 +44,23 @@ public partial class ExternalDiscussionTransformService(
         var author = string.IsNullOrWhiteSpace(originalAuthor) ? "inconnu" : originalAuthor.Trim();
         var platform = string.IsNullOrWhiteSpace(platformName) ? "réseau social" : platformName.Trim();
         var prompt = $$"""
-            Nettoie une publication pour Kinshout. Le titre et le corps doivent dire la même chose que le texte source.
+            Prépare une discussion Kinoiserie à partir d'une publication importée. Le titre et le corps doivent rester fidèles au texte source.
 
             Réponds UNIQUEMENT en JSON:
             {
-              "title": "le sujet réel, max 70 caractères, sans point d'interrogation, sans emoji ni hashtag",
-              "body": "les faits du texte source, en français. Pas une nouvelle histoire."
+              "title": "le sujet réel, max 70 caractères, sans emoji ni hashtag. Une question seulement si le texte la porte vraiment.",
+              "body": "les faits du texte source, en français. Une question courte et précise est permise seulement si le texte la rend possible."
             }
 
             Règles:
-            - title nomme ce dont parle le texte (personne, chanson, objet, lieu, événement). Pas un autre sujet
-            - body reprend les détails présents: prix, lieu, date, description. Une phrase déclarative suffit
-            - N'ajoute pas de question. Pas de « qu'en pensez-vous », « quelqu'un connaît », ni d'invitation absente du texte
-            - Garde les numéros, e-mails et URL du texte, chacun sur sa ligne en fin de body s'ils ne sont pas déjà dans une phrase
-            - N'invente aucun fait
+            - title nomme ce dont parle le texte (personne, chanson, objet, lieu, événement). Un titre déclaratif suffit
+            - body reprend les détails présents: prix, lieu, date, description
+            - Une question est facultative. Elle doit porter sur un fait présent dans le texte et rester grammaticalement une vraie question
+            - Interdit comme formule automatique: « qu'en pensez-vous », « votre avis », « êtes-vous d'accord », « et vous », « quelqu'un connaît »
+            - N'invente aucun fait. Ne dis pas avoir vu la vidéo si seul le texte est fourni
+            - Garde les numéros, e-mails et URL du texte
             - Si le texte commence par « Titre: », ce titre est le sujet. Ne le remplace pas par un pied de page (partenariat, dons, abonnement)
-            - Pas d'emoji, de hashtag, ni de majuscules agressives
+            - Pas d'emoji, de hashtag, ni de majuscules agressives. Français naturel. Lingala seulement si le texte source est en lingala
 
             Auteur source: {{author}}
             Plateforme: {{platform}}
@@ -106,7 +107,7 @@ public partial class ExternalDiscussionTransformService(
             model = _settings.Model,
             messages = new object[]
             {
-                new { role = "system", content = "Tu nettoies un post pour Kinshout. Tu gardes le sujet, les faits, les liens et les contacts. Tu n'ajoutes ni question ni fait absent du texte. Réponds en JSON uniquement." },
+                new { role = "system", content = "Tu prépares une discussion Kinoiserie. Tu gardes les faits, les liens et les contacts. Une question n'est ajoutée que si le texte source la rend possible. Pas de formule toute faite. Réponds en JSON uniquement." },
                 new { role = "user", content = prompt },
             },
             temperature = 0.1,
@@ -128,7 +129,7 @@ public partial class ExternalDiscussionTransformService(
     {
         var source = SourceProse(rawFallback);
         var value = string.IsNullOrWhiteSpace(title) ? BuildFallbackTitle(CleanRawText(source)) : CleanRawText(title);
-        value = value.Trim().TrimEnd('?', '.', '!', ' ');
+        value = DiscussionStarterEditorial.Title(value.Trim(), source);
         if (!DiscussionSourceText.TryReadMarkedTitle(rawFallback, out _)
             && !SharesDistinctiveToken(value, source))
         {
@@ -153,9 +154,13 @@ public partial class ExternalDiscussionTransformService(
     internal static string PrepareBody(string body, string raw)
     {
         var source = SourceProse(raw);
-        var value = DropAddedQuestions(body.Trim(), source);
+        var value = body.Trim();
         if (!SharesDistinctiveToken(value, source))
             value = SourceSentences(source);
+
+        value = DiscussionStarterEditorial.Body(value, source);
+        if (string.IsNullOrWhiteSpace(value))
+            value = DiscussionStarterEditorial.Body(SourceSentences(source), source);
 
         value = AppendMissingUrls(value, raw);
         value = AppendMissingContacts(value, source);
@@ -187,37 +192,6 @@ public partial class ExternalDiscussionTransformService(
         return string.IsNullOrWhiteSpace(context)
             ? "Discussion partagée depuis une source externe."
             : context;
-    }
-
-    private static string DropAddedQuestions(string body, string source)
-    {
-        if (source.Contains('?', StringComparison.Ordinal))
-            return body;
-
-        var value = body;
-        while (value.TrimEnd().EndsWith('?'))
-        {
-            var cut = LastBreak(value);
-            var next = cut < 0 ? "" : value[..cut].Trim();
-            if (string.IsNullOrWhiteSpace(next))
-                return "";
-
-            value = next;
-        }
-
-        return value;
-    }
-
-    private static int LastBreak(string value)
-    {
-        var trimmed = value.TrimEnd();
-        for (var i = trimmed.Length - 2; i >= 0; i--)
-        {
-            if (trimmed[i] is '.' or '!' or '\n')
-                return i + 1;
-        }
-
-        return -1;
     }
 
     private static string AppendMissingUrls(string body, string raw)

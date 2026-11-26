@@ -80,8 +80,8 @@ public class ExternalDiscussionImportTests
         Assert.NotNull(discussion.CommunityId);
         Assert.Equal(CommunityDefaults.GeneralSlug, (await db.Communities.SingleAsync(c => c.Id == discussion.CommunityId)).Slug);
         Assert.Contains("· Animateur", (await db.Users.SingleAsync(u => u.Id == discussion.UserId)).DisplayName);
-        Assert.True(discussion.ReplyCount >= 1);
-        Assert.NotEmpty(await db.DiscussionReplies.Where(r => r.DiscussionId == discussion.Id).ToListAsync());
+        Assert.Equal(0, discussion.ReplyCount);
+        Assert.Empty(await db.DiscussionReplies.Where(r => r.DiscussionId == discussion.Id).ToListAsync());
     }
 
     [Fact]
@@ -245,6 +245,20 @@ public class ExternalDiscussionImportTests
             .ReturnsAsync(new SuggestCommunityResponseDto(null, 0, "none", "none"));
 
         moderation ??= PassThroughImageModeration().Object;
+        var creator = db.Users.FirstOrDefault();
+        if (creator is not null && !db.Communities.Any(c => c.Slug == CommunityDefaults.GeneralSlug))
+        {
+            db.Communities.Add(new Community
+            {
+                Slug = CommunityDefaults.GeneralSlug,
+                Name = "Général",
+                Description = "Discussions générales",
+                Visibility = CommunityVisibilities.Public,
+                IsActive = true,
+                CreatedByUserId = creator.Id,
+            });
+            db.SaveChanges();
+        }
 
         return new ExternalDiscussionImportService(
             db,

@@ -621,6 +621,9 @@ public class ExternalDiscussionImportService(
         string body,
         CancellationToken ct)
     {
+        // Community choice stays on the source mapping or the topic rules.
+        // A second AI suggestion is not called.
+        _ = communities;
         if (!string.IsNullOrWhiteSpace(requestedSlug))
         {
             var normalized = requestedSlug.Trim().ToLowerInvariant();
@@ -639,17 +642,6 @@ public class ExternalDiscussionImportService(
                 .FirstOrDefaultAsync(c => c.Slug == inferredSlug && c.IsActive, ct);
             if (bySlug is not null)
                 return bySlug.Id;
-        }
-
-        try
-        {
-            var suggestion = await communities.SuggestAsync(title, body, ct);
-            if (suggestion.Community is { IsActive: true })
-                return suggestion.Community.Id;
-        }
-        catch
-        {
-            // Fall through to the default community.
         }
 
         var general = await db.Communities

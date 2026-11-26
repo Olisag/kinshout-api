@@ -6,7 +6,8 @@ namespace Kinshout.Api.Services;
 
 /// <summary>
 /// Labeled discussion hosts for imported social posts.
-/// Display names intentionally include "· Animateur" so they are not mistaken for civilian sockpuppets.
+/// Display names include "· Animateur" so the post is not mistaken for a member's.
+/// Imported discussions do not receive fabricated replies.
 /// </summary>
 public static class ImportHostSeed
 {
@@ -119,44 +120,6 @@ public static class ImportHostSeed
         string title,
         string body)
     {
-        var others = hosts.Where(h => h.Id != author.Id).ToList();
-        if (others.Count == 0)
-            return [];
-
-        var seed = Math.Abs(string.GetHashCode($"{title}|{body}", StringComparison.Ordinal));
-        var first = others[seed % others.Count];
-        var second = others.Count > 1 ? others[(seed + 1) % others.Count] : null;
-
-        var fr = StarterFr[seed % StarterFr.Length];
-        var ln = StarterLn[(seed / 3) % StarterLn.Length];
-        var en = StarterEn[(seed / 7) % StarterEn.Length];
-
-        var comments = new List<(User, string)> { (first, seed % 2 == 0 ? fr : ln) };
-        if (second is not null && seed % 3 != 0)
-            comments.Add((second, seed % 2 == 0 ? en : fr));
-
-        return comments;
+        return [];
     }
-
-    private static readonly string[] StarterFr =
-    [
-        "Merci pour le partage — ça parle à beaucoup de Kinois.",
-        "Intéressant. Les retours du quartier vont être utiles ici.",
-        "Sujet clair. Hâte de lire vos expériences concrètes.",
-        "Bonne base de discussion. Qu'est-ce qui vous marque le plus ?",
-    ];
-
-    private static readonly string[] StarterLn =
-    [
-        "Matondi mingi mpo na sango oyo.",
-        "Tala boye — tozali koyoka makanisi ya ba quartier.",
-        "Sango ya ntina. Tolobela yango malamu awa.",
-    ];
-
-    private static readonly string[] StarterEn =
-    [
-        "Solid share — curious what folks around Kin think.",
-        "Clear topic. Real neighbourhood takes welcome.",
-        "Good discussion starter for Kinshasa voices.",
-    ];
 }

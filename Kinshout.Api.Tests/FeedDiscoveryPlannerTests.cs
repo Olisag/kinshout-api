@@ -106,6 +106,30 @@ public class FeedDiscoveryPlannerTests
     }
 
     [Fact]
+    public void GrowthProfileCapsFacebookTikTokAndXWithoutRaisingThem()
+    {
+        Assert.Equal(FeedOperatingProfile.Growth, FeedOperatingProfile.Normalize("Aggressive"));
+        Assert.Equal(2, FeedOperatingProfile.SearchSlots("facebook", 4, "Growth"));
+        Assert.Equal(4, FeedOperatingProfile.SearchSlots("facebook", 4, "Economy"));
+        Assert.Equal(8, FeedOperatingProfile.ResultCap("tiktok", 24, "Growth"));
+        Assert.Equal(24, FeedOperatingProfile.ResultCap("tiktok", 24, "Economy"));
+        Assert.Equal(15, FeedOperatingProfile.ResultCap("twitter", 30, "Growth"));
+    }
+
+    [Fact]
+    public void BuzzScoreReweightsMissingSignalsAndIgnoresTheYouTubeFloor()
+    {
+        var now = new DateTime(2026, 11, 25, 12, 0, 0, DateTimeKind.Utc);
+        var fresh = BuzzScore.Compute(true, 400, 40, 20, views: null, now.AddHours(-6), now, novel: true);
+        var stale = BuzzScore.Compute(true, 400, 40, 20, views: null, now.AddDays(-10), now, novel: true);
+        var irrelevant = BuzzScore.Compute(false, 400, 40, 20, 10_000, now.AddHours(-6), now, novel: true);
+
+        Assert.InRange(fresh, 80, 100);
+        Assert.True(fresh > stale);
+        Assert.True(irrelevant < fresh);
+    }
+
+    [Fact]
     public void KnownSearchQueryIsKeptForAMatchingName()
     {
         var registry = new[]

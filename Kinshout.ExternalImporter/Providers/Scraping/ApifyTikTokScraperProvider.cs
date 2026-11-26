@@ -40,7 +40,10 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
             settings.ApifyActorId = DefaultActorId;
 
-        var limit = settings.ResultsLimit > 0 ? settings.ResultsLimit : 24;
+        var limit = FeedOperatingProfile.ResultCap(
+            "tiktok",
+            settings.ResultsLimit > 0 ? settings.ResultsLimit : 24,
+            settings.OperatingProfile);
         var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : BuzzGate.Floor;
         var client = new ApifyClient(http, settings);
         var discussions = new List<SourceFeedDiscussion>();

@@ -39,6 +39,8 @@ public sealed class ImportScheduleSettings
     /// Does not add requests, move schedules, or activate unverified accounts.
     /// </summary>
     public bool DiscoveryRotation { get; set; } = true;
+    /// <summary>Growth is the active profile. Aggressive is ignored.</summary>
+    public string OperatingProfile { get; set; } = "Growth";
     /// <summary>Skip adverts already stored in Kinshout (by provider + external id).</summary>
     public bool SkipExisting { get; set; } = true;
     /// <summary>Delete Kinshout rows for provider listings missing from the latest source crawl.</summary>
@@ -106,4 +108,7 @@ public sealed class ExternalProviderSettings
 
     [System.Text.Json.Serialization.JsonIgnore]
     public bool DiscoveryRotation { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string OperatingProfile { get; set; } = "Growth";
 }

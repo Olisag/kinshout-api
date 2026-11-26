@@ -132,6 +132,48 @@ public class ExternalDiscussionTransformServiceTests
         Assert.DoesNotContain("stade", mismatched, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Editorial_KeepsADeclarativeTitle()
+    {
+        const string source = "Fally Ipupa sort un clip rumba tourné à Gombe.";
+
+        var title = DiscussionStarterEditorial.Title("Fally Ipupa sort un clip rumba", source);
+
+        Assert.DoesNotContain("?", title);
+        Assert.Contains("Fally", title, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Editorial_KeepsAQuestionTheSourceSupports()
+    {
+        const string source = "Fally Ipupa sort un clip rumba après trois ans de ndombolo.";
+        const string body = "Fally Ipupa sort un clip rumba après trois ans de ndombolo. Retour au ndombolo ou nouvelle direction musicale ?";
+
+        var kept = ExternalDiscussionTransformService.PrepareBody(body, source);
+
+        Assert.Contains("ndombolo ou nouvelle direction", kept, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("?", kept);
+    }
+
+    [Fact]
+    public void Editorial_DropsAGenericPromptAndAnUnsupportedPremise()
+    {
+        const string source = "Fally Ipupa sort un clip rumba après trois ans de ndombolo.";
+
+        var generic = ExternalDiscussionTransformService.PrepareBody(
+            "Fally Ipupa sort un clip rumba. Qu'en pensez-vous ?",
+            source);
+        Assert.Contains("rumba", generic, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pensez-vous", generic, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("?", generic);
+
+        var unsupported = ExternalDiscussionTransformService.PrepareBody(
+            "Fally Ipupa sort un clip rumba. Quel joueur mérite le titre d'homme du match ?",
+            source);
+        Assert.DoesNotContain("joueur", unsupported, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("?", unsupported);
+    }
+
     private static string Digits(string value)
     {
         var digits = new char[value.Length];

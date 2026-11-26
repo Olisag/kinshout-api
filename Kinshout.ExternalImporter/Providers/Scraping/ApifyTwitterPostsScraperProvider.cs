@@ -79,7 +79,10 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
     private object BuildInput()
     {
         var query = BuildQuery();
-        var maxTweets = settings.ResultsLimit > 0 ? settings.ResultsLimit : 50;
+        var maxTweets = FeedOperatingProfile.ResultCap(
+            settings.Provider,
+            settings.ResultsLimit > 0 ? settings.ResultsLimit : 50,
+            settings.OperatingProfile);
         var sort = string.IsNullOrWhiteSpace(settings.RecentUrl) ? "Top" : settings.RecentUrl.Trim();
 
         return new

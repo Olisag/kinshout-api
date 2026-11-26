@@ -16,11 +16,12 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
 
         var client = new ApifyClient(http, settings);
         var queries = ResolveQueries();
+        var slots = FeedOperatingProfile.SearchSlots("facebook", queries.Count, settings.OperatingProfile);
         var rotated = settings.DiscoveryRotation
             ? FeedDiscoveryPlanner.SelectForPlatform(
                 "facebook",
                 DateTime.UtcNow,
-                queries.Count,
+                slots,
                 FeedCandidateCatalogue.Subjects("facebook", SourceRegistry.Load()))
             : [];
         if (rotated.Count > 0)

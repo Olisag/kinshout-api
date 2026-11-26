@@ -71,6 +71,7 @@ public sealed class ExternalDiscussionImportRunner(
             providerSettings.ClassiquesBackfill = settings.Schedule.ClassiquesBackfill;
             providerSettings.YouTubeBuzz = settings.Schedule.YouTubeBuzz;
             providerSettings.DiscoveryRotation = settings.Schedule.DiscoveryRotation;
+            providerSettings.OperatingProfile = settings.Schedule.OperatingProfile;
             if (string.IsNullOrWhiteSpace(providerSettings.Provider))
             {
                 Console.WriteLine($"Skipping discussion provider '{providerSettings.Name}' because Provider is empty.");
