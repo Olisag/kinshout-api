@@ -52,16 +52,37 @@ public class FeedDiscoveryPlannerTests
     }
 
     [Fact]
-    public void FacebookCoversThirtyNamesWithoutRepeatingThem()
+    public void FacebookQueriesStayInsideApifysCharacterLimitAndKeepRotating()
     {
-        var queries = FeedDiscoveryPlanner.SelectForPlatform("facebook", MondayKinshasa, 4, Names(60))
+        var subjects = Names(60);
+        var first = FeedDiscoveryPlanner.SelectForPlatform("facebook", MondayKinshasa, 4, subjects)
             .Where(query => query.Lane == FeedDiscoveryPlanner.Lane.Catalogue)
             .ToList();
+        var second = FeedDiscoveryPlanner.SelectForPlatform("facebook", MondayKinshasa.AddDays(1), 4, subjects)
+            .Where(query => query.Lane == FeedDiscoveryPlanner.Lane.Catalogue)
+            .Select(query => query.Text)
+            .ToList();
 
-        Assert.Equal(2, queries.Count);
-        var mentioned = queries.SelectMany(query => query.Text.Split(" OR ", StringSplitOptions.TrimEntries)).ToList();
-        Assert.Equal(30, mentioned.Count);
-        Assert.Equal(30, mentioned.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(2, first.Count);
+        Assert.All(first, query => Assert.InRange(query.Text.Length, 1, FeedDiscoveryPlanner.FacebookQueryLimit));
+        var mentioned = first.SelectMany(query => query.Text.Split(" OR ", StringSplitOptions.TrimEntries)).ToList();
+        Assert.Equal(mentioned.Count, mentioned.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Empty(first.Select(query => query.Text).Intersect(second, StringComparer.OrdinalIgnoreCase));
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var day = 0; day < 40; day++)
+        {
+            foreach (var query in FeedDiscoveryPlanner.SelectForPlatform("facebook", MondayKinshasa.AddDays(day), 4, subjects))
+            {
+                Assert.True(query.Text.Length <= FeedDiscoveryPlanner.FacebookQueryLimit);
+                if (query.Lane != FeedDiscoveryPlanner.Lane.Catalogue)
+                    continue;
+                foreach (var name in query.Text.Split(" OR ", StringSplitOptions.TrimEntries))
+                    seen.Add(name);
+            }
+        }
+
+        Assert.Equal(60, seen.Count);
     }
 
     [Fact]

@@ -59,6 +59,9 @@ internal static class FeedDiscoveryPlanner
         var lanes = LanesFor(slots);
         var groupSize = GroupSize(platform);
         var catalogueSlots = lanes.Count(lane => lane == Lane.Catalogue);
+        var packedCatalogue = platform.Equals("facebook", StringComparison.OrdinalIgnoreCase)
+            ? PackQueries(subjects, FacebookQueryLimit)
+            : null;
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var queries = new List<DiscoveryQuery>(slots);
         var buzzCursor = 0;
@@ -68,6 +71,20 @@ internal static class FeedDiscoveryPlanner
         {
             if (lane == Lane.Catalogue)
             {
+                if (packedCatalogue is not null)
+                {
+                    catalogueSlot++;
+                    if (packedCatalogue.Count == 0)
+                    {
+                        queries.Add(BuzzQuery(date, buzzCursor++));
+                        continue;
+                    }
+
+                    var index = (int)(((long)date.DayNumber * Math.Max(1, catalogueSlots) + (catalogueSlot - 1)) % packedCatalogue.Count);
+                    queries.Add(new DiscoveryQuery(packedCatalogue[index], Lane.Catalogue, SearchEstablishesRelevance: true));
+                    continue;
+                }
+
                 var group = TakeGroup(subjects, date.DayNumber, catalogueSlot, catalogueSlots, groupSize, used);
                 catalogueSlot++;
                 if (group.Count == 0)
@@ -114,8 +131,49 @@ internal static class FeedDiscoveryPlanner
         return addition + suffix;
     }
 
+    internal const int FacebookQueryLimit = 100;
+
     internal static int GroupSize(string platform) =>
         platform.Equals("facebook", StringComparison.OrdinalIgnoreCase) ? 15 : 1;
+
+    /// <summary>
+    /// Facebook's post search rejects a query longer than 100 characters.
+    /// Names stay in order and each name is in one group, so the daily rotation does not skip anyone.
+    /// </summary>
+    internal static IReadOnlyList<string> PackQueries(IReadOnlyList<CatalogueSubject> subjects, int limit)
+    {
+        var packed = new List<string>();
+        var batch = new List<CatalogueSubject>();
+        foreach (var subject in subjects)
+        {
+            if (string.IsNullOrWhiteSpace(subject.Query))
+                continue;
+
+            var alone = Join([subject]);
+            if (alone.Length > limit)
+                continue;
+
+            if (batch.Count == 0)
+            {
+                batch.Add(subject);
+                continue;
+            }
+
+            var candidate = Join(batch.Append(subject).ToList());
+            if (candidate.Length <= limit)
+            {
+                batch.Add(subject);
+                continue;
+            }
+
+            packed.Add(Join(batch));
+            batch = [subject];
+        }
+
+        if (batch.Count > 0)
+            packed.Add(Join(batch));
+        return packed;
+    }
 
     internal static IReadOnlyList<Lane> LanesFor(int slots)
     {

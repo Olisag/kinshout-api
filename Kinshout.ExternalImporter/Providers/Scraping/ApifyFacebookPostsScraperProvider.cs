@@ -44,43 +44,56 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             if (discussions.Count >= maxItems)
                 break;
 
-            using var doc = await client.RunActorAndGetDatasetAsync(BuildInput(query), ct);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            JsonDocument doc;
+            try
             {
-                Console.WriteLine($"  Apify Facebook posts: unexpected dataset for query '{query}'.");
+                doc = await client.RunActorAndGetDatasetAsync(BuildInput(query), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.WriteLine($"  Apify Facebook posts: query failed: {ex.Message}");
                 continue;
             }
 
-            rawCount += doc.RootElement.GetArrayLength();
-            var added = 0;
-            foreach (var item in doc.RootElement.EnumerateArray())
+            using (doc)
             {
-                if (discussions.Count >= maxItems || added >= perQuery)
-                    break;
-
-                var rawId = ReadString(item, "postId") ?? ReadString(item, "id");
-                if (!string.IsNullOrWhiteSpace(rawId))
-                    seenIds.Add(rawId);
-
-                try
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
                 {
-                    var mapped = MapPost(item, minEngagement, minPostedAt, searchEstablishesRelevance: rotated.Count > 0);
-                    if (mapped is null)
+                    Console.WriteLine($"  Apify Facebook posts: unexpected dataset for query '{query}'.");
+                    continue;
+                }
+
+                rawCount += doc.RootElement.GetArrayLength();
+                var added = 0;
+                foreach (var item in doc.RootElement.EnumerateArray())
+                {
+                    if (discussions.Count >= maxItems || added >= perQuery)
+                        break;
+
+                    var rawId = ReadString(item, "postId") ?? ReadString(item, "id");
+                    if (!string.IsNullOrWhiteSpace(rawId))
+                        seenIds.Add(rawId);
+
+                    try
+                    {
+                        var mapped = MapPost(item, minEngagement, minPostedAt, searchEstablishesRelevance: rotated.Count > 0);
+                        if (mapped is null)
+                        {
+                            filteredOut++;
+                            continue;
+                        }
+
+                        if (!keptIds.Add(mapped.ExternalId ?? mapped.ExternalUrl ?? Guid.NewGuid().ToString("N")))
+                            continue;
+
+                        discussions.Add(mapped);
+                        added++;
+                    }
+                    catch (Exception ex)
                     {
                         filteredOut++;
-                        continue;
+                        Console.WriteLine($"  Apify Facebook post parse skipped: {ex.Message}");
                     }
-
-                    if (!keptIds.Add(mapped.ExternalId ?? mapped.ExternalUrl ?? Guid.NewGuid().ToString("N")))
-                        continue;
-
-                    discussions.Add(mapped);
-                    added++;
-                }
-                catch (Exception ex)
-                {
-                    filteredOut++;
-                    Console.WriteLine($"  Apify Facebook post parse skipped: {ex.Message}");
                 }
             }
         }
