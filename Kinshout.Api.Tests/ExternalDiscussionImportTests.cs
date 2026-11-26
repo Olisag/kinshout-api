@@ -246,6 +246,44 @@ public class ExternalDiscussionImportTests
     }
 
     [Fact]
+    public async Task ImportAsync_KeepsAnotherTikTokUntilTheStoryWeShowHasAFile()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        const string caption = "Une maman que certains Congolais croyaient deja decedee a ete retrouvee en train de se balader dans les rues de Kinshasa ce matin";
+
+        var first = await service.ImportAsync([TikTokImport("7710000000000000001", caption)]);
+        var second = await service.ImportAsync([
+            TikTokImport("7710000000000000002", caption, "/uploads/videos/import/clip.mp4"),
+        ]);
+
+        Assert.Equal(1, first.Created);
+        Assert.Equal(1, second.Created);
+        Assert.Equal(2, await db.Discussions.CountAsync());
+    }
+
+    [Fact]
+    public async Task ImportAsync_DropsAnotherTikTokOnceTheStoryWeShowHasAFile()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        const string caption = "Une maman que certains Congolais croyaient deja decedee a ete retrouvee en train de se balader dans les rues de Kinshasa ce matin";
+
+        var first = await service.ImportAsync([
+            TikTokImport("7710000000000000011", caption, "/uploads/videos/import/clip.mp4"),
+        ]);
+        var second = await service.ImportAsync([TikTokImport("7710000000000000012", caption)]);
+
+        Assert.Equal(1, first.Created);
+        Assert.Equal(1, second.Skipped);
+        var saved = await db.Discussions.SingleAsync();
+        Assert.Equal("7710000000000000011", saved.SourceExternalId);
+        Assert.Contains("/uploads/videos/", saved.VideoUrlsJson);
+    }
+
+    [Fact]
     public async Task ImportAsync_KeepsThePostPeopleAreReactingToWhenTheWordingDiffers()
     {
         await using var db = TestDbFactory.Create();
@@ -437,6 +475,21 @@ public class ExternalDiscussionImportTests
             SourceExternalUrl = $"https://www.youtube.com/watch?v={videoId}",
             SourceOriginalAuthor = "Moise Mbiye Officiel",
         };
+
+    private static ImportExternalDiscussionDto TikTokImport(string externalId, string rawBody, string? videoUrl = null)
+    {
+        var watch = $"https://www.tiktok.com/@a/video/{externalId}";
+        return SampleImport(externalId, rawBody) with
+        {
+            VideoUrls = [videoUrl ?? watch],
+            Source = SampleImport(externalId, rawBody).Source with
+            {
+                Provider = DiscussionSourceProvider.TikTok,
+                ProviderName = "TikTok",
+                ExternalUrl = watch,
+            },
+        };
+    }
 
     private static ImportExternalDiscussionDto SampleImport(string externalId, string rawBody) =>
         new(

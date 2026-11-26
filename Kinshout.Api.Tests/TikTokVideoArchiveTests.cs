@@ -60,6 +60,20 @@ public class TikTokVideoArchiveTests
     }
 
     [Fact]
+    public void WithStoredFile_DropsAClipThatStillPointsAtTikTok()
+    {
+        var saved = Clip("saved", "https://www.tiktok.com/@a/video/1") with
+        {
+            VideoUrls = ["/uploads/videos/import/clip.mp4"],
+        };
+        var missing = Clip("missing", "https://www.tiktok.com/@a/video/2");
+
+        var ready = TikTokVideoArchiver.WithStoredFile([saved, missing]);
+
+        Assert.Equal(["saved"], ready.Select(item => item.Source.ExternalId).ToArray());
+    }
+
+    [Fact]
     public void Choose_DoesNotDownloadTheSameClipTwice()
     {
         var watch = "https://www.tiktok.com/@a/video/7710601313859521813";

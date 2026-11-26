@@ -80,6 +80,15 @@ internal sealed class TikTokVideoArchiver(
         return updated;
     }
 
+    /// <summary>A TikTok is published only when we stored the mp4.</summary>
+    internal static List<ImportExternalDiscussionDto> WithStoredFile(
+        List<ImportExternalDiscussionDto> items) =>
+        items.Where(HasStoredFile).ToList();
+
+    internal static bool HasStoredFile(ImportExternalDiscussionDto item) =>
+        item.VideoUrls?.Any(url =>
+            url.Contains("/uploads/videos/", StringComparison.OrdinalIgnoreCase)) == true;
+
     internal static List<string> Choose(
         IReadOnlyList<ImportExternalDiscussionDto> fresh,
         IReadOnlyList<TikTokFileBacklogItem> backlog)

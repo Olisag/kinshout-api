@@ -279,6 +279,9 @@ public class DiscussionService(
         if (d is null)
             return null;
 
+        if (TikTokFeedFilter.IsHiddenWithoutFile(d) && viewerUserId != d.UserId)
+            return null;
+
         // Hidden from Accueil also hide on direct links for ordinary viewers.
         if (d.PublicFeedBlocked
             && viewerUserId != d.UserId

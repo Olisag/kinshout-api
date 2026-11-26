@@ -69,6 +69,28 @@ public class DiscussionServiceListTests
     }
 
     [Fact]
+    public async Task ListAsync_HidesATikTokThatHasNoStoredFile()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, category) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var missing = CreateDiscussion(user, category, "Vente à bord");
+        missing.SourceProvider = DiscussionSourceProvider.TikTok;
+        missing.VideoUrlsJson = "[\"https://www.tiktok.com/@docactudestenebres/video/7712473869524815126\"]";
+        var stored = CreateDiscussion(user, category, "Clip enregistré");
+        stored.SourceProvider = DiscussionSourceProvider.TikTok;
+        stored.VideoUrlsJson = "[\"/uploads/videos/import/clip.mp4\"]";
+        db.Discussions.AddRange(missing, stored);
+        await db.SaveChangesAsync();
+
+        var service = CreateService(db);
+        var results = await service.ListAsync(sort: ListSortHelper.Recent, pageSize: 10);
+
+        Assert.Equal(["Clip enregistré"], results.Items.Select(d => d.Title).ToArray());
+        Assert.Null(await service.GetByIdAsync(missing.Id));
+        Assert.NotNull(await service.GetByIdAsync(stored.Id));
+    }
+
+    [Fact]
     public async Task ListAsync_FiltersAndPaginatesInDatabase()
     {
         await using var db = TestDbFactory.Create();

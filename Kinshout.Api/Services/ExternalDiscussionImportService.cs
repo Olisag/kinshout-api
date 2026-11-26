@@ -688,8 +688,9 @@ public class ExternalDiscussionImportService(
     private async Task<IReadOnlyList<RecentStory>> LoadRecentStoriesAsync(CancellationToken ct)
     {
         var since = DateTime.UtcNow.AddDays(-ImportedStoryMatch.LookbackDays);
-        var rows = await db.Discussions
-            .AsNoTracking()
+        // A TikTok with no stored file is not on the feed, so it must not
+        // crowd out another telling until that file exists.
+        var rows = await TikTokFeedFilter.WherePlayable(db.Discussions.AsNoTracking())
             .Where(d => (d.SourceImportedAt ?? d.CreatedAt) >= since)
             .OrderByDescending(d => d.SourceImportedAt ?? d.CreatedAt)
             .Select(d => new { d.Title, d.Body, d.SourceRawBody })
@@ -766,8 +767,9 @@ public class ExternalDiscussionImportService(
         return urls
             .Where(u => !string.IsNullOrWhiteSpace(u))
             .Select(u => u.Trim())
-            .Where(u => Uri.TryCreate(u, UriKind.Absolute, out var uri)
-                && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            .Where(u => ImportedVideoStore.IsHostedFile(u)
+                || (Uri.TryCreate(u, UriKind.Absolute, out var uri)
+                    && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(DiscussionMediaHelper.MaxImages)
             .ToList();

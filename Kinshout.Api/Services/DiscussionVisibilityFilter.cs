@@ -9,9 +9,9 @@ public static class DiscussionVisibilityFilter
     /// Discussions anyone may see: public discussions in public communities.
     /// </summary>
     public static IQueryable<Discussion> WherePubliclyVisible(IQueryable<Discussion> query) =>
-        PoliticsFeedFilter.WhereAllowed(query.Where(d =>
+        TikTokFeedFilter.WherePlayable(PoliticsFeedFilter.WhereAllowed(query.Where(d =>
             d.Visibility == CommunityVisibilities.Public
-            && (d.Community == null || d.Community.Visibility == CommunityVisibilities.Public)));
+            && (d.Community == null || d.Community.Visibility == CommunityVisibilities.Public))));
 
     /// <summary>
     /// Discussions the viewer may see in feeds. A private community hides all of its
@@ -53,7 +53,7 @@ public static class DiscussionVisibilityFilter
                     && !db.CommunityMembers.Any(m =>
                         m.CommunityId == d.CommunityId && m.UserId == viewerUserId))));
 
-        return PoliticsFeedFilter.WhereAllowed(
-            UserBlockFilter.WhereAuthorVisibleTo(visible, db, viewerUserId));
+        return TikTokFeedFilter.WherePlayable(PoliticsFeedFilter.WhereAllowed(
+            UserBlockFilter.WhereAuthorVisibleTo(visible, db, viewerUserId)));
     }
 }

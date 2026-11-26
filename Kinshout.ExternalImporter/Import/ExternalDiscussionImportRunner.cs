@@ -134,8 +134,14 @@ public sealed class ExternalDiscussionImportRunner(
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"TikTok files: skipped ({ex.Message}). Posts still import.");
+                        Console.WriteLine($"TikTok files: skipped ({ex.Message}). No clip is imported without a file.");
+                        deduped = [];
                     }
+
+                    var withoutFile = deduped.Count - TikTokVideoArchiver.WithStoredFile(deduped).Count;
+                    deduped = TikTokVideoArchiver.WithStoredFile(deduped);
+                    if (withoutFile > 0)
+                        Console.WriteLine($"TikTok: left out {withoutFile} clip(s) with no file.");
                 }
 
                 if (deduped.Count > 0)
