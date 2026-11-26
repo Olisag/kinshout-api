@@ -336,7 +336,7 @@ public class DiscussionService(
         return new DiscussionDetailDto(
             d.Id,
             d.Title,
-            d.Body,
+            ImportedVideoStore.PublicBody(d),
             d.UserId,
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
@@ -923,7 +923,7 @@ public class DiscussionService(
         return new DiscussionDto(
             d.Id,
             d.Title,
-            d.Body,
+            ImportedVideoStore.PublicBody(d),
             d.User.DisplayName,
             TimeHelpers.Initials(d.User.DisplayName),
             d.ReplyCount,
