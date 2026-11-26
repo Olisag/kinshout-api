@@ -17,6 +17,7 @@ public class ImportsController(
     IYouTubeMetricService youtubeMetrics,
     IEditorialDeskService editorialDesk,
     IUnavailableSourceService unavailableSources,
+    ImportedVideoStore importedVideos,
     IOptions<ImportSettings> importOptions) : ControllerBase
 {
     /// <summary>
@@ -267,6 +268,67 @@ public class ImportsController(
             return Unauthorized(new { error = "Clé d'import invalide." });
 
         return Content(await editorialDesk.GetRegistryJsonAsync(ct), "application/json");
+    }
+
+    /// <summary>Store an mp4 the importer downloaded for a published TikTok.</summary>
+    [HttpPost("media")]
+    [RequestSizeLimit(30_000_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 30_000_000)]
+    [ProducesResponseType(typeof(ImportMediaResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ImportMediaResponseDto>> UploadImportedMedia(
+        IFormFile? file,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        if (file is null || file.Length <= 0 || file.Length > ImportedVideoStore.MaxBytes)
+            return BadRequest(new { error = "La vidéo doit être un mp4 de moins de 28 Mo." });
+
+        if (!Path.GetExtension(file.FileName).Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "La vidéo doit être un mp4." });
+
+        await using var stream = file.OpenReadStream();
+        var url = await importedVideos.SaveAsync(stream, file.FileName, ct);
+        return Ok(new ImportMediaResponseDto(url));
+    }
+
+    /// <summary>Published TikToks that still play from the live page.</summary>
+    [HttpGet("discussions/tiktok-without-file")]
+    [ProducesResponseType(typeof(TikTokFilesMissingResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<TikTokFilesMissingResponseDto>> TikToksWithoutFile(
+        [FromQuery] int limit = 8,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Ok(new TikTokFilesMissingResponseDto(await importedVideos.TikToksMissingFileAsync(limit, ct)));
+    }
+
+    /// <summary>Point a published TikTok at the file we stored. Arrival time is left alone.</summary>
+    [HttpPost("discussions/tiktok-file")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AttachTikTokFile(
+        [FromBody] AttachTikTokFileRequestDto request,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        try
+        {
+            var attached = await importedVideos.AttachTikTokFileAsync(request.ExternalId, request.Url, ct);
+            return attached ? NoContent() : NotFound();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     private bool IsAuthorized()

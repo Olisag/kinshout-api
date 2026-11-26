@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kinshout.ExternalImporter.Configuration;
@@ -221,6 +222,69 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
         Console.WriteLine($"Unavailable sources: {body}");
     }
 
+    public async Task<string> UploadVideoAsync(Stream stream, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(new Uri(settings.BaseUrl.TrimEnd('/') + "/"), "api/imports/media");
+        using var content = new MultipartFormDataContent();
+        var file = new StreamContent(stream);
+        file.Headers.ContentType = new MediaTypeHeaderValue("video/mp4");
+        content.Add(file, "file", "clip.mp4");
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = content };
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout video upload failed ({(int)response.StatusCode}): {body}");
+
+        var parsed = JsonSerializer.Deserialize<UploadedMediaResponse>(body, JsonOptions);
+        if (string.IsNullOrWhiteSpace(parsed?.Url))
+            throw new InvalidOperationException("Kinshout video upload did not return a url.");
+
+        return parsed.Url;
+    }
+
+    public async Task<IReadOnlyList<TikTokFileBacklogItem>> TikToksMissingFileAsync(int limit, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            $"api/imports/discussions/tiktok-without-file?limit={limit}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout tiktok backlog failed ({(int)response.StatusCode}): {body}");
+
+        var parsed = JsonSerializer.Deserialize<TikTokBacklogResponse>(body, JsonOptions);
+        return parsed?.Items ?? [];
+    }
+
+    public async Task AttachTikTokFileAsync(string externalId, string url, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            "api/imports/discussions/tiktok-file");
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(new { externalId, url }, options: JsonOptions),
+        };
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout tiktok file attach failed ({(int)response.StatusCode}): {body}");
+    }
+
     public async Task<IReadOnlyList<SourceRegistryEntry>> FetchSourceRegistryAsync(CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(settings.ImportKey))
@@ -241,6 +305,10 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
     }
 
     private sealed record YouTubeMetricTargetsResponse(IReadOnlyList<string>? ExternalIds);
+
+    private sealed record UploadedMediaResponse(string? Url);
+
+    private sealed record TikTokBacklogResponse(IReadOnlyList<TikTokFileBacklogItem>? Items);
 
     private sealed class SourceRegistryFile
     {

@@ -372,6 +372,41 @@ public class ExternalDiscussionImportTests
         return mock;
     }
 
+    [Fact]
+    public async Task ImportAsync_KeepsHostedTikTokFileWhenTheWatchPageComesBack()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+        var watch = "https://www.tiktok.com/@worldactuallite0/video/7710601313859521813";
+        var dto = SampleImport("7710601313859521813", "Une maman que certains Congolais croyaient déjà décédée.") with
+        {
+            VideoUrls = [watch],
+            Source = SampleImport("7710601313859521813", "caption").Source with
+            {
+                Provider = DiscussionSourceProvider.TikTok,
+                ProviderName = "TikTok",
+                ExternalUrl = watch,
+            },
+        };
+
+        Assert.Equal(1, (await service.ImportAsync([dto])).Created);
+        var discussion = await db.Discussions.SingleAsync();
+        var arrived = discussion.SourceImportedAt;
+        discussion.VideoUrlsJson = "[\"/uploads/videos/import/clip.mp4\"]";
+        await db.SaveChangesAsync();
+
+        var second = await service.ImportAsync([dto with
+        {
+            Body = dto.Body + " Elle marchait à Kinshasa.",
+            VideoUrls = [watch],
+        }]);
+        Assert.Equal(1, second.Updated + second.Unchanged);
+        await db.Entry(discussion).ReloadAsync();
+        Assert.Contains("/uploads/videos/", discussion.VideoUrlsJson);
+        Assert.Equal(arrived, discussion.SourceImportedAt);
+    }
+
     private static ImportExternalDiscussionDto YouTubeImport(string externalId, string videoId, string title, string rawBody)
     {
         var watchUrl = $"https://www.youtube.com/watch?v={videoId}";

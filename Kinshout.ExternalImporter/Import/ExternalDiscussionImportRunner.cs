@@ -125,6 +125,19 @@ public sealed class ExternalDiscussionImportRunner(
                 if (dryRun)
                     continue;
 
+                if (providerSettings.Provider.Equals("tiktok", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        deduped = await new TikTokVideoArchiver(http, providerSettings, importClient)
+                            .AttachAsync(deduped, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"TikTok files: skipped ({ex.Message}). Posts still import.");
+                    }
+                }
+
                 if (deduped.Count > 0)
                 {
                     var batchSize = Math.Max(1, settings.KinshoutApi.BatchSize);

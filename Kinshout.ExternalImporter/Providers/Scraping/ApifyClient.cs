@@ -10,7 +10,10 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
     private const string BaseUrl = "https://api.apify.com/v2";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<JsonDocument> RunActorAndGetDatasetAsync(object input, CancellationToken ct)
+    public async Task<JsonDocument> RunActorAndGetDatasetAsync(
+        object input,
+        CancellationToken ct,
+        int? timeoutSeconds = null)
     {
         var actorId = EncodeActorId(ResolveActorId());
         var token = ResolveToken();
@@ -33,7 +36,8 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
         var datasetId = run.GetProperty("defaultDatasetId").GetString()
             ?? throw new InvalidOperationException("Apify run response missing defaultDatasetId.");
 
-        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(60, settings.ActorTimeoutSeconds));
+        var timeout = Math.Max(60, timeoutSeconds ?? settings.ActorTimeoutSeconds);
+        var deadline = DateTime.UtcNow.AddSeconds(timeout);
         var finished = false;
         while (DateTime.UtcNow < deadline)
         {
@@ -67,7 +71,7 @@ internal sealed class ApifyClient(HttpClient http, ExternalProviderSettings sett
         if (!finished)
         {
             Console.WriteLine(
-                $"Apify actor run {runId} was still running after {settings.ActorTimeoutSeconds}s. Keeping results already saved.");
+                $"Apify actor run {runId} was still running after {timeout}s. Keeping results already saved.");
             await TryAbortAsync(runId, token, ct);
         }
 

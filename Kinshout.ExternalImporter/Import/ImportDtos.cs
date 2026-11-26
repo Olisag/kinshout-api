@@ -129,3 +129,7 @@ public sealed record ImportExternalAdvertAiDto(
     [property: JsonPropertyName("tags")] IReadOnlyList<string>? Tags,
     [property: JsonPropertyName("summary")] string? Summary,
     [property: JsonPropertyName("intent")] IReadOnlyList<string>? Intent);
+
+public sealed record TikTokFileBacklogItem(
+    [property: JsonPropertyName("externalId")] string ExternalId,
+    [property: JsonPropertyName("externalUrl")] string ExternalUrl);

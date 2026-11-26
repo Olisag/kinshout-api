@@ -290,6 +290,14 @@ public record ImportKnownDiscussionKeyDto(string Provider, string ExternalId);
 
 public record ImportKnownDiscussionsResponseDto(IReadOnlyList<ImportKnownDiscussionKeyDto> Discussions);
 
+public record ImportMediaResponseDto(string Url);
+
+public record TikTokFileCandidateDto(string ExternalId, string ExternalUrl);
+
+public record TikTokFilesMissingResponseDto(IReadOnlyList<TikTokFileCandidateDto> Items);
+
+public record AttachTikTokFileRequestDto(string ExternalId, string Url);
+
 public record DiscussionImportStateDto(string Provider, DateTime LastRunAtUtc);
 
 public record DiscussionImportStateResponseDto(IReadOnlyList<DiscussionImportStateDto> Providers);

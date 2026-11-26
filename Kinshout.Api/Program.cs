@@ -127,6 +127,7 @@ builder.Services.AddScoped<IAdvertModerationService, AdvertModerationService>();
 builder.Services.AddScoped<IExternalAdvertImportService, ExternalAdvertImportService>();
 builder.Services.AddScoped<IExternalDiscussionTransformService, ExternalDiscussionTransformService>();
 builder.Services.AddScoped<IExternalDiscussionImportService, ExternalDiscussionImportService>();
+builder.Services.AddScoped<ImportedVideoStore>();
 builder.Services.AddScoped<IYouTubeMetricService, YouTubeMetricService>();
 builder.Services.AddScoped<IEditorialDeskService, EditorialDeskService>();
 builder.Services.AddScoped<IDiscussionSeedingService, DiscussionSeedingService>();

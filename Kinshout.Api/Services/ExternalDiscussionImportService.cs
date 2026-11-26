@@ -598,7 +598,7 @@ public class ExternalDiscussionImportService(
         existing.Body = mapped.Body;
         existing.SourceRawBody = rawBody;
         existing.ImageUrlsJson = mapped.ImageUrlsJson;
-        existing.VideoUrlsJson = mapped.VideoUrlsJson;
+        existing.VideoUrlsJson = KeepHostedVideo(existing.VideoUrlsJson, mapped.VideoUrlsJson);
         existing.CategoryId = mapped.CategoryId;
         existing.TopicSlug = mapped.TopicSlug;
         existing.CommunityId ??= mapped.CommunityId;
@@ -825,4 +825,20 @@ public class ExternalDiscussionImportService(
 
     private static string? Clean(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string KeepHostedVideo(string? existingJson, string incomingJson)
+    {
+        var hosted = DiscussionMediaHelper.ParseUrlList(existingJson)
+            .Where(ImportedVideoStore.IsHostedFile)
+            .ToList();
+        if (hosted.Count == 0)
+            return incomingJson;
+
+        var incoming = DiscussionMediaHelper.ParseUrlList(incomingJson)
+            .Where(url => !ImportedVideoStore.IsHostedFile(url))
+            .Where(url => !hosted.Contains(url, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        return DiscussionMediaHelper.SerializeUrlList(
+            hosted.Concat(incoming).Take(DiscussionMediaHelper.MaxVideos).ToList());
+    }
 }
