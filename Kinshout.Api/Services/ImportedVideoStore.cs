@@ -66,9 +66,23 @@ public sealed class ImportedVideoStore(KinshoutDbContext db, IUploadStorage stor
 
         discussion.VideoUrlsJson = DiscussionMediaHelper.SerializeUrlList(
             videos.Take(DiscussionMediaHelper.MaxVideos).ToList());
+        discussion.Body = PublicBody(discussion);
         discussion.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         return true;
+    }
+
+    internal static string PublicBody(Discussion discussion)
+    {
+        if (discussion.SourceProvider != DiscussionSourceProvider.TikTok
+            || !DiscussionMediaHelper.ParseUrlList(discussion.VideoUrlsJson).Any(IsHostedFile))
+            return discussion.Body;
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            discussion.Body,
+            @"https?://(?:[a-z0-9-]+\.)*tiktok\.com/[^\s<>""'\x60\]\)]+",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
     }
 
     internal static bool IsHostedFile(string? url) =>
