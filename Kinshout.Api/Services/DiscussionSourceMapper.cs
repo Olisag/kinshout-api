@@ -12,6 +12,18 @@ internal static class DiscussionSourceMapper
     private static string NormalizeRaw(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
 
+    private static string PlayableExternalUrl(Discussion discussion)
+    {
+        var url = discussion.SourceExternalUrl ?? string.Empty;
+        if (string.Equals(discussion.SourceProvider, DiscussionSourceProvider.TikTok, StringComparison.OrdinalIgnoreCase)
+            && ImportedVideoStore.IsHostedFile(discussion.VideoUrlsJson))
+        {
+            return string.Empty;
+        }
+
+        return url;
+    }
+
     public static DiscussionSourceDto? ToSourceDto(Discussion discussion)
     {
         if (!discussion.IsExternal || string.IsNullOrWhiteSpace(discussion.SourceProvider))
@@ -21,7 +33,10 @@ internal static class DiscussionSourceMapper
             discussion.SourceProvider,
             discussion.SourceProviderName ?? DiscussionSourceProvider.DisplayName(discussion.SourceProvider),
             discussion.SourceExternalId ?? string.Empty,
-            discussion.SourceExternalUrl ?? string.Empty,
+            // The app opens a TikTok player whenever this is a TikTok link,
+            // even when the clip is already a file. Leave the link in the
+            // database and omit it here so clients play the file only.
+            PlayableExternalUrl(discussion),
             discussion.SourceImportedAt ?? discussion.CreatedAt,
             discussion.SourceLastSeenAt ?? discussion.UpdatedAt,
             discussion.SourceFirstSeenAt ?? discussion.CreatedAt,

@@ -78,6 +78,7 @@ public class DiscussionServiceListTests
         missing.VideoUrlsJson = "[\"https://www.tiktok.com/@docactudestenebres/video/7712473869524815126\"]";
         var stored = CreateDiscussion(user, category, "Clip enregistré");
         stored.SourceProvider = DiscussionSourceProvider.TikTok;
+        stored.SourceExternalUrl = "https://www.tiktok.com/@a/video/7712200914165058849";
         stored.VideoUrlsJson = "[\"/uploads/videos/import/clip.mp4\"]";
         db.Discussions.AddRange(missing, stored);
         await db.SaveChangesAsync();
@@ -86,8 +87,11 @@ public class DiscussionServiceListTests
         var results = await service.ListAsync(sort: ListSortHelper.Recent, pageSize: 10);
 
         Assert.Equal(["Clip enregistré"], results.Items.Select(d => d.Title).ToArray());
+        Assert.Equal("", results.Items[0].Source!.ExternalUrl);
         Assert.Null(await service.GetByIdAsync(missing.Id));
-        Assert.NotNull(await service.GetByIdAsync(stored.Id));
+        var detail = await service.GetByIdAsync(stored.Id);
+        Assert.NotNull(detail);
+        Assert.Equal("", detail!.Source!.ExternalUrl);
     }
 
     [Fact]
