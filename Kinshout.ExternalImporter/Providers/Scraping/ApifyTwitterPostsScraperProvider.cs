@@ -20,6 +20,12 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
 
         var discussions = new List<SourceFeedDiscussion>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var discovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in SourceRegistry.Load())
+        {
+            if (source.Import && !string.IsNullOrWhiteSpace(source.X))
+                discovered.Add(source.X.Trim().TrimStart('@'));
+        }
         if (doc.RootElement.ValueKind != JsonValueKind.Array)
         {
             Console.WriteLine("  Apify X posts: unexpected dataset format.");
@@ -38,16 +44,19 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
 
         foreach (var item in doc.RootElement.EnumerateArray())
         {
-            if (kept >= maxItems)
-                break;
-
             var rawId = ReadString(item, "tweetId") ?? ReadString(item, "id");
             if (!string.IsNullOrWhiteSpace(rawId))
                 seenIds.Add(rawId);
 
             try
             {
+                var handle = ReadHandle(item);
                 var mapped = MapTweet(item, minEngagement, minPostedAt, searchEstablishesRelevance: settings.DiscoveryRotation);
+                if (handle is not null
+                    && !KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(null, ReadString(item, "text"), handle))
+                    discovered.Add(handle);
+                if (kept >= maxItems)
+                    continue;
                 if (mapped is not null)
                 {
                     discussions.Add(mapped);
@@ -76,7 +85,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             .Select(g => g.First())
             .ToList();
 
-        return DiscussionFetchResult.From(deduped, seenIds, rawCount);
+        return DiscussionFetchResult.From(deduped, seenIds, rawCount, discovered: discovered.ToList());
     }
 
     private object BuildInput()
@@ -102,11 +111,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             ?? $"Kinshasa lang:fr min_faves:{Math.Max(5, ResolveMinEngagement() / 4)}";
         if (settings.DiscoveryRotation)
         {
-            var handles = SourceRegistry.Load()
-                .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.X))
-                .Select(source => source.X!)
-                .ToList();
-            query = FeedDiscoveryPlanner.XQuery(query, handles);
+            query = FeedDiscoveryPlanner.XQuery(query, settings.ProfileHandles);
             Console.WriteLine("  X discovery query ready.");
         }
 
@@ -533,6 +538,19 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var title = withoutTags.Split(['.', '!', '?', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim()
             ?? withoutTags;
         return title.Length <= 120 ? title : title[..117] + "...";
+    }
+
+    private static string? ReadHandle(JsonElement item)
+    {
+        if (item.TryGetProperty("author", out var author))
+        {
+            var name = ReadAuthorName(author);
+            if (!string.IsNullOrWhiteSpace(name))
+                return name.Trim().TrimStart('@');
+        }
+
+        var username = ReadString(item, "username");
+        return string.IsNullOrWhiteSpace(username) ? null : username.Trim().TrimStart('@');
     }
 
     private static string? ReadAuthorName(JsonElement author)

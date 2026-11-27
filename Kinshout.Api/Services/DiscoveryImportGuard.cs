@@ -71,8 +71,14 @@ public static class DiscoveryImportGuard
             FeedImportClock.Kinshasa());
         var (normalized, periodStart, importCap) = Period(provider, local, dayStart);
         var resultCap = ResultCap(normalized);
+        var slots = ProfileSlots(normalized);
         if (importCap is null || resultCap is null)
-            return new DiscoveryBudget(int.MaxValue, int.MaxValue, [], []);
+        {
+            var open = slots == 0
+                ? []
+                : SelectProfiles(await LoadProfilesAsync(db, normalized, ct), utcNow, slots);
+            return new DiscoveryBudget(int.MaxValue, int.MaxValue, [], open);
+        }
 
         var imported = await db.Discussions.CountAsync(
             d => d.SourceProvider == normalized && d.SourceImportedAt >= periodStart,
@@ -90,12 +96,12 @@ public static class DiscoveryImportGuard
             .ThenBy(row => row.Handle)
             .Select(row => new DiscoverySourceScore(row.Handle, row.Checks, row.Kept, row.Imports))
             .ToList();
-        var next = normalized == DiscussionSourceProvider.TikTok
-            ? SelectProfiles(
+        var next = slots == 0
+            ? []
+            : SelectProfiles(
                 rows.Select(row => new ProfileCandidate(row.Handle, row.Kept, row.Checks, row.LastCheckedAt, row.Verified)).ToList(),
                 utcNow,
-                4)
-            : [];
+                slots);
         return new DiscoveryBudget(
             Math.Max(0, importCap.Value - imported),
             Math.Max(0, resultCap.Value - spent),
@@ -126,6 +132,27 @@ public static class DiscoveryImportGuard
             .ThenBy(source => source.Handle, StringComparer.OrdinalIgnoreCase)
             .Take(count)
             .Select(source => source.Handle)
+            .ToList();
+    }
+
+    private static int ProfileSlots(string provider) => provider switch
+    {
+        DiscussionSourceProvider.TikTok => 4,
+        DiscussionSourceProvider.Twitter => 2,
+        DiscussionSourceProvider.YouTube => 7,
+        _ => 0,
+    };
+
+    private static async Task<IReadOnlyList<ProfileCandidate>> LoadProfilesAsync(
+        KinshoutDbContext db,
+        string provider,
+        CancellationToken ct)
+    {
+        var rows = await db.DiscoverySourceStats
+            .Where(row => row.Platform == provider)
+            .ToListAsync(ct);
+        return rows
+            .Select(row => new ProfileCandidate(row.Handle, row.Kept, row.Checks, row.LastCheckedAt, row.Verified))
             .ToList();
     }
 

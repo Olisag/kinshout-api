@@ -37,6 +37,9 @@ public sealed class SourceFeedDiscussion
     [JsonIgnore]
     public string? CommunitySlug { get; set; }
 
+    [JsonIgnore]
+    public string? SourceHandle { get; set; }
+
     [JsonPropertyName("viewCount")]
     public int ViewCount { get; set; }
 

@@ -26,24 +26,40 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         if (settings.YouTubeBuzz)
             return await FetchBuzzAsync(apiKey, ct);
 
-        var sources = SourceRegistry.Load()
+        var knownChannels = SourceRegistry.Load()
             .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.YoutubeChannelId))
             .Where(source => settings.ClassiquesBackfill
                 ? source.Backfill
                 : source.WebSub || source.HitsOnly)
+            .Select(source => source.YoutubeChannelId!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var channelIds = settings.ClassiquesBackfill
+            ? knownChannels
+            : settings.ProfileHandles
+                .Select(id => id.Trim())
+                .Where(id => id.StartsWith("UC", StringComparison.Ordinal))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        if (channelIds.Count == 0 && !settings.ClassiquesBackfill)
+            channelIds = knownChannels.Take(7).ToList();
         var limit = settings.ClassiquesBackfill
             ? 30
             : settings.ResultsLimit > 0 ? settings.ResultsLimit : 15;
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var checks = new List<DiscoveryCheck>();
 
-        foreach (var source in sources)
+        foreach (var channelId in channelIds)
         {
-            var playlistId = UploadsPlaylistId(source.YoutubeChannelId!);
+            var before = discussions.Count;
+            var playlistId = UploadsPlaylistId(channelId);
             var ids = await ListUploadIdsAsync(apiKey, playlistId, limit, ct);
             if (ids.Count == 0)
+            {
+                checks.Add(new DiscoveryCheck(channelId, 0));
                 continue;
+            }
 
             foreach (var id in ids)
                 seen.Add(id);
@@ -56,14 +72,15 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                 if (!settings.ClassiquesBackfill && !BuzzGate.IsBuzzing(video.EngagementScore, ReactionFloor))
                     continue;
 
-                video.OriginalAuthor = source.Name;
-                video.CommunitySlug = source.CommunitySlug;
+                video.CommunitySlug ??= CongoleseSocialTopic.Slug(video.Title, video.Body);
                 discussions.Add(video);
             }
+
+            checks.Add(new DiscoveryCheck(channelId, discussions.Count - before));
         }
 
-        Console.WriteLine($"  YouTube Data API: {discussions.Count} video(s) from {sources.Count} channel(s).");
-        return DiscussionFetchResult.From(discussions, seen);
+        Console.WriteLine($"  YouTube Data API: {discussions.Count} video(s) from {channelIds.Count} channel(s).");
+        return DiscussionFetchResult.From(discussions, seen, checks: checks, discovered: knownChannels);
     }
 
     private async Task<DiscussionFetchResult> FetchBuzzAsync(string apiKey, CancellationToken ct)
@@ -157,9 +174,15 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
         var showHits = await FetchShowHitsAsync(apiKey, sources, seen, ct);
         discussions.AddRange(showHits);
         var catalogueNames = plan.Count(query => query.Lane == FeedDiscoveryPlanner.Lane.Catalogue);
+        var discovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var video in discussions)
+        {
+            if (video.SourceHandle is { Length: > 2 } handle && handle.StartsWith("UC", StringComparison.Ordinal))
+                discovered.Add(handle);
+        }
         Console.WriteLine(
             $"  YouTube buzz: kept {discussions.Count} video(s) from {plan.Count} searches ({catalogueNames} catalogue names, {showHits.Count} show hit(s)). The full list continues on the next run. Each search costs 100 quota units.");
-        return DiscussionFetchResult.From(discussions, seen);
+        return DiscussionFetchResult.From(discussions, seen, discovered: discovered.ToList());
     }
 
     private static SourceRegistryEntry SubjectEntry(CatalogueSubject subject) => new()
@@ -493,6 +516,9 @@ public sealed class YouTubeDataApiProvider(HttpClient http, ExternalProviderSett
                 Body = string.IsNullOrWhiteSpace(description) ? watchUrl : description.Trim(),
                 OriginalAuthor = snippet.TryGetProperty("channelTitle", out var channelNode)
                     ? channelNode.GetString()
+                    : null,
+                SourceHandle = snippet.TryGetProperty("channelId", out var channelIdNode)
+                    ? channelIdNode.GetString()
                     : null,
                 PublishedAt = published,
                 ViewCount = views,
