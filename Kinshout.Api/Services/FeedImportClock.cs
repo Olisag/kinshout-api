@@ -43,7 +43,7 @@ public static class FeedImportClock
         return due;
     }
 
-    private static TimeZoneInfo Kinshasa()
+    public static TimeZoneInfo Kinshasa()
     {
         foreach (var id in new[] { "Africa/Kinshasa", "W. Central Africa Standard Time" })
         {

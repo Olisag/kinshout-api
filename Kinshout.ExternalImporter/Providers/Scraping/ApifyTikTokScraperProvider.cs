@@ -23,11 +23,7 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         if (configured.Count == 0)
             configured.Add("Kinshasa");
         var rotated = settings.DiscoveryRotation
-            ? FeedDiscoveryPlanner.SelectForPlatform(
-                "tiktok",
-                DateTime.UtcNow,
-                configured.Count,
-                FeedCandidateCatalogue.Subjects("tiktok", SourceRegistry.Load()))
+            ? FeedDiscoveryPlanner.TikTokSearches(DateTime.UtcNow)
             : [];
         var queries = rotated.Count > 0
             ? rotated.Select(query => query.Text).ToList()
@@ -48,15 +44,13 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         var client = new ApifyClient(http, settings);
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var checks = new List<DiscoveryCheck>();
         var failed = 0;
 
         // One search at a time. One run of every query plus made-up hashtags
         // was still going when the importer stopped waiting, so nothing was saved.
         foreach (var query in queries)
         {
-            if (discussions.Count >= limit)
-                break;
-
             JsonDocument doc;
             try
             {
@@ -87,6 +81,8 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             .Select(source => source.Tiktok!.Trim().TrimStart('@'))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        if (settings.DiscoveryRotation)
+            profiles = FeedDiscoveryPlanner.RotateHandles(profiles, DateTime.UtcNow, 4, settings.SourceKept).ToList();
         var profileFailed = 0;
         foreach (var profile in profiles)
         {
@@ -119,7 +115,11 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             throw new InvalidOperationException($"TikTok: all {failed} searches and {profileFailed} profiles failed.");
 
         Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} search(es) and {profiles.Count} profile(s).");
-        return DiscussionFetchResult.From(discussions, seen);
+        return DiscussionFetchResult.From(
+            discussions,
+            seen,
+            (queries.Count * 12) + (profiles.Count * 8),
+            checks);
 
         void Collect(JsonElement items, string query, int maxCount, bool searchEstablishesRelevance)
         {
@@ -168,7 +168,10 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
                 });
             }
 
-            Console.WriteLine($"  TikTok \"{query}\": kept {discussions.Count - before}.");
+            var kept = discussions.Count - before;
+            if (query.StartsWith('@'))
+                checks.Add(new DiscoveryCheck(query.TrimStart('@'), kept));
+            Console.WriteLine($"  TikTok \"{query}\": kept {kept}.");
         }
     }
 

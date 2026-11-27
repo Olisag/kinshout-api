@@ -84,6 +84,21 @@ public sealed class ExternalDiscussionImportRunner(
                 now,
                 maxDiscussionAgeDays);
             providerSettings.SincePublishedAt = sinceUtc;
+            var budget = await importClient.TryFetchDiscoveryBudgetAsync(providerSettings.Provider, ct);
+            if (budget is { RemainingImports: <= 0 } or { RemainingResults: <= 0 })
+            {
+                Console.WriteLine(
+                    $"{providerSettings.Name}: discovery allowance is used for this period. imports left={budget.RemainingImports}, results left={budget.RemainingResults}.");
+                continue;
+            }
+
+            if (budget is { Sources.Count: > 0 })
+            {
+                providerSettings.SourceKept = budget.Sources.ToDictionary(
+                    source => source.Handle,
+                    source => source.Kept,
+                    StringComparer.OrdinalIgnoreCase);
+            }
             Console.WriteLine(
                 $"{providerSettings.Name}: importing discussions published since {sinceUtc:yyyy-MM-dd HH:mm} UTC.");
 
@@ -160,6 +175,11 @@ public sealed class ExternalDiscussionImportRunner(
                     }
                 }
 
+                await importClient.TryRecordDiscoverySpendAsync(
+                    providerSettings.Provider,
+                    fetchResult.ResultsRequested,
+                    fetchResult.Checks,
+                    ct);
                 await importClient.RecordDiscussionImportRunAsync(providerSettings.Provider, now, ct);
             }
             catch (Exception ex)

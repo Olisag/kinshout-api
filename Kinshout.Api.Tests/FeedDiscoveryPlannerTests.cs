@@ -127,6 +127,64 @@ public class FeedDiscoveryPlannerTests
     }
 
     [Fact]
+    public void TikTokRotationPutsInsoliteFirstAndUsesThreeSearchesInTheMorning()
+    {
+        var morning = new DateTime(2026, 11, 23, 7, 0, 0, DateTimeKind.Utc);
+        var evening = new DateTime(2026, 11, 23, 19, 0, 0, DateTimeKind.Utc);
+
+        var early = FeedDiscoveryPlanner.TikTokSearches(morning);
+        var late = FeedDiscoveryPlanner.TikTokSearches(evening);
+
+        Assert.Equal(FeedDiscoveryPlanner.Lane.Insolite, early[0].Lane);
+        Assert.Equal(3, early.Count);
+        Assert.Equal(2, early.Count(query => query.Lane == FeedDiscoveryPlanner.Lane.Buzz));
+        Assert.Equal(2, late.Count);
+        Assert.Equal(1, late.Count(query => query.Lane == FeedDiscoveryPlanner.Lane.Buzz));
+    }
+
+    [Fact]
+    public void HandleRotationVisitsEveryVerifiedAccount()
+    {
+        var handles = new[] { "a", "b", "c", "d", "e" };
+        var morning = new DateTime(2026, 11, 23, 7, 0, 0, DateTimeKind.Utc);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var day = 0; day < 5; day++)
+        {
+            foreach (var handle in FeedDiscoveryPlanner.RotateHandles(handles, morning.AddDays(day), 4))
+                seen.Add(handle);
+        }
+
+        Assert.Equal(handles, seen.OrderBy(handle => handle).ToArray());
+    }
+
+    [Fact]
+    public void XQueryKeepsTheSafetyFilterAndDoesNotSearchBareCatalogueNames()
+    {
+        const string existing =
+            "(congolais OR kinshasa) lang:fr min_faves:5 -politique -élection";
+
+        var query = FeedDiscoveryPlanner.XQuery(existing, ["werrason_001", "GIMS"]);
+
+        Assert.EndsWith(" lang:fr min_faves:5 -politique -élection", query);
+        Assert.Contains("from:werrason_001", query);
+        Assert.Contains("from:GIMS", query);
+        Assert.DoesNotContain("Actu Foot", query);
+        Assert.Equal(1, Count(query, " lang:"));
+    }
+
+    [Fact]
+    public void FacebookSearchesStayInsideTheActorLimit()
+    {
+        var morning = new DateTime(2026, 11, 23, 15, 0, 0, DateTimeKind.Utc);
+        var queries = FeedDiscoveryPlanner.FacebookSearches(morning, ["iamwerrason", "gims", "tiakolaofficiel"]);
+
+        var query = Assert.Single(queries);
+        Assert.InRange(query.Text.Length, 1, FeedDiscoveryPlanner.FacebookQueryLimit);
+        var nextDay = FeedDiscoveryPlanner.FacebookSearches(morning.AddDays(1), ["iamwerrason", "gims", "tiakolaofficiel"]);
+        Assert.NotEqual(query.Text, Assert.Single(nextDay).Text);
+    }
+
+    [Fact]
     public void GrowthProfileCapsFacebookTikTokAndXWithoutRaisingThem()
     {
         Assert.Equal(FeedOperatingProfile.Growth, FeedOperatingProfile.Normalize("Aggressive"));

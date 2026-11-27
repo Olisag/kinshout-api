@@ -14,6 +14,7 @@ internal static class FeedDiscoveryPlanner
         Buzz,
         Theme,
         Catalogue,
+        Insolite,
     }
 
     internal sealed record DiscoveryQuery(string Text, Lane Lane, bool SearchEstablishesRelevance);
@@ -39,6 +40,9 @@ internal static class FeedDiscoveryPlanner
         "talent insolite congo",
         "somo kinshasa",
     ];
+
+    public static DateTime KinshasaLocal(DateTime utcNow) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc), KinshasaZone());
 
     public static DateOnly KinshasaDate(DateTime utcNow)
     {
@@ -131,7 +135,8 @@ internal static class FeedDiscoveryPlanner
         return addition + suffix;
     }
 
-    internal const int FacebookQueryLimit = 100;
+    /// <summary>The actor rejects a query of more than 100 characters, so the packer stops at 99.</summary>
+    internal const int FacebookQueryLimit = 99;
 
     internal static int GroupSize(string platform) =>
         platform.Equals("facebook", StringComparison.OrdinalIgnoreCase) ? 15 : 1;
@@ -257,5 +262,133 @@ internal static class FeedDiscoveryPlanner
         }
 
         return TimeZoneInfo.CreateCustomTimeZone("Africa/Kinshasa", TimeSpan.FromHours(1), "Africa/Kinshasa", "Africa/Kinshasa");
+    }
+
+    /// <summary>
+    /// 08:00, 14:00 and 20:00 Kinshasa share five viral searches and three insolite searches.
+    /// Insolite is first so a full keep-cap cannot skip it.
+    /// </summary>
+    public static IReadOnlyList<DiscoveryQuery> TikTokSearches(DateTime utcNow)
+    {
+        var slot = DaySlot(utcNow, 11, 17);
+        var day = KinshasaDate(utcNow).DayNumber;
+        var viralCount = slot == 2 ? 1 : 2;
+        var queries = new List<DiscoveryQuery>
+        {
+            new(Quote(Insolite[(day + slot) % Insolite.Length]), Lane.Insolite, SearchEstablishesRelevance: true),
+        };
+        for (var index = 0; index < viralCount; index++)
+        {
+            queries.Add(new DiscoveryQuery(
+                Quote(Buzz[(day + slot + index) % Buzz.Length]),
+                Lane.Buzz,
+                SearchEstablishesRelevance: true));
+        }
+
+        return queries;
+    }
+
+    /// <summary>Four verified profiles per run, walking the list so none of them is skipped forever.</summary>
+    public static IReadOnlyList<string> RotateHandles(
+        IReadOnlyList<string> handles,
+        DateTime utcNow,
+        int perRun,
+        IReadOnlyDictionary<string, int>? kept = null)
+    {
+        if (handles.Count == 0 || perRun < 1)
+            return [];
+
+        var ordered = handles
+            .Select(handle => handle.Trim().TrimStart('@'))
+            .Where(handle => handle.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(handle => kept is not null && kept.TryGetValue(handle, out var score) ? score : 0)
+            .ThenBy(handle => handle, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (ordered.Count == 0)
+            return [];
+
+        var start = (int)((KinshasaDate(utcNow).DayNumber * 4L + DaySlot(utcNow, 11, 17)) % ordered.Count);
+        var chosen = new List<string>();
+        var take = Math.Min(perRun, ordered.Count);
+        for (var index = 0; index < take; index++)
+            chosen.Add(ordered[(start + index) % ordered.Count]);
+        return chosen;
+    }
+
+    /// <summary>
+    /// One X search. Catalogue names are not added: a bare newsroom name was returning that
+    /// account's whole timeline. Verified handles are folded into the same search.
+    /// </summary>
+    public static string XQuery(string existingQuery, IReadOnlyList<string> handles)
+    {
+        var from = handles
+            .Select(handle => handle.Trim().TrimStart('@'))
+            .Where(handle => handle.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(handle => "from:" + handle)
+            .ToList();
+        if (from.Count == 0)
+            return existingQuery;
+
+        var addition = string.Join(" OR ", from);
+        var lang = existingQuery.IndexOf(" lang:", StringComparison.OrdinalIgnoreCase);
+        if (lang > 0 && existingQuery[lang - 1] == ')')
+            return existingQuery[..(lang - 1)] + " OR " + addition + existingQuery[(lang - 1)..];
+        if (lang >= 0)
+            return "(" + existingQuery[..lang].Trim() + " OR " + addition + ")" + existingQuery[lang..];
+        return existingQuery + " OR " + addition;
+    }
+
+    /// <summary>
+    /// One short Kinshasa search a day. Four kept posts use the weekly 16
+    /// through Thursday instead of finishing it on Tuesday.
+    /// </summary>
+    public static IReadOnlyList<DiscoveryQuery> FacebookSearches(
+        DateTime utcNow,
+        IReadOnlyList<string> verifiedUsernames)
+    {
+        var day = KinshasaDate(utcNow).DayNumber;
+        var lanes = new[]
+        {
+            LaneQuery(Lane.Theme, "\"concert kinshasa\" OR \"agenda kinshasa\""),
+            new DiscoveryQuery(Quote(Buzz[day % Buzz.Length]), Lane.Buzz, SearchEstablishesRelevance: true),
+            new DiscoveryQuery(Quote(Insolite[day % Insolite.Length]), Lane.Insolite, SearchEstablishesRelevance: true),
+            LaneQuery(Lane.Theme, "\"quartier kinshasa\" OR \"transport kinshasa\""),
+            CatalogueUsernames(verifiedUsernames),
+        };
+        return [lanes[day % lanes.Length]];
+    }
+
+    public const int FacebookResultsPerSearch = 8;
+
+    private static DiscoveryQuery LaneQuery(Lane lane, string text) =>
+        new(text, lane, SearchEstablishesRelevance: true);
+
+    private static DiscoveryQuery CatalogueUsernames(IReadOnlyList<string> usernames)
+    {
+        var names = usernames
+            .Select(name => name.Trim().TrimStart('@'))
+            .Where(name => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (names.Count == 0)
+            return LaneQuery(Lane.Catalogue, "kinshasa");
+
+        var query = string.Join(" OR ", names);
+        if (query.Length > FacebookQueryLimit)
+        {
+            var cut = query.LastIndexOf(" OR ", FacebookQueryLimit, StringComparison.Ordinal);
+            query = (cut > 0 ? query[..cut] : query[..FacebookQueryLimit]).Trim();
+        }
+        return new DiscoveryQuery(query, Lane.Catalogue, SearchEstablishesRelevance: true);
+    }
+
+    private static int DaySlot(DateTime utcNow, int secondHour, int thirdHour)
+    {
+        var hour = KinshasaLocal(utcNow).Hour;
+        if (hour < secondHour)
+            return 0;
+        return hour < thirdHour ? 1 : 2;
     }
 }

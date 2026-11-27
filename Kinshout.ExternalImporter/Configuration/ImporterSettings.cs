@@ -111,4 +111,8 @@ public sealed class ExternalProviderSettings
 
     [System.Text.Json.Serialization.JsonIgnore]
     public string OperatingProfile { get; set; } = "Growth";
+
+    /// <summary>Kept clips per handle, used to rotate verified sources without dropping the quiet ones.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyDictionary<string, int>? SourceKept { get; set; }
 }

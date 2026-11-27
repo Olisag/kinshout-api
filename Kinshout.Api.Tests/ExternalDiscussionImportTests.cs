@@ -445,6 +445,52 @@ public class ExternalDiscussionImportTests
         Assert.Equal(arrived, discussion.SourceImportedAt);
     }
 
+    [Fact]
+    public async Task ImportAsync_StopsAPersonalityAtTwoPostsInADay()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+
+        var first = await service.ImportAsync([SampleImport("cap-1", "Kinshasa traffic update on boulevard du 30 juin today.")]);
+        var second = await service.ImportAsync([SampleImport("cap-2", "Another Kinshasa evening on the same boulevard with the same page.")]);
+        var third = await service.ImportAsync([SampleImport("cap-3", "A third Kinshasa note from the same page the same day.")]);
+
+        Assert.Equal(1, first.Created);
+        Assert.Equal(1, second.Created);
+        Assert.Equal(1, third.Skipped);
+        Assert.Equal(2, await db.Discussions.CountAsync());
+    }
+
+    [Fact]
+    public async Task ImportAsync_StopsFacebookAtTheWeeklyAllowance()
+    {
+        await using var db = TestDbFactory.Create();
+        await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var service = CreateService(db);
+
+        for (var index = 0; index < DiscoveryImportGuard.FacebookWeeklyImports; index++)
+        {
+            var created = await service.ImportAsync([
+                SampleImport($"week-{index}", $"Kintambo{index} vendeur{index} papaye{index} ngaliema{index} fleuve{index}.") with
+                {
+                    OriginalAuthor = $"Page {index}",
+                },
+            ]);
+            Assert.Equal(1, created.Created);
+        }
+
+        var over = await service.ImportAsync([
+            SampleImport("week-over", "Limete soir tambour unique apres le plafond hebdomadaire.") with
+            {
+                OriginalAuthor = "Page overflow",
+            },
+        ]);
+
+        Assert.Equal(1, over.Skipped);
+        Assert.Equal(DiscoveryImportGuard.FacebookWeeklyImports, await db.Discussions.CountAsync());
+    }
+
     private static ImportExternalDiscussionDto YouTubeImport(string externalId, string videoId, string title, string rawBody)
     {
         var watchUrl = $"https://www.youtube.com/watch?v={videoId}";

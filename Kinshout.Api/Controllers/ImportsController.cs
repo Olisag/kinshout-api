@@ -351,6 +351,36 @@ public class ImportsController(
         }
     }
 
+    [HttpGet("discovery-budget")]
+    public async Task<ActionResult<DiscoveryBudget>> DiscoveryBudget(
+        [FromQuery] string provider,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+        if (string.IsNullOrWhiteSpace(provider))
+            return BadRequest(new { error = "provider requis." });
+        return Ok(await discussionImports.GetDiscoveryBudgetAsync(provider, ct));
+    }
+
+    [HttpPost("discovery-spend")]
+    public async Task<IActionResult> DiscoverySpend(
+        [FromQuery] string provider,
+        [FromBody] DiscoverySpendRequest request,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+        if (string.IsNullOrWhiteSpace(provider))
+            return BadRequest(new { error = "provider requis." });
+        await discussionImports.RecordDiscoverySpendAsync(
+            provider,
+            request.ResultsRequested,
+            request.Checks ?? [],
+            ct);
+        return NoContent();
+    }
+
     /// <summary>Point a published TikTok at the file we stored. Arrival time is left alone.</summary>
     [HttpPost("discussions/tiktok-file")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

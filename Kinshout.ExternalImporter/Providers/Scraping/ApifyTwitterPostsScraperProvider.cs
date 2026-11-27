@@ -30,7 +30,10 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
         var filteredOut = 0;
         var minEngagement = ResolveMinEngagement();
         var minPostedAt = ResolveMinPostedAt();
-        var maxItems = settings.ResultsLimit > 0 ? settings.ResultsLimit : 50;
+        var maxItems = FeedOperatingProfile.ResultCap(
+            settings.Provider,
+            settings.ResultsLimit > 0 ? settings.ResultsLimit : 50,
+            settings.OperatingProfile);
         var kept = 0;
 
         foreach (var item in doc.RootElement.EnumerateArray())
@@ -73,7 +76,7 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             .Select(g => g.First())
             .ToList();
 
-        return DiscussionFetchResult.From(deduped, seenIds);
+        return DiscussionFetchResult.From(deduped, seenIds, rawCount);
     }
 
     private object BuildInput()
@@ -99,10 +102,11 @@ public sealed class ApifyTwitterPostsScraperProvider(HttpClient http, ExternalPr
             ?? $"Kinshasa lang:fr min_faves:{Math.Max(5, ResolveMinEngagement() / 4)}";
         if (settings.DiscoveryRotation)
         {
-            query = FeedDiscoveryPlanner.BuildXQuery(
-                query,
-                DateTime.UtcNow,
-                FeedCandidateCatalogue.Subjects("x", SourceRegistry.Load()));
+            var handles = SourceRegistry.Load()
+                .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.X))
+                .Select(source => source.X!)
+                .ToList();
+            query = FeedDiscoveryPlanner.XQuery(query, handles);
             Console.WriteLine("  X discovery query ready.");
         }
 

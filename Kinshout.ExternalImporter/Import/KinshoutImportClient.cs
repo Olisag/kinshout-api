@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kinshout.ExternalImporter.Configuration;
+using Kinshout.ExternalImporter.Providers;
 
 namespace Kinshout.ExternalImporter.Import;
 
@@ -344,6 +345,64 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
         return parsed?.Sources ?? [];
     }
 
+    public async Task<DiscoveryBudgetSnapshot?> TryFetchDiscoveryBudgetAsync(string provider, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            return null;
+
+        try
+        {
+            var endpoint = new Uri(
+                new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+                "api/imports/discovery-budget?provider=" + Uri.EscapeDataString(provider));
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+            using var response = await http.SendAsync(request, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+            if (!response.IsSuccessStatusCode)
+                return null;
+            var body = await response.Content.ReadAsStringAsync(ct);
+            return JsonSerializer.Deserialize<DiscoveryBudgetSnapshot>(body, JsonOptions);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.WriteLine($"  Discovery budget unavailable ({ex.Message}).");
+            return null;
+        }
+    }
+
+    public async Task TryRecordDiscoverySpendAsync(
+        string provider,
+        int resultsRequested,
+        IReadOnlyList<DiscoveryCheck> checks,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey) || (resultsRequested <= 0 && checks.Count == 0))
+            return;
+
+        try
+        {
+            var endpoint = new Uri(
+                new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+                "api/imports/discovery-spend?provider=" + Uri.EscapeDataString(provider));
+            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = JsonContent.Create(
+                    new { resultsRequested, checks = checks.Select(check => new { handle = check.Handle, kept = check.Kept }) },
+                    options: JsonOptions),
+            };
+            request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+            using var response = await http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                Console.WriteLine($"  Discovery spend was not recorded ({(int)response.StatusCode}).");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.WriteLine($"  Discovery spend was not recorded ({ex.Message}).");
+        }
+    }
+
     private sealed record YouTubeMetricTargetsResponse(IReadOnlyList<string>? ExternalIds);
 
     private sealed record UploadedMediaResponse(string? Url);
@@ -356,4 +415,19 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
     {
         public List<SourceRegistryEntry> Sources { get; set; } = [];
     }
+}
+
+public sealed class DiscoveryBudgetSnapshot
+{
+    public int RemainingImports { get; set; }
+    public int RemainingResults { get; set; }
+    public List<DiscoverySourceSnapshot> Sources { get; set; } = [];
+}
+
+public sealed class DiscoverySourceSnapshot
+{
+    public string Handle { get; set; } = "";
+    public int Checks { get; set; }
+    public int Kept { get; set; }
+    public int Imports { get; set; }
 }

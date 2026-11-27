@@ -35,6 +35,8 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<DiscussionSimulatedLike> DiscussionSimulatedLikes => Set<DiscussionSimulatedLike>();
     public DbSet<DiscussionSimulationDay> DiscussionSimulationDays => Set<DiscussionSimulationDay>();
     public DbSet<FeedImportDispatch> FeedImportDispatches => Set<FeedImportDispatch>();
+    public DbSet<DiscoverySpend> DiscoverySpends => Set<DiscoverySpend>();
+    public DbSet<DiscoverySourceStat> DiscoverySourceStats => Set<DiscoverySourceStat>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -349,6 +351,21 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
         {
             e.HasKey(x => x.Name);
             e.Property(x => x.Name).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<DiscoverySpend>(e =>
+        {
+            e.HasKey(x => x.PeriodKey);
+            e.Property(x => x.PeriodKey).HasMaxLength(40);
+        });
+
+        modelBuilder.Entity<DiscoverySourceStat>(e =>
+        {
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(120);
+            e.Property(x => x.Platform).HasMaxLength(40);
+            e.Property(x => x.Handle).HasMaxLength(80);
+            e.HasIndex(x => x.Platform);
         });
 
         modelBuilder.Entity<LikedReply>(e =>

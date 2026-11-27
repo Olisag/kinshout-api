@@ -16,13 +16,12 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
 
         var client = new ApifyClient(http, settings);
         var queries = ResolveQueries();
-        var slots = FeedOperatingProfile.SearchSlots("facebook", queries.Count, settings.OperatingProfile);
+        var verifiedPages = SourceRegistry.Load()
+            .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.Facebook))
+            .Select(source => source.Facebook!)
+            .ToList();
         var rotated = settings.DiscoveryRotation
-            ? FeedDiscoveryPlanner.SelectForPlatform(
-                "facebook",
-                DateTime.UtcNow,
-                slots,
-                FeedCandidateCatalogue.Subjects("facebook", SourceRegistry.Load()))
+            ? FeedDiscoveryPlanner.FacebookSearches(DateTime.UtcNow, verifiedPages)
             : [];
         if (rotated.Count > 0)
         {
@@ -47,7 +46,9 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
             JsonDocument doc;
             try
             {
-                doc = await client.RunActorAndGetDatasetAsync(BuildInput(query), ct);
+                doc = await client.RunActorAndGetDatasetAsync(
+                    BuildInput(query, settings.DiscoveryRotation ? FeedDiscoveryPlanner.FacebookResultsPerSearch : null),
+                    ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -104,7 +105,10 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
                 $"  Apify Facebook posts: kept {discussions.Count}/{rawCount} visual Kinshasa topics ({filteredOut} filtered out).");
         }
 
-        return DiscussionFetchResult.From(discussions, seenIds);
+        var asked = settings.DiscoveryRotation
+            ? queries.Count * FeedDiscoveryPlanner.FacebookResultsPerSearch
+            : queries.Count * 15;
+        return DiscussionFetchResult.From(discussions, seenIds, asked);
     }
 
     private List<string> ResolveQueries()
@@ -119,9 +123,11 @@ public sealed class ApifyFacebookPostsScraperProvider(HttpClient http, ExternalP
         return queries;
     }
 
-    private object BuildInput(string query)
+    private object BuildInput(string query, int? resultsCount = null)
     {
-        var count = Math.Max(5, Math.Min(15, settings.ResultsLimit > 0 ? settings.ResultsLimit : 12));
+        var count = resultsCount is > 0
+            ? resultsCount.Value
+            : Math.Max(5, Math.Min(15, settings.ResultsLimit > 0 ? settings.ResultsLimit : 12));
         var end = DateTime.UtcNow.Date;
         var start = ResolveMinPostedAt().Date;
 

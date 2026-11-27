@@ -20,6 +20,14 @@ public interface IExternalDiscussionImportService
 
     Task RecordDiscussionImportRunAsync(string provider, DateTime runAtUtc, CancellationToken ct = default);
 
+    Task<DiscoveryBudget> GetDiscoveryBudgetAsync(string provider, CancellationToken ct = default);
+
+    Task RecordDiscoverySpendAsync(
+        string provider,
+        int resultsRequested,
+        IReadOnlyList<DiscoveryCheckNote> checks,
+        CancellationToken ct = default);
+
     Task<RetransformExternalDiscussionsResponseDto> RetransformAllAsync(
         bool force = false,
         int limit = 0,
@@ -83,6 +91,8 @@ public class ExternalDiscussionImportService(
                         await DiscussionSourceMetrics.UpdateAsync(db, postId, item.SourceViewCount, item.SourceLikeCount,
                             item.SourceReactions, item.Source.LastSeenAt ?? item.Source.ImportedAt ?? DateTime.UtcNow, ct);
                 }
+                if (outcome == UpsertOutcome.Created)
+                    await DiscoveryImportGuard.NoteImportAsync(db, item.Source.Provider, item.OriginalAuthor, ct);
                 switch (outcome)
                 {
                     case UpsertOutcome.Created: created++; break;
@@ -370,6 +380,16 @@ public class ExternalDiscussionImportService(
         await db.SaveChangesAsync(ct);
     }
 
+    public Task<DiscoveryBudget> GetDiscoveryBudgetAsync(string provider, CancellationToken ct = default) =>
+        DiscoveryImportGuard.BudgetAsync(db, provider, DateTime.UtcNow, ct);
+
+    public Task RecordDiscoverySpendAsync(
+        string provider,
+        int resultsRequested,
+        IReadOnlyList<DiscoveryCheckNote> checks,
+        CancellationToken ct = default) =>
+        DiscoveryImportGuard.RecordSpendAsync(db, provider, resultsRequested, checks, DateTime.UtcNow, ct);
+
     public async Task<PurgeTextOnlyDiscussionsResponseDto> PurgeTextOnlyAsync(
         int limit = 500,
         bool dryRun = false,
@@ -459,6 +479,16 @@ public class ExternalDiscussionImportService(
 
         if (string.IsNullOrWhiteSpace(item.Body))
             throw new ArgumentException("body requis.");
+
+        if (existing is null
+            && !await DiscoveryImportGuard.CanImportAsync(db, provider, item.OriginalAuthor, DateTime.UtcNow, ct))
+        {
+            logger.LogInformation(
+                "Skipped {Provider} {ExternalId}: the discovery allowance for this period is full.",
+                provider,
+                item.Source.ExternalId);
+            return UpsertOutcome.Skipped;
+        }
 
         var rawBody = item.Body.Trim();
         var engagement = item.EngagementScore;
