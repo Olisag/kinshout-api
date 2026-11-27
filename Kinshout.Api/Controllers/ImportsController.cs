@@ -377,6 +377,7 @@ public class ImportsController(
             provider,
             request.ResultsRequested,
             request.Checks ?? [],
+            request.Discovered ?? [],
             ct);
         return NoContent();
     }

@@ -72,7 +72,7 @@ public static class DiscoveryImportGuard
         var (normalized, periodStart, importCap) = Period(provider, local, dayStart);
         var resultCap = ResultCap(normalized);
         if (importCap is null || resultCap is null)
-            return new DiscoveryBudget(int.MaxValue, int.MaxValue, []);
+            return new DiscoveryBudget(int.MaxValue, int.MaxValue, [], []);
 
         var imported = await db.Discussions.CountAsync(
             d => d.SourceProvider == normalized && d.SourceImportedAt >= periodStart,
@@ -82,16 +82,62 @@ public static class DiscoveryImportGuard
             .Where(row => row.PeriodKey == key)
             .Select(row => row.ResultsRequested)
             .FirstOrDefaultAsync(ct);
-        var sources = await db.DiscoverySourceStats
+        var rows = await db.DiscoverySourceStats
             .Where(row => row.Platform == normalized)
+            .ToListAsync(ct);
+        var sources = rows
             .OrderByDescending(row => row.Kept)
             .ThenBy(row => row.Handle)
             .Select(row => new DiscoverySourceScore(row.Handle, row.Checks, row.Kept, row.Imports))
-            .ToListAsync(ct);
+            .ToList();
+        var next = normalized == DiscussionSourceProvider.TikTok
+            ? SelectProfiles(
+                rows.Select(row => new ProfileCandidate(row.Handle, row.Kept, row.Checks, row.LastCheckedAt, row.Verified)).ToList(),
+                utcNow,
+                4)
+            : [];
         return new DiscoveryBudget(
             Math.Max(0, importCap.Value - imported),
             Math.Max(0, resultCap.Value - spent),
-            sources);
+            sources,
+            next);
+    }
+
+    /// <summary>
+    /// The next profile reads. A never-checked account goes first. A productive
+    /// account is seen sooner than a quiet one, and a quiet one that has waited
+    /// long enough still comes ahead of an account checked today.
+    /// </summary>
+    public static IReadOnlyList<string> SelectProfiles(
+        IReadOnlyList<ProfileCandidate> sources,
+        DateTime utcNow,
+        int count)
+    {
+        if (count < 1)
+            return [];
+
+        return sources
+            .Where(source => source.Verified || source.Checks > 0)
+            .Select(source => (source, Handle: source.Handle.Trim().TrimStart('@')))
+            .Where(source => source.Handle.Length > 0)
+            .GroupBy(source => source.Handle, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderByDescending(source => ProfilePriority(source.source, utcNow))
+            .ThenBy(source => source.Handle, StringComparer.OrdinalIgnoreCase)
+            .Take(count)
+            .Select(source => source.Handle)
+            .ToList();
+    }
+
+    private static double ProfilePriority(ProfileCandidate source, DateTime utcNow)
+    {
+        if (source.Checks <= 0 || source.LastCheckedAt == default)
+            return double.MaxValue;
+
+        var hours = (utcNow - source.LastCheckedAt).TotalHours;
+        if (hours < 0)
+            hours = 0;
+        return hours + (source.Kept > 0 ? 18 : 0);
     }
 
     public static async Task RecordSpendAsync(
@@ -99,6 +145,7 @@ public static class DiscoveryImportGuard
         string provider,
         int resultsRequested,
         IReadOnlyList<DiscoveryCheckNote> checks,
+        IReadOnlyList<string> discovered,
         DateTime utcNow,
         CancellationToken ct)
     {
@@ -141,7 +188,35 @@ public static class DiscoveryImportGuard
 
             stat.Checks++;
             stat.Kept += Math.Max(0, check.Kept);
+            stat.Verified = true;
             stat.LastCheckedAt = utcNow;
+        }
+
+        foreach (var found in discovered)
+        {
+            if (string.IsNullOrWhiteSpace(found))
+                continue;
+            var handle = found.Trim().TrimStart('@');
+            if (handle.Length == 0)
+                continue;
+            var statKey = normalized + ":" + handle.ToLowerInvariant();
+            var stat = await db.DiscoverySourceStats.FirstOrDefaultAsync(item => item.Key == statKey, ct);
+            if (stat is null)
+            {
+                stat = new DiscoverySourceStat
+                {
+                    Key = statKey,
+                    Platform = normalized,
+                    Handle = handle,
+                    Verified = true,
+                    LastCheckedAt = default,
+                };
+                db.DiscoverySourceStats.Add(stat);
+            }
+            else if (!stat.Verified)
+            {
+                stat.Verified = true;
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -221,10 +296,21 @@ public static class DiscoveryImportGuard
 public sealed record DiscoveryBudget(
     int RemainingImports,
     int RemainingResults,
-    IReadOnlyList<DiscoverySourceScore> Sources);
+    IReadOnlyList<DiscoverySourceScore> Sources,
+    IReadOnlyList<string> NextProfiles);
 
 public sealed record DiscoverySourceScore(string Handle, int Checks, int Kept, int Imports);
 
 public sealed record DiscoveryCheckNote(string Handle, int Kept);
 
-public sealed record DiscoverySpendRequest(int ResultsRequested, IReadOnlyList<DiscoveryCheckNote>? Checks);
+public readonly record struct ProfileCandidate(
+    string Handle,
+    int Kept,
+    int Checks,
+    DateTime LastCheckedAt,
+    bool Verified);
+
+public sealed record DiscoverySpendRequest(
+    int ResultsRequested,
+    IReadOnlyList<DiscoveryCheckNote>? Checks,
+    IReadOnlyList<string>? Discovered);

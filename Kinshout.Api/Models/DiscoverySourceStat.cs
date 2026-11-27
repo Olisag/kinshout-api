@@ -9,5 +9,6 @@ public class DiscoverySourceStat
     public int Checks { get; set; }
     public int Kept { get; set; }
     public int Imports { get; set; }
+    public bool Verified { get; set; }
     public DateTime LastCheckedAt { get; set; } = DateTime.UtcNow;
 }

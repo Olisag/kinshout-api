@@ -99,6 +99,8 @@ public sealed class ExternalDiscussionImportRunner(
                     source => source.Kept,
                     StringComparer.OrdinalIgnoreCase);
             }
+
+            providerSettings.ProfileHandles = budget?.NextProfiles ?? [];
             Console.WriteLine(
                 $"{providerSettings.Name}: importing discussions published since {sinceUtc:yyyy-MM-dd HH:mm} UTC.");
 
@@ -179,6 +181,7 @@ public sealed class ExternalDiscussionImportRunner(
                     providerSettings.Provider,
                     fetchResult.ResultsRequested,
                     fetchResult.Checks,
+                    fetchResult.Discovered,
                     ct);
                 await importClient.RecordDiscussionImportRunAsync(providerSettings.Provider, now, ct);
             }

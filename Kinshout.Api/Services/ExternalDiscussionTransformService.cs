@@ -7,7 +7,12 @@ using Microsoft.Extensions.Options;
 
 namespace Kinshout.Api.Services;
 
-public record ExternalDiscussionTransformResult(string Title, string Body, bool UsedFallback, bool SameStory = false);
+public record ExternalDiscussionTransformResult(
+    string Title,
+    string Body,
+    bool UsedFallback,
+    bool SameStory = false,
+    bool Blocked = false);
 
 public interface IExternalDiscussionTransformService
 {
@@ -53,6 +58,7 @@ public partial class ExternalDiscussionTransformService(
         var sameStoryField = stories.Count == 0
             ? ""
             : ",\n              \"sameStory\": null";
+        var blockedField = ",\n              \"blocked\": false";
         var storyBlock = stories.Count == 0
             ? ""
             : "\nPublications déjà sur Kinoiserie:\n"
@@ -74,7 +80,7 @@ public partial class ExternalDiscussionTransformService(
             Réponds UNIQUEMENT en JSON:
             {
               "title": "le sujet réel, max 70 caractères, sans emoji ni hashtag. Une question seulement si le texte la porte vraiment.",
-              "body": "les faits du texte source, en français. Une question courte et précise est permise seulement si le texte la rend possible."{{sameStoryField}}
+              "body": "les faits du texte source, en français. Une question courte et précise est permise seulement si le texte la rend possible."{{sameStoryField}}{{blockedField}}
             }
 
             Règles:
@@ -86,6 +92,9 @@ public partial class ExternalDiscussionTransformService(
             - Garde les numéros, e-mails et URL du texte
             - Si le texte commence par « Titre: », ce titre est le sujet. Ne le remplace pas par un pied de page (partenariat, dons, abonnement)
             - Pas d'emoji, de hashtag, ni de majuscules agressives. Français naturel. Lingala seulement si le texte source est en lingala
+            - blocked est true si le texte est politique, pornographique, haineux, tribal, raciste ou une haine religieuse, en français ou en lingala
+            - Un clip de musique, une blague, un fait divers ou la vie à Kinshasa reste blocked false
+            - Un engagement élevé ou un compte connu ne change pas blocked
             {{sameStoryRules}}
             Auteur source: {{author}}
             Plateforme: {{platform}}
@@ -105,7 +114,11 @@ public partial class ExternalDiscussionTransformService(
                 return DiscussionSourceText.ApplyTitle(FallbackTransform(raw), raw);
 
             var sameStory = ImportedStoryMatch.TryReadSameStory(root, stories.Count);
-            return DiscussionSourceText.ApplyTitle(new ExternalDiscussionTransformResult(title, body, false, sameStory), raw);
+            var blocked = root.TryGetProperty("blocked", out var blockedNode)
+                && blockedNode.ValueKind == JsonValueKind.True;
+            return DiscussionSourceText.ApplyTitle(
+                new ExternalDiscussionTransformResult(title, body, false, sameStory, blocked),
+                raw);
         }
         catch (Exception ex)
         {

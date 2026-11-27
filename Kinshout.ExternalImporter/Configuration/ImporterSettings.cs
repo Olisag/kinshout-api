@@ -115,4 +115,8 @@ public sealed class ExternalProviderSettings
     /// <summary>Kept clips per handle, used to rotate verified sources without dropping the quiet ones.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyDictionary<string, int>? SourceKept { get; set; }
+
+    /// <summary>Profile reads chosen from the growing catalogue. Empty means no profile read this run.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> ProfileHandles { get; set; } = [];
 }

@@ -76,8 +76,25 @@ internal static class KinshasaSocialPostFilter
     /// Politics and armed conflict stay out of the feed. City life, sport,
     /// culture, and education stay.
     /// </summary>
+    public static bool LooksLikeProhibited(string? title, string? body, string? author = null)
+    {
+        var blob = $"{title} {body} {author}".ToLowerInvariant();
+        return ContainsAny(
+            blob,
+            "haine tribale",
+            "sale ethnie",
+            "race inférieure",
+            "race inferieure",
+            "mort aux",
+            "onlyfans",
+            "sexe explicite");
+    }
+
     public static bool LooksLikePoliticsOrConflict(string? title, string? body, string? author = null)
     {
+        if (LooksLikeProhibited(title, body, author))
+            return true;
+
         var blob = $"{title} {body} {author}".ToLowerInvariant();
         return ContainsAny(
             blob,

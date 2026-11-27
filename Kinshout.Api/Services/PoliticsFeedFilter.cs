@@ -13,7 +13,7 @@ namespace Kinshout.Api.Services;
 public static class PoliticsFeedFilter
 {
     /// <summary>Bump when <see cref="Terms"/> or Brazzaville rules change so existing rows are reviewed again.</summary>
-    public const int RuleVersion = 8;
+    public const int RuleVersion = 9;
 
     private static readonly string[] Terms =
     [
@@ -78,6 +78,13 @@ public static class PoliticsFeedFilter
         "guerre",
         "guerres",
         "guerre civile",
+        "haine tribale",
+        "sale ethnie",
+        "race inférieure",
+        "race inferieure",
+        "mort aux",
+        "onlyfans",
+        "sexe explicite",
         "conflit armé",
         "conflit arme",
         "combats ",

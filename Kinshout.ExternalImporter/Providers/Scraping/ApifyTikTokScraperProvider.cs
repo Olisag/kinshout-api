@@ -36,15 +36,12 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
         if (string.IsNullOrWhiteSpace(settings.ApifyActorId))
             settings.ApifyActorId = DefaultActorId;
 
-        var limit = FeedOperatingProfile.ResultCap(
-            "tiktok",
-            settings.ResultsLimit > 0 ? settings.ResultsLimit : 24,
-            settings.OperatingProfile);
         var minScore = settings.MinEngagementScore > 0 ? settings.MinEngagementScore : BuzzGate.Floor;
         var client = new ApifyClient(http, settings);
         var discussions = new List<SourceFeedDiscussion>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var checks = new List<DiscoveryCheck>();
+        var discovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var failed = 0;
 
         // One search at a time. One run of every query plus made-up hashtags
@@ -72,17 +69,17 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             using (doc)
             {
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                    Collect(doc.RootElement, query, limit, searchEstablishesRelevance: rotated.Count > 0);
+                    Collect(doc.RootElement, query, searchEstablishesRelevance: rotated.Count > 0);
             }
         }
 
-        var profiles = SourceRegistry.Load()
-            .Where(source => source.Import && !string.IsNullOrWhiteSpace(source.Tiktok))
-            .Select(source => source.Tiktok!.Trim().TrimStart('@'))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (settings.DiscoveryRotation)
-            profiles = FeedDiscoveryPlanner.RotateHandles(profiles, DateTime.UtcNow, 4, settings.SourceKept).ToList();
+        var profiles = settings.DiscoveryRotation
+            ? settings.ProfileHandles
+                .Select(handle => handle.Trim().TrimStart('@'))
+                .Where(handle => handle.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : [];
         var profileFailed = 0;
         foreach (var profile in profiles)
         {
@@ -107,21 +104,23 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
             using (doc)
             {
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                    Collect(doc.RootElement, $"@{profile}", limit + (profiles.Count * 3), searchEstablishesRelevance: true);
+                    Collect(doc.RootElement, $"@{profile}", searchEstablishesRelevance: true);
             }
         }
 
         if (discussions.Count == 0 && failed == queries.Count && profileFailed == profiles.Count && queries.Count + profiles.Count > 0)
             throw new InvalidOperationException($"TikTok: all {failed} searches and {profileFailed} profiles failed.");
 
-        Console.WriteLine($"  TikTok: kept {discussions.Count} buzzing clip(s) from {queries.Count} search(es) and {profiles.Count} profile(s).");
+        var ranked = RankReserve(discussions);
+        Console.WriteLine($"  TikTok: kept {ranked.Count} buzzing clip(s) from {queries.Count} search(es) and {profiles.Count} profile(s).");
         return DiscussionFetchResult.From(
-            discussions,
+            ranked,
             seen,
             (queries.Count * 12) + (profiles.Count * 8),
-            checks);
+            checks,
+            discovered.ToList());
 
-        void Collect(JsonElement items, string query, int maxCount, bool searchEstablishesRelevance)
+        void Collect(JsonElement items, string query, bool searchEstablishesRelevance)
         {
             var before = discussions.Count;
             foreach (var item in items.EnumerateArray())
@@ -131,16 +130,17 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
                 if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(url) || !seen.Add(id))
                     continue;
 
-                if (discussions.Count >= maxCount)
-                    break;
-
                 var author = ReadAuthor(item);
+                var handle = ReadHandle(item);
                 var text = ReadString(item, "text") ?? url;
                 var title = TrimTitle(text);
-                if (!(searchEstablishesRelevance || KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, text))
-                    || KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
+                var prohibited = KinshasaSocialPostFilter.LooksLikeSpamOrAd(title, text)
                     || KinshasaSocialPostFilter.LooksLikePoliticsOrConflict(title, text, author)
-                    || KinshasaSocialPostFilter.LooksLikeCongoBrazzaville($"{title} {text}"))
+                    || KinshasaSocialPostFilter.LooksLikeCongoBrazzaville($"{title} {text}");
+                if (!prohibited && handle is not null)
+                    discovered.Add(handle);
+                if (!(searchEstablishesRelevance || KinshasaSocialPostFilter.IsKinshasaRelevant(null, title, text))
+                    || prohibited)
                     continue;
 
                 var score = BuzzGate.Score(
@@ -179,6 +179,29 @@ public sealed class ApifyTikTokScraperProvider(HttpClient http, ExternalProvider
     {
         var line = text.Replace('\n', ' ').Trim();
         return line.Length <= 140 ? line : line[..140].Trim();
+    }
+
+    private static List<SourceFeedDiscussion> RankReserve(List<SourceFeedDiscussion> items)
+    {
+        var ranked = items
+            .OrderByDescending(item => item.EngagementScore ?? 0)
+            .ToList();
+        if (ranked.Count <= 1)
+            return ranked;
+
+        var lead = ranked[0].CommunitySlug ?? "";
+        return ranked
+            .OrderByDescending(item => string.Equals(item.CommunitySlug, lead, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(item => item.EngagementScore ?? 0)
+            .ToList();
+    }
+
+    private static string? ReadHandle(JsonElement item)
+    {
+        if (!item.TryGetProperty("authorMeta", out var meta))
+            return null;
+        var name = ReadString(meta, "name");
+        return string.IsNullOrWhiteSpace(name) ? null : name.Trim().TrimStart('@');
     }
 
     private static string? ReadAuthor(JsonElement item)

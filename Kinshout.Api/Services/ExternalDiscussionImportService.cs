@@ -26,6 +26,7 @@ public interface IExternalDiscussionImportService
         string provider,
         int resultsRequested,
         IReadOnlyList<DiscoveryCheckNote> checks,
+        IReadOnlyList<string> discovered,
         CancellationToken ct = default);
 
     Task<RetransformExternalDiscussionsResponseDto> RetransformAllAsync(
@@ -387,8 +388,9 @@ public class ExternalDiscussionImportService(
         string provider,
         int resultsRequested,
         IReadOnlyList<DiscoveryCheckNote> checks,
+        IReadOnlyList<string> discovered,
         CancellationToken ct = default) =>
-        DiscoveryImportGuard.RecordSpendAsync(db, provider, resultsRequested, checks, DateTime.UtcNow, ct);
+        DiscoveryImportGuard.RecordSpendAsync(db, provider, resultsRequested, checks, discovered, DateTime.UtcNow, ct);
 
     public async Task<PurgeTextOnlyDiscussionsResponseDto> PurgeTextOnlyAsync(
         int limit = 500,
@@ -581,10 +583,12 @@ public class ExternalDiscussionImportService(
             platformName,
             ct,
             recentStories);
-        if (existing is null && transformed.SameStory)
+        if (existing is null && (transformed.SameStory || transformed.Blocked))
         {
             logger.LogInformation(
-                "Skipped a repeated story from {Provider} {ExternalId}.",
+                transformed.Blocked
+                    ? "Skipped a prohibited import from {Provider} {ExternalId}."
+                    : "Skipped a repeated story from {Provider} {ExternalId}.",
                 provider,
                 item.Source.ExternalId);
             return UpsertOutcome.Skipped;

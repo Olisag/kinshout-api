@@ -36,7 +36,17 @@ public static partial class DbSchemaPatcher
         }
 
         if (await TableExistsAsync(connection, sqlServer, "DiscoverySourceStats", ct))
+        {
+            if (!await ColumnExistsAsync(connection, sqlServer, "DiscoverySourceStats", "Verified", ct))
+            {
+                var add = sqlServer
+                    ? "ALTER TABLE DiscoverySourceStats ADD Verified bit NOT NULL CONSTRAINT DF_DiscoverySourceStats_Verified DEFAULT 0"
+                    : "ALTER TABLE DiscoverySourceStats ADD COLUMN Verified INTEGER NOT NULL DEFAULT 0";
+                await db.Database.ExecuteSqlRawAsync(add, ct);
+            }
+
             return;
+        }
 
         if (sqlServer)
         {
@@ -49,6 +59,7 @@ public static partial class DbSchemaPatcher
                     Checks int NOT NULL,
                     Kept int NOT NULL,
                     Imports int NOT NULL,
+                    Verified bit NOT NULL CONSTRAINT DF_DiscoverySourceStats_Verified DEFAULT 0,
                     LastCheckedAt datetime2 NOT NULL,
                     CONSTRAINT PK_DiscoverySourceStats PRIMARY KEY ([Key])
                 )
@@ -67,6 +78,7 @@ public static partial class DbSchemaPatcher
                     Checks INTEGER NOT NULL,
                     Kept INTEGER NOT NULL,
                     Imports INTEGER NOT NULL,
+                    Verified INTEGER NOT NULL DEFAULT 0,
                     LastCheckedAt TEXT NOT NULL
                 )
                 """, ct);

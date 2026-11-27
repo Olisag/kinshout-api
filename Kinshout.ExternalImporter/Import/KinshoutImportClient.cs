@@ -376,9 +376,11 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
         string provider,
         int resultsRequested,
         IReadOnlyList<DiscoveryCheck> checks,
+        IReadOnlyList<string> discovered,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(settings.ImportKey) || (resultsRequested <= 0 && checks.Count == 0))
+        if (string.IsNullOrWhiteSpace(settings.ImportKey)
+            || (resultsRequested <= 0 && checks.Count == 0 && discovered.Count == 0))
             return;
 
         try
@@ -389,7 +391,12 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
             {
                 Content = JsonContent.Create(
-                    new { resultsRequested, checks = checks.Select(check => new { handle = check.Handle, kept = check.Kept }) },
+                    new
+                    {
+                        resultsRequested,
+                        checks = checks.Select(check => new { handle = check.Handle, kept = check.Kept }),
+                        discovered,
+                    },
                     options: JsonOptions),
             };
             request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
@@ -422,6 +429,7 @@ public sealed class DiscoveryBudgetSnapshot
     public int RemainingImports { get; set; }
     public int RemainingResults { get; set; }
     public List<DiscoverySourceSnapshot> Sources { get; set; } = [];
+    public List<string> NextProfiles { get; set; } = [];
 }
 
 public sealed class DiscoverySourceSnapshot
