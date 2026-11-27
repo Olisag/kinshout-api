@@ -266,6 +266,46 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
         return parsed?.Items ?? [];
     }
 
+    public async Task<IReadOnlyList<TikTokPosterBacklogItem>> TikToksNeedingPosterAsync(int limit, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            $"api/imports/discussions/tiktok-without-poster?limit={limit}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout tiktok posters failed ({(int)response.StatusCode}): {body}");
+
+        var parsed = JsonSerializer.Deserialize<TikTokPosterBacklogResponse>(body, JsonOptions);
+        return parsed?.Items ?? [];
+    }
+
+    public async Task AttachTikTokPosterAsync(string videoUrl, Stream image, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(settings.ImportKey))
+            throw new InvalidOperationException("KinshoutApi:ImportKey is required.");
+
+        var endpoint = new Uri(
+            new Uri(settings.BaseUrl.TrimEnd('/') + "/"),
+            "api/imports/discussions/tiktok-poster");
+        using var content = new MultipartFormDataContent();
+        var file = new StreamContent(image);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        content.Add(file, "file", "cover.jpg");
+        content.Add(new StringContent(videoUrl), "videoUrl");
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = content };
+        request.Headers.TryAddWithoutValidation("X-Kinshout-Import-Key", settings.ImportKey);
+        using var response = await http.SendAsync(request, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Kinshout tiktok poster failed ({(int)response.StatusCode}): {body}");
+    }
+
     public async Task AttachTikTokFileAsync(string externalId, string url, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(settings.ImportKey))
@@ -309,6 +349,8 @@ public sealed class KinshoutImportClient(HttpClient http, KinshoutApiSettings se
     private sealed record UploadedMediaResponse(string? Url);
 
     private sealed record TikTokBacklogResponse(IReadOnlyList<TikTokFileBacklogItem>? Items);
+
+    private sealed record TikTokPosterBacklogResponse(IReadOnlyList<TikTokPosterBacklogItem>? Items);
 
     private sealed class SourceRegistryFile
     {

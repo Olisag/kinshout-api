@@ -4,6 +4,8 @@ using Kinshout.Api.Services;
 using Kinshout.ExternalImporter.Import;
 using Microsoft.EntityFrameworkCore;
 using Moq;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Kinshout.Api.Tests;
 
@@ -40,6 +42,144 @@ public class TikTokVideoArchiveTests
         Assert.Contains("111.mp4", files[0].FileUrl, StringComparison.Ordinal);
         Assert.Equal("333", TikTokDownloadedFiles.VideoId(files[1].WatchUrl));
         Assert.Equal("https://cdn.example/333.mp4", files[1].FileUrl);
+        Assert.Null(files[0].CoverUrl);
+    }
+
+    [Fact]
+    public void Read_PrefersTheCreatorCoverOverASmallerStill()
+    {
+        const string json = """
+        [
+          {
+            "webVideoUrl": "https://www.tiktok.com/@a/video/111",
+            "mediaUrls": ["https://api.apify.com/v2/key-value-stores/x/records/111.mp4"],
+            "videoMeta": {
+              "coverUrl": "https://cdn.example/small.jpg",
+              "originalCoverUrl": "https://cdn.example/cover.jpg"
+            }
+          },
+          {
+            "webVideoUrl": "https://www.tiktok.com/@a/video/444",
+            "covers": { "default": "https://cdn.example/default.jpg", "origin": "https://cdn.example/origin.jpg" }
+          },
+          {
+            "webVideoUrl": "https://www.tiktok.com/@a/video/555",
+            "coverUrl": "https://cdn.example/clip.mp4"
+          }
+        ]
+        """;
+
+        using var doc = JsonDocument.Parse(json);
+        var files = TikTokDownloadedFiles.Read(doc);
+        var covers = TikTokDownloadedFiles.ReadCovers(doc);
+
+        Assert.Equal("https://cdn.example/cover.jpg", Assert.Single(files).CoverUrl);
+        Assert.Equal(2, covers.Count);
+        Assert.Equal("https://cdn.example/origin.jpg", covers[1].CoverUrl);
+    }
+
+    [Fact]
+    public async Task AttachPoster_ReplacesTheGreyStillAndLeavesAClipThatAlreadyHasACover()
+    {
+        await using var db = TestDbFactory.Create();
+        var (user, _) = await TestDbFactory.SeedUserAndCategoryAsync(db);
+        var grey = "/uploads/videos/import/clip_poster.webp";
+        var video = "/uploads/videos/import/clip.mp4";
+        db.Discussions.Add(new Discussion
+        {
+            UserId = user.Id,
+            Title = "Une maman",
+            Body = "Une maman.",
+            SourceProvider = DiscussionSourceProvider.TikTok,
+            SourceExternalId = "7710601313859521813",
+            SourceExternalUrl = "https://www.tiktok.com/@worldactuallite0/video/7710601313859521813",
+            VideoUrlsJson = $"[\"{video}\"]",
+        });
+        db.VideoAssets.Add(new VideoAsset
+        {
+            UserId = user.Id,
+            VideoUrl = video,
+            PosterUrl = grey,
+            ContentType = "video/mp4",
+        });
+        db.Discussions.Add(new Discussion
+        {
+            UserId = user.Id,
+            Title = "Déjà couvert",
+            Body = "Déjà.",
+            SourceProvider = DiscussionSourceProvider.TikTok,
+            SourceExternalId = "222",
+            SourceExternalUrl = "https://www.tiktok.com/@a/video/222",
+            VideoUrlsJson = "[\"/uploads/videos/import/done.mp4\"]",
+        });
+        db.VideoAssets.Add(new VideoAsset
+        {
+            UserId = user.Id,
+            VideoUrl = "/uploads/videos/import/done.mp4",
+            PosterUrl = "/uploads/videos/import/done_cover.webp",
+            ContentType = "video/mp4",
+        });
+        await db.SaveChangesAsync();
+
+        var storage = new MemoryStorage();
+        var store = new ImportedVideoStore(db, storage);
+        var needing = await store.TikToksNeedingPosterAsync(8);
+        var onlyGrey = Assert.Single(needing);
+        Assert.Equal(video, onlyGrey.VideoUrl);
+
+        var attached = await store.AttachPosterAsync(video, await CoverPngAsync());
+
+        Assert.True(attached);
+        Assert.EndsWith("_cover.webp", storage.LastName, StringComparison.Ordinal);
+        var asset = await db.VideoAssets.SingleAsync(item => item.VideoUrl == video);
+        Assert.Contains("_cover.webp", asset.PosterUrl);
+        Assert.Empty(await store.TikToksNeedingPosterAsync(8));
+    }
+
+    private static async Task<MemoryStream> CoverPngAsync()
+    {
+        using var image = new Image<Rgba32>(96, 160);
+        var random = new Random(7);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                    row[x] = new Rgba32((byte)random.Next(256), (byte)random.Next(256), (byte)random.Next(256));
+            }
+        });
+        var stream = new MemoryStream();
+        await image.SaveAsPngAsync(stream);
+        stream.Position = 0;
+        return stream;
+    }
+
+    private sealed class MemoryStorage : IUploadStorage
+    {
+        public string? LastName { get; private set; }
+
+        public Task<string> SaveAsync(string folder, Guid userId, Stream stream, string extension, CancellationToken ct = default) =>
+            SaveNamedAsync(folder, userId, stream, $"{Guid.NewGuid():N}{extension}", ct);
+
+        public async Task<string> SaveNamedAsync(
+            string folder,
+            Guid userId,
+            Stream stream,
+            string fileName,
+            CancellationToken ct = default)
+        {
+            await stream.CopyToAsync(Stream.Null, ct);
+            LastName = fileName;
+            return $"/uploads/{folder}/{userId:N}/{fileName}";
+        }
+
+        public Task<UploadFileContent?> OpenReadAsync(string uploadUrl, CancellationToken ct = default) =>
+            Task.FromResult<UploadFileContent?>(null);
+
+        public Task DeleteIfExistsAsync(string uploadUrl, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<bool> ExistsAsync(string uploadUrl, CancellationToken ct = default) => Task.FromResult(true);
     }
 
     [Fact]

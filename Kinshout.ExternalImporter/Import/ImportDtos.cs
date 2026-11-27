@@ -133,3 +133,8 @@ public sealed record ImportExternalAdvertAiDto(
 public sealed record TikTokFileBacklogItem(
     [property: JsonPropertyName("externalId")] string ExternalId,
     [property: JsonPropertyName("externalUrl")] string ExternalUrl);
+
+public sealed record TikTokPosterBacklogItem(
+    [property: JsonPropertyName("externalId")] string ExternalId,
+    [property: JsonPropertyName("externalUrl")] string ExternalUrl,
+    [property: JsonPropertyName("videoUrl")] string VideoUrl);

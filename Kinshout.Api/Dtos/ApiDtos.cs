@@ -296,6 +296,10 @@ public record TikTokFileCandidateDto(string ExternalId, string ExternalUrl);
 
 public record TikTokFilesMissingResponseDto(IReadOnlyList<TikTokFileCandidateDto> Items);
 
+public record TikTokPosterCandidateDto(string ExternalId, string ExternalUrl, string VideoUrl);
+
+public record TikTokPostersMissingResponseDto(IReadOnlyList<TikTokPosterCandidateDto> Items);
+
 public record AttachTikTokFileRequestDto(string ExternalId, string Url);
 
 public record DiscussionImportStateDto(string Provider, DateTime LastRunAtUtc);

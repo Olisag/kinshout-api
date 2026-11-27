@@ -16,8 +16,11 @@ internal sealed class TikTokVideoArchiver(
 {
     internal const int CombinedCap = 12;
     internal const int BacklogCap = 8;
+    internal const int PosterCap = 8;
     private const long MaxBytes = 28 * 1024 * 1024;
+    private const long MaxCoverBytes = 2 * 1024 * 1024;
     private const int DownloadTimeoutSeconds = 360;
+    private const int CoverTimeoutSeconds = 120;
 
     public async Task<List<ImportExternalDiscussionDto>> AttachAsync(
         List<ImportExternalDiscussionDto> fresh,
@@ -25,58 +28,79 @@ internal sealed class TikTokVideoArchiver(
     {
         var backlog = await TryLoadBacklogAsync(ct);
         var chosen = Choose(fresh, backlog);
-        if (chosen.Count == 0)
-            return fresh;
+        var updated = fresh;
+        var coveredIds = new HashSet<string>(StringComparer.Ordinal);
+        if (chosen.Count > 0)
+        {
+            Console.WriteLine($"TikTok files: asking for {chosen.Count} clip(s).");
+            var apify = new ApifyClient(http, providerSettings);
+            using var dataset = await apify.RunActorAndGetDatasetAsync(
+                new
+                {
+                    postURLs = chosen,
+                    resultsPerPage = chosen.Count,
+                    shouldDownloadVideos = true,
+                    shouldDownloadCovers = false,
+                    shouldDownloadSlideshowImages = false,
+                    shouldDownloadSubtitles = false,
+                },
+                ct,
+                DownloadTimeoutSeconds);
 
-        Console.WriteLine($"TikTok files: asking for {chosen.Count} clip(s).");
-        var apify = new ApifyClient(http, providerSettings);
-        using var dataset = await apify.RunActorAndGetDatasetAsync(
-            new
+            var files = TikTokDownloadedFiles.Read(dataset);
+            var hostedByVideoId = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var file in files)
             {
-                postURLs = chosen,
-                resultsPerPage = chosen.Count,
-                shouldDownloadVideos = true,
-                shouldDownloadCovers = false,
-                shouldDownloadSlideshowImages = false,
-                shouldDownloadSubtitles = false,
-            },
-            ct,
-            DownloadTimeoutSeconds);
+                var videoId = TikTokDownloadedFiles.VideoId(file.WatchUrl);
+                if (videoId is null || hostedByVideoId.ContainsKey(videoId))
+                    continue;
 
-        var files = TikTokDownloadedFiles.Read(dataset);
-        var hostedByVideoId = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var file in files)
-        {
-            var videoId = TikTokDownloadedFiles.VideoId(file.WatchUrl);
-            if (videoId is null || hostedByVideoId.ContainsKey(videoId))
-                continue;
+                var hosted = await TryUploadAsync(file.FileUrl, ct);
+                if (hosted is not null)
+                    hostedByVideoId[videoId] = hosted;
+            }
 
-            var hosted = await TryUploadAsync(file.FileUrl, ct);
-            if (hosted is not null)
-                hostedByVideoId[videoId] = hosted;
-        }
+            updated = fresh
+                .Select(item => SwapInHostedFile(item, hostedByVideoId))
+                .ToList();
 
-        var updated = fresh
-            .Select(item => SwapInHostedFile(item, hostedByVideoId))
-            .ToList();
+            foreach (var item in backlog)
+            {
+                var videoId = TikTokDownloadedFiles.VideoId(item.ExternalUrl);
+                if (videoId is null || !hostedByVideoId.TryGetValue(videoId, out var hosted))
+                    continue;
 
-        foreach (var item in backlog)
-        {
-            var videoId = TikTokDownloadedFiles.VideoId(item.ExternalUrl);
-            if (videoId is null || !hostedByVideoId.TryGetValue(videoId, out var hosted))
-                continue;
+                try
+                {
+                    await importClient.AttachTikTokFileAsync(item.ExternalId, hosted, ct);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"TikTok file for {item.ExternalId} was stored but not attached: {ex.Message}");
+                }
+            }
 
             try
             {
-                await importClient.AttachTikTokFileAsync(item.ExternalId, hosted, ct);
+                await AttachCoversForStoredFilesAsync(files, hostedByVideoId, coveredIds, ct);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"TikTok file for {item.ExternalId} was stored but not attached: {ex.Message}");
+                Console.WriteLine($"TikTok posters skipped: {ex.Message}");
             }
+
+            Console.WriteLine($"TikTok files: stored {hostedByVideoId.Count} of {chosen.Count}.");
         }
 
-        Console.WriteLine($"TikTok files: stored {hostedByVideoId.Count} of {chosen.Count}.");
+        try
+        {
+            await AttachMissingPostersAsync(coveredIds, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"TikTok posters skipped: {ex.Message}");
+        }
+
         return updated;
     }
 
@@ -135,6 +159,129 @@ internal sealed class TikTokVideoArchiver(
         {
             Console.WriteLine($"TikTok backlog skipped: {ex.Message}");
             return [];
+        }
+    }
+
+    private async Task AttachCoversForStoredFilesAsync(
+        IReadOnlyList<TikTokDownloadedFiles.DownloadedFile> files,
+        IReadOnlyDictionary<string, string> hostedByVideoId,
+        HashSet<string> coveredIds,
+        CancellationToken ct)
+    {
+        var stored = 0;
+        foreach (var file in files)
+        {
+            var videoId = TikTokDownloadedFiles.VideoId(file.WatchUrl);
+            if (videoId is null)
+                continue;
+
+            coveredIds.Add(videoId);
+            if (string.IsNullOrWhiteSpace(file.CoverUrl)
+                || !hostedByVideoId.TryGetValue(videoId, out var hosted))
+                continue;
+
+            if (await TryAttachCoverAsync(file.CoverUrl, hosted, ct))
+                stored++;
+        }
+
+        if (stored > 0)
+            Console.WriteLine($"TikTok posters: stored {stored} with the new file(s).");
+    }
+
+    private async Task AttachMissingPostersAsync(HashSet<string> alreadyTried, CancellationToken ct)
+    {
+        var needing = (await importClient.TikToksNeedingPosterAsync(PosterCap, ct))
+            .Where(item =>
+            {
+                var videoId = TikTokDownloadedFiles.VideoId(item.ExternalUrl);
+                return videoId is null || !alreadyTried.Contains(videoId);
+            })
+            .ToList();
+        if (needing.Count == 0)
+            return;
+
+        Console.WriteLine($"TikTok posters: asking for {needing.Count} cover(s).");
+        var apify = new ApifyClient(http, providerSettings);
+        using var dataset = await apify.RunActorAndGetDatasetAsync(
+            new
+            {
+                postURLs = needing.Select(item => item.ExternalUrl).ToArray(),
+                resultsPerPage = needing.Count,
+                shouldDownloadVideos = false,
+                shouldDownloadCovers = false,
+                shouldDownloadSlideshowImages = false,
+                shouldDownloadSubtitles = false,
+            },
+            ct,
+            CoverTimeoutSeconds);
+
+        var byId = TikTokDownloadedFiles.ReadCovers(dataset)
+            .Select(cover => (Id: TikTokDownloadedFiles.VideoId(cover.WatchUrl), cover.CoverUrl))
+            .Where(pair => pair.Id is not null)
+            .GroupBy(pair => pair.Id!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().CoverUrl, StringComparer.Ordinal);
+
+        var stored = 0;
+        foreach (var item in needing)
+        {
+            var videoId = TikTokDownloadedFiles.VideoId(item.ExternalUrl);
+            if (videoId is null || !byId.TryGetValue(videoId, out var coverUrl))
+                continue;
+
+            if (await TryAttachCoverAsync(coverUrl, item.VideoUrl, ct))
+                stored++;
+        }
+
+        Console.WriteLine($"TikTok posters: stored {stored} of {needing.Count}.");
+    }
+
+    private async Task<bool> TryAttachCoverAsync(string coverUrl, string hostedVideoUrl, CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, coverUrl);
+            if (coverUrl.Contains("api.apify.com", StringComparison.OrdinalIgnoreCase))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ResolveToken());
+            else if (coverUrl.Contains("tiktok", StringComparison.OrdinalIgnoreCase))
+                request.Headers.TryAddWithoutValidation("Referer", "https://www.tiktok.com/");
+
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var type = response.Content.Headers.ContentType?.MediaType ?? "";
+            if (type.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+                || type.Contains("html", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (response.Content.Headers.ContentLength > MaxCoverBytes)
+                return false;
+
+            await using var remote = await response.Content.ReadAsStreamAsync(ct);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81_920];
+            while (true)
+            {
+                var read = await remote.ReadAsync(chunk, ct);
+                if (read == 0)
+                    break;
+                if (buffer.Length + read > MaxCoverBytes)
+                    return false;
+
+                buffer.Write(chunk, 0, read);
+            }
+
+            if (buffer.Length < 512)
+                return false;
+
+            buffer.Position = 0;
+            await importClient.AttachTikTokPosterAsync(hostedVideoUrl, buffer, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"TikTok poster skipped: {ex.Message}");
+            return false;
         }
     }
 
@@ -230,7 +377,9 @@ internal sealed class TikTokVideoArchiver(
 
 internal static class TikTokDownloadedFiles
 {
-    internal readonly record struct DownloadedFile(string WatchUrl, string FileUrl);
+    internal readonly record struct DownloadedFile(string WatchUrl, string FileUrl, string? CoverUrl);
+
+    internal readonly record struct CoverFile(string WatchUrl, string CoverUrl);
 
     internal static IReadOnlyList<DownloadedFile> Read(JsonDocument dataset)
     {
@@ -249,11 +398,67 @@ internal static class TikTokDownloadedFiles
             if (string.IsNullOrWhiteSpace(watch) || file is null)
                 continue;
 
-            found.Add(new DownloadedFile(watch, file));
+            found.Add(new DownloadedFile(watch, file, CoverUrl(item)));
         }
 
         return found;
     }
+
+    internal static IReadOnlyList<CoverFile> ReadCovers(JsonDocument dataset)
+    {
+        if (dataset.RootElement.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var found = new List<CoverFile>();
+        foreach (var item in dataset.RootElement.EnumerateArray())
+        {
+            if (item.TryGetProperty("isSlideshow", out var slideshow)
+                && slideshow.ValueKind == JsonValueKind.True)
+                continue;
+
+            var watch = ReadString(item, "webVideoUrl");
+            var cover = CoverUrl(item);
+            if (string.IsNullOrWhiteSpace(watch) || cover is null)
+                continue;
+
+            found.Add(new CoverFile(watch, cover));
+        }
+
+        return found;
+    }
+
+    internal static string? CoverUrl(JsonElement item)
+    {
+        string? cover = null;
+        if (item.TryGetProperty("videoMeta", out var meta))
+            cover = ReadString(meta, "originalCoverUrl") ?? ReadString(meta, "coverUrl");
+
+        cover ??= ReadString(item, "originalCoverUrl") ?? ReadString(item, "coverUrl");
+        if (cover is null && item.TryGetProperty("covers", out var covers))
+        {
+            if (covers.ValueKind == JsonValueKind.Object)
+                cover = ReadString(covers, "origin") ?? ReadString(covers, "default");
+            else if (covers.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in covers.EnumerateArray())
+                {
+                    if (entry.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    cover = entry.GetString();
+                    if (!string.IsNullOrWhiteSpace(cover))
+                        break;
+                }
+            }
+        }
+
+        return IsStill(cover) ? cover : null;
+    }
+
+    private static bool IsStill(string? url) =>
+        !string.IsNullOrWhiteSpace(url)
+        && url.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+        && !url.Contains(".mp4", StringComparison.OrdinalIgnoreCase);
 
     internal static string? VideoId(string? url)
     {

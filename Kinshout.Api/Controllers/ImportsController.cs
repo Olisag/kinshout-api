@@ -308,6 +308,49 @@ public class ImportsController(
         return Ok(new TikTokFilesMissingResponseDto(await importedVideos.TikToksMissingFileAsync(limit, ct)));
     }
 
+    /// <summary>TikToks with a stored file that still show the grey placeholder.</summary>
+    [HttpGet("discussions/tiktok-without-poster")]
+    [ProducesResponseType(typeof(TikTokPostersMissingResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<TikTokPostersMissingResponseDto>> TikToksWithoutPoster(
+        [FromQuery] int limit = 8,
+        CancellationToken ct = default)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        return Ok(new TikTokPostersMissingResponseDto(await importedVideos.TikToksNeedingPosterAsync(limit, ct)));
+    }
+
+    /// <summary>Store the creator's cover as the still for a TikTok file we already have.</summary>
+    [HttpPost("discussions/tiktok-poster")]
+    [RequestSizeLimit(2_000_000)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 2_000_000)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> AttachTikTokPoster(
+        IFormFile? file,
+        [FromForm] string? videoUrl,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized())
+            return Unauthorized(new { error = "Clé d'import invalide." });
+
+        if (file is null || file.Length is <= 0 or > ImportedVideoStore.MaxPosterBytes)
+            return BadRequest(new { error = "L'affiche doit être une image de moins de 2 Mo." });
+
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            var attached = await importedVideos.AttachPosterAsync(videoUrl ?? "", stream, ct);
+            return attached ? NoContent() : BadRequest(new { error = "L'affiche n'a pas pu être lue." });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
     /// <summary>Point a published TikTok at the file we stored. Arrival time is left alone.</summary>
     [HttpPost("discussions/tiktok-file")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

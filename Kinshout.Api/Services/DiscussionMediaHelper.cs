@@ -30,6 +30,18 @@ public static class DiscussionMediaHelper
     public static string SerializeUrlList(IReadOnlyList<string> urls) =>
         JsonSerializer.Serialize(urls.ToList(), JsonOptions);
 
+    /// <summary>Preview path whose cache key changes when the poster file does.</summary>
+    public static string PreviewUrl(Models.VideoAsset asset)
+    {
+        var path = $"/api/videos/{asset.Id}/preview";
+        var token = string.IsNullOrWhiteSpace(asset.PosterUrl)
+            ? null
+            : Path.GetFileNameWithoutExtension(asset.PosterUrl);
+        return string.IsNullOrWhiteSpace(token)
+            ? path
+            : $"{path}?v={Uri.EscapeDataString(token)}";
+    }
+
     public static List<string> NormalizeUrls(
         IReadOnlyList<string>? urls,
         Guid userId,
@@ -81,7 +93,8 @@ public static class DiscussionMediaHelper
             if (asset is not null && asset.DeletedAt is null)
             {
                 // Always expose preview URL; poster is created lazily if missing.
-                var previewUrl = $"/api/videos/{asset.Id}/preview";
+                // The poster file name is part of the URL so a better still replaces a cached one.
+                var previewUrl = PreviewUrl(asset);
                 var playUrl = $"/api/videos/{asset.Id}/stream";
                 var status = asset.Status switch
                 {

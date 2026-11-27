@@ -101,8 +101,8 @@ public class DiscussionMediaHelperTests
         var item = Assert.Single(media);
 
         Assert.Equal("video", item.Type);
-        Assert.Equal($"/api/videos/{asset.Id}/preview", item.Url);
-        Assert.Equal($"/api/videos/{asset.Id}/preview", item.PreviewUrl);
+        Assert.Equal($"/api/videos/{asset.Id}/preview?v=clip_poster", item.Url);
+        Assert.Equal($"/api/videos/{asset.Id}/preview?v=clip_poster", item.PreviewUrl);
         Assert.Equal($"/api/videos/{asset.Id}/stream", item.PlayUrl);
         Assert.Null(item.Status);
     }
