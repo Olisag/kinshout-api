@@ -1,0 +1,109 @@
+# One exceptional Kinshasa traffic bulletin. Does not replace the 15:30 or 17:30 slots
+# unless the earlier unused slots are already closed.
+name: Publish one Kinshasa traffic bulletin
+
+on:
+  workflow_dispatch:
+
+jobs:
+  once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Collect and publish one bulletin
+        env:
+          KINSHOUT_IMPORTER_IMPORT_KEY: ${{ secrets.KINSHOUT_IMPORTER_IMPORT_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.error, urllib.request
+          from datetime import datetime, timezone
+
+          key = os.environ["KINSHOUT_IMPORTER_IMPORT_KEY"]
+          base = "https://kinshout-api-prod.azurewebsites.net/api/operations/whatsapp-channel"
+          today = "2026-11-28"
+          terminal = {"Published", "Submitted", "Skipped", "Cancelled", "ConfirmationUnknown", "Ready", "Expired"}
+          sent = {"Published", "Submitted", "ConfirmationUnknown"}
+          pairs = [
+              ("traffic-morning-update-retrieve", "traffic-morning-update-publish"),
+              ("traffic-midday-retrieve", "traffic-midday-publish"),
+              ("traffic-afternoon-retrieve", "traffic-afternoon-publish"),
+          ]
+
+          def call(method, path, timeout=220):
+              req = urllib.request.Request(
+                  base + path,
+                  data=b"" if method == "POST" else None,
+                  method=method,
+                  headers={"X-Kinshout-Import-Key": key, "Content-Type": "application/json"},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as res:
+                      raw = res.read().decode()
+                      return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as ex:
+                  detail = ex.read().decode()[:400]
+                  raise SystemExit(f"HTTP {ex.code} for {path}: {detail}")
+
+          def stamp(value):
+              return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+          def show(rows):
+              for row in rows:
+                  if row.get("localDate") != today:
+                      continue
+                  error = row.get("lastError") or ""
+                  print(f"{row.get('slot')} {row.get('status')} {error}".rstrip())
+
+          def current(rows, slot):
+              matches = [row for row in rows if row.get("slot") == slot and row.get("localDate") == today]
+              return matches[0] if matches else None
+
+          def wait_for_gap(rows):
+              latest = None
+              for row in rows:
+                  if row.get("status") not in sent or not row.get("createdAtUtc"):
+                      continue
+                  seen = stamp(row["createdAtUtc"])
+                  if latest is None or seen > latest:
+                      latest = seen
+              if latest is None:
+                  return
+              remaining = 20 * 60 - (datetime.now(timezone.utc) - latest).total_seconds()
+              if remaining > 0:
+                  print(f"Waiting {int(remaining)}s so this bulletin stays 20 minutes after the previous one.")
+                  time.sleep(remaining + 5)
+
+          rows = call("GET", "/history")
+          show(rows)
+          published = None
+          for retrieve_id, publish_id in pairs:
+              if current(rows, retrieve_id) and current(rows, retrieve_id).get("status") in terminal:
+                  continue
+              print(f"Collecting {retrieve_id}")
+              retrieved = call("POST", f"/slots/{retrieve_id}")
+              print(retrieved.get("status"), retrieved.get("lastError") or "")
+              if retrieved.get("status") != "Ready":
+                  rows = call("GET", "/history")
+                  continue
+              wait_for_gap(call("GET", "/history"))
+              print(f"Publishing {publish_id}")
+              published = call("POST", f"/slots/{publish_id}")
+              print(published.get("status"), published.get("lastError") or "")
+              if published.get("status") == "Scheduled":
+                  print("The 20 minute gap was still open. Retrying in 60s.")
+                  time.sleep(60)
+                  published = call("POST", f"/slots/{publish_id}")
+                  print(published.get("status"), published.get("lastError") or "")
+              if published.get("status") in sent:
+                  break
+              published = None
+              rows = call("GET", "/history")
+
+          if published is None or published.get("status") not in sent:
+              raise SystemExit("The exceptional bulletin was not sent.")
+          body = published.get("body") or ""
+          print("---")
+          print(body)
+          PY
