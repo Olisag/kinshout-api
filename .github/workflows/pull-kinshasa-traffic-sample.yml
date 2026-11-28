@@ -1,10 +1,12 @@
-# One-shot read of Kinshasa traffic posts through the existing Apify X actor.
+# One-shot Google Maps driving times for Kinshasa corridors.
 # The token stays in Actions secrets and is never printed.
 name: Pull Kinshasa traffic sample
 
 on:
   workflow_dispatch:
   pull_request:
+    paths:
+      - .github/workflows/pull-kinshasa-traffic-sample.yml
 
 jobs:
   pull:
@@ -13,7 +15,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Search recent Kinshasa traffic posts
+      - name: Read Google Maps driving times
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
@@ -22,37 +24,64 @@ jobs:
           import json, os, time, urllib.request, urllib.error
 
           token = os.environ["APIFY_TOKEN"]
-          actor = "seemuapps~x-tweet-scraper"
-          query = (
-              '(kinshasa) (trafic OR embouteillage OR circulation OR "boulevard du 30 juin" '
-              'OR "boulevard lumumba" OR "route de matadi" OR "rond-point victoire") '
-              'lang:fr since:2026-11-26'
-          )
-          body = json.dumps({"query": query, "sort": "Latest", "maxTweets": 20}).encode()
+          actor = "rastriq~google-maps-directions-traffic"
+          routes = [
+              ("Boulevard du 30 Juin", "Pullman Grand Hotel Kinshasa, Boulevard du 30 Juin, Kinshasa, RDC", "Stade des Martyrs, Kinshasa, RDC"),
+              ("Boulevard Lumumba", "Echangeur de Limete, Kinshasa, RDC", "Aeroport international de N'djili, Kinshasa, RDC"),
+              ("Route de Matadi", "Rond-point Socimat, Kinshasa, RDC", "Universite Pedagogique Nationale, Kinshasa, RDC"),
+              ("Avenue de la Liberation", "Rond-point Victoire, Kinshasa, RDC", "Matete, Kinshasa, RDC"),
+              ("Avenue des Huileries", "Avenue des Huileries, Limete, Kinshasa, RDC", "Kingabwa, Limete, Kinshasa, RDC"),
+              ("Route des Poids Lourds", "Route des Poids Lourds, Limete, Kinshasa, RDC", "Masina, Kinshasa, RDC"),
+              ("Boulevard Sendwe", "Hopital Sendwe, Kinshasa, RDC", "Rond-point Victoire, Kinshasa, RDC"),
+              ("Avenue Kasa-Vubu", "Rond-point Victoire, Kinshasa, RDC", "Avenue Kasa-Vubu, Kasa-Vubu, Kinshasa, RDC"),
+              ("By-Pass", "Rond-point Ngaba, Kinshasa, RDC", "Mont-Ngafula, Kinshasa, RDC"),
+              ("Avenue de l'Universite", "Rond-point Ngaba, Kinshasa, RDC", "Universite de Kinshasa, Kinshasa, RDC"),
+              ("Rond-point Victoire", "Rond-point Victoire, Kinshasa, RDC", "Matonge, Kinshasa, RDC"),
+              ("Socimat", "Rond-point Socimat, Kinshasa, RDC", "Cercle Elaeis, Kinshasa, RDC"),
+              ("Mandela", "Avenue Mandela, Kinshasa, RDC", "Rond-point Socimat, Kinshasa, RDC"),
+              ("Echangeur de Limete", "Echangeur de Limete, Kinshasa, RDC", "Limete industriel, Kinshasa, RDC"),
+              ("Rond-point Ngaba", "Rond-point Ngaba, Kinshasa, RDC", "Lemba, Kinshasa, RDC"),
+          ]
+          body = json.dumps({
+              "routes": [
+                  {"label": label, "origin": origin, "destination": destination, "travelMode": "driving"}
+                  for label, origin, destination in routes
+              ],
+              "travelModes": ["driving"],
+              "timeMode": "now",
+              "maxRoutes": 1,
+              "outputFormat": "request",
+              "includeSteps": False,
+              "includePolyline": False,
+              "includeDetailedPolyline": False,
+              "includeSpeedProfile": False,
+              "includeStreetView": False,
+              "language": "fr",
+              "countryCode": "CD",
+              "fixAmbiguousPlaces": True,
+              "maxResults": 15,
+              "maxConcurrency": 5,
+          }).encode()
 
           def call(method, url, payload=None):
               req = urllib.request.Request(url, data=payload, method=method)
               req.add_header("Authorization", f"Bearer {token}")
               req.add_header("Content-Type", "application/json")
               try:
-                  with urllib.request.urlopen(req, timeout=60) as response:
+                  with urllib.request.urlopen(req, timeout=90) as response:
                       return json.load(response)
               except urllib.error.HTTPError as error:
                   detail = error.read().decode("utf-8", "replace")[:500]
                   raise SystemExit(f"Apify HTTP {error.code}: {detail}") from None
 
-          started = call(
-              "POST",
-              f"https://api.apify.com/v2/acts/{actor}/runs",
-              body,
-          )
+          started = call("POST", f"https://api.apify.com/v2/acts/{actor}/runs", body)
           run = started["data"]
           run_id = run["id"]
           dataset_id = run["defaultDatasetId"]
           print(f"run {run_id} dataset {dataset_id}")
 
           status = "READY"
-          for _ in range(20):
+          for _ in range(40):
               time.sleep(15)
               current = call("GET", f"https://api.apify.com/v2/actor-runs/{run_id}")
               status = current["data"]["status"]
@@ -66,20 +95,59 @@ jobs:
               "GET",
               f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true",
           )
+          if not isinstance(items, list):
+              items = [items]
+
+          def name_of(value):
+              if isinstance(value, dict):
+                  return value.get("name") or value.get("address")
+              return value
+
+          def seconds_of(value):
+              if isinstance(value, dict):
+                  return value.get("seconds")
+              return value
+
           kept = []
-          for item in items if isinstance(items, list) else []:
-              text = item.get("text") or item.get("fullText") or item.get("full_text") or ""
+          for item in items:
+              traffic = item.get("traffic") if isinstance(item.get("traffic"), dict) else {}
+              routes_out = item.get("routes") if isinstance(item.get("routes"), list) else []
+              best = routes_out[0] if routes_out and isinstance(routes_out[0], dict) else {}
+              best_traffic = best.get("traffic") if isinstance(best.get("traffic"), dict) else {}
+              in_traffic = item.get("durationInTrafficSeconds")
+              if in_traffic is None:
+                  in_traffic = seconds_of((best_traffic.get("durationInTraffic") or traffic.get("durationInTraffic")))
+              without = None
+              without_block = best_traffic.get("durationWithoutTraffic") or traffic.get("durationWithoutTraffic")
+              without = seconds_of(without_block)
+              base = item.get("durationSeconds")
+              if base is None and isinstance(best.get("duration"), dict):
+                  base = best["duration"].get("seconds")
               kept.append({
-                  "id": item.get("tweetId") or item.get("id"),
-                  "createdAt": item.get("createdAt") or item.get("created_at"),
-                  "author": (item.get("author") or {}).get("userName") if isinstance(item.get("author"), dict) else item.get("userName"),
-                  "text": text[:500],
-                  "url": item.get("url") or item.get("twitterUrl"),
-                  "likes": item.get("likeCount") or item.get("favorite_count"),
+                  "label": item.get("label"),
+                  "status": item.get("status"),
+                  "origin": name_of(item.get("resolvedOrigin")) or item.get("origin"),
+                  "destination": name_of(item.get("resolvedDestination")) or item.get("destination"),
+                  "via": item.get("via") or best.get("summary"),
+                  "distanceText": item.get("distanceText") or (best.get("distance") or {}).get("text"),
+                  "distanceMeters": item.get("distanceMeters") or (best.get("distance") or {}).get("meters"),
+                  "durationSeconds": base,
+                  "durationInTrafficSeconds": in_traffic,
+                  "durationInTrafficText": item.get("durationInTrafficText"),
+                  "typicalRangeText": item.get("typicalRangeText") or (best_traffic.get("typicalDurationRange") or {}).get("text"),
+                  "typicalMinSeconds": item.get("typicalMinSeconds") or (best_traffic.get("typicalDurationRange") or {}).get("minSeconds"),
+                  "typicalMaxSeconds": item.get("typicalMaxSeconds") or (best_traffic.get("typicalDurationRange") or {}).get("maxSeconds"),
+                  "durationWithoutTrafficSeconds": without,
+                  "trafficLevel": item.get("trafficLevel") or best_traffic.get("trafficLevel"),
+                  "trafficDelaySeconds": item.get("trafficDelaySeconds"),
+                  "googleMapsUrl": item.get("googleMapsUrl"),
               })
+              if kept[-1]["durationInTrafficText"] is None and isinstance(best_traffic.get("durationInTraffic"), dict):
+                  kept[-1]["durationInTrafficText"] = best_traffic["durationInTraffic"].get("text")
+
           with open("traffic.json", "w", encoding="utf-8") as handle:
-              json.dump({"count": len(kept), "posts": kept}, handle, ensure_ascii=False, indent=2)
-          print(f"saved {len(kept)} posts")
+              json.dump({"count": len(kept), "routes": kept}, handle, ensure_ascii=False, indent=2)
+          print(f"saved {len(kept)} routes")
           PY
 
       - uses: actions/upload-artifact@v4
