@@ -33,13 +33,23 @@ jobs:
         env:
           CHANNEL_ENABLED: ${{ inputs.enabled }}
           WAPITO_TOKEN: ${{ secrets.WAPITO_TOKEN }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
           set -euo pipefail
           if [ "$CHANNEL_ENABLED" = "true" ] && [ -z "$WAPITO_TOKEN" ]; then
             echo "The channel token secret is missing, so publishing was left unchanged."
             exit 1
           fi
+          if [ "$CHANNEL_ENABLED" = "true" ] && [ -z "$APIFY_TOKEN" ]; then
+            echo "The traffic token secret is missing, so publishing was left unchanged."
+            exit 1
+          fi
           settings=("WhatsAppPublishing__Enabled=${CHANNEL_ENABLED}" "WhatsAppPublishing__DryRun=false")
+          if [ "$CHANNEL_ENABLED" = "true" ]; then
+            settings+=("WhatsAppPublishing__TrafficRedistributionPermitted=true" "WhatsAppPublishing__ApifyToken=${APIFY_TOKEN}")
+          else
+            settings+=("WhatsAppPublishing__TrafficRedistributionPermitted=false")
+          fi
           if [ -n "$WAPITO_TOKEN" ]; then
             settings+=("WhatsAppPublishing__WapitoToken=${WAPITO_TOKEN}")
           fi
