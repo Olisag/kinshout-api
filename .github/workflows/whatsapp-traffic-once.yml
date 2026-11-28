@@ -47,7 +47,10 @@ jobs:
                   raise SystemExit(f"HTTP {ex.code} for {path}: {detail}")
 
           def stamp(value):
-              return datetime.fromisoformat(value.replace("Z", "+00:00"))
+              parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+              if parsed.tzinfo is None:
+                  parsed = parsed.replace(tzinfo=timezone.utc)
+              return parsed
 
           def show(rows):
               for row in rows:
@@ -75,18 +78,24 @@ jobs:
                   print(f"Waiting {int(remaining)}s so this bulletin stays 20 minutes after the previous one.")
                   time.sleep(remaining + 5)
 
+          closed = terminal - {"Ready", "Failed"}
           rows = call("GET", "/history")
           show(rows)
           published = None
           for retrieve_id, publish_id in pairs:
-              if current(rows, retrieve_id) and current(rows, retrieve_id).get("status") in terminal:
+              retrieve = current(rows, retrieve_id)
+              existing = current(rows, publish_id)
+              if existing and existing.get("status") in sent:
                   continue
-              print(f"Collecting {retrieve_id}")
-              retrieved = call("POST", f"/slots/{retrieve_id}")
-              print(retrieved.get("status"), retrieved.get("lastError") or "")
-              if retrieved.get("status") != "Ready":
-                  rows = call("GET", "/history")
+              if retrieve and retrieve.get("status") in closed:
                   continue
+              if not retrieve or retrieve.get("status") != "Ready":
+                  print(f"Collecting {retrieve_id}")
+                  retrieved = call("POST", f"/slots/{retrieve_id}")
+                  print(retrieved.get("status"), retrieved.get("lastError") or "")
+                  if retrieved.get("status") != "Ready":
+                      rows = call("GET", "/history")
+                      continue
               wait_for_gap(call("GET", "/history"))
               print(f"Publishing {publish_id}")
               published = call("POST", f"/slots/{publish_id}")
