@@ -1,0 +1,88 @@
+# One-shot read of Kinshasa traffic posts through the existing Apify X actor.
+# The token stays in Actions secrets and is never printed.
+name: Pull Kinshasa traffic sample
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Search recent Kinshasa traffic posts
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import json, os, time, urllib.request, urllib.error
+
+          token = os.environ["APIFY_TOKEN"]
+          actor = "seemuapps~x-tweet-scraper"
+          query = (
+              '(kinshasa) (trafic OR embouteillage OR circulation OR "boulevard du 30 juin" '
+              'OR "boulevard lumumba" OR "route de matadi" OR "rond-point victoire") '
+              'lang:fr since:2026-11-26'
+          )
+          body = json.dumps({"query": query, "sort": "Latest", "maxTweets": 20}).encode()
+
+          def call(method, url, payload=None):
+              req = urllib.request.Request(url, data=payload, method=method)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Content-Type", "application/json")
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode("utf-8", "replace")[:500]
+                  raise SystemExit(f"Apify HTTP {error.code}: {detail}") from None
+
+          started = call(
+              "POST",
+              f"https://api.apify.com/v2/acts/{actor}/runs",
+              body,
+          )
+          run = started["data"]
+          run_id = run["id"]
+          dataset_id = run["defaultDatasetId"]
+          print(f"run {run_id} dataset {dataset_id}")
+
+          status = "READY"
+          for _ in range(20):
+              time.sleep(15)
+              current = call("GET", f"https://api.apify.com/v2/actor-runs/{run_id}")
+              status = current["data"]["status"]
+              print(f"status {status}")
+              if status in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
+                  break
+          if status != "SUCCEEDED":
+              raise SystemExit(f"Apify run ended {status}")
+
+          items = call(
+              "GET",
+              f"https://api.apify.com/v2/datasets/{dataset_id}/items?format=json&clean=true",
+          )
+          kept = []
+          for item in items if isinstance(items, list) else []:
+              text = item.get("text") or item.get("fullText") or item.get("full_text") or ""
+              kept.append({
+                  "id": item.get("tweetId") or item.get("id"),
+                  "createdAt": item.get("createdAt") or item.get("created_at"),
+                  "author": (item.get("author") or {}).get("userName") if isinstance(item.get("author"), dict) else item.get("userName"),
+                  "text": text[:500],
+                  "url": item.get("url") or item.get("twitterUrl"),
+                  "likes": item.get("likeCount") or item.get("favorite_count"),
+              })
+          with open("traffic.json", "w", encoding="utf-8") as handle:
+              json.dump({"count": len(kept), "posts": kept}, handle, ensure_ascii=False, indent=2)
+          print(f"saved {len(kept)} posts")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinshasa-traffic
+          path: traffic.json
+          if-no-files-found: error
