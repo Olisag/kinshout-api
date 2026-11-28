@@ -37,6 +37,9 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
     public DbSet<FeedImportDispatch> FeedImportDispatches => Set<FeedImportDispatch>();
     public DbSet<DiscoverySpend> DiscoverySpends => Set<DiscoverySpend>();
     public DbSet<DiscoverySourceStat> DiscoverySourceStats => Set<DiscoverySourceStat>();
+    public DbSet<WhatsAppPublication> WhatsAppPublications => Set<WhatsAppPublication>();
+    public DbSet<WhatsAppSpend> WhatsAppSpends => Set<WhatsAppSpend>();
+    public DbSet<WhatsAppChannelControl> WhatsAppChannelControls => Set<WhatsAppChannelControl>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -90,6 +93,37 @@ public class KinshoutDbContext(DbContextOptions<KinshoutDbContext> options) : Db
             e.HasKey(x => x.SlotKey);
             e.Property(x => x.SlotKey).HasMaxLength(80);
             e.Property(x => x.Workflow).HasMaxLength(160);
+        });
+        modelBuilder.Entity<WhatsAppPublication>(e =>
+        {
+            e.Property(x => x.IdempotencyKey).HasMaxLength(200);
+            e.Property(x => x.ChannelId).HasMaxLength(80);
+            e.Property(x => x.Category).HasMaxLength(40);
+            e.Property(x => x.Purpose).HasMaxLength(20);
+            e.Property(x => x.Slot).HasMaxLength(80);
+            e.Property(x => x.LocalDate).HasMaxLength(10);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.ProviderName).HasMaxLength(40);
+            e.Property(x => x.ProviderReference).HasMaxLength(120);
+            e.Property(x => x.ProviderMessageId).HasMaxLength(180);
+            e.Property(x => x.LastError).HasMaxLength(200);
+            e.Property(x => x.CanonicalUrl).HasMaxLength(500);
+            e.Property(x => x.EstimatedCostUsd).HasPrecision(12, 6);
+            e.HasIndex(x => x.IdempotencyKey).IsUnique();
+            e.HasIndex(x => new { x.LocalDate, x.Category });
+        });
+        modelBuilder.Entity<WhatsAppSpend>(e =>
+        {
+            e.Property(x => x.Provider).HasMaxLength(20);
+            e.Property(x => x.SlotKey).HasMaxLength(220);
+            e.Property(x => x.Kind).HasMaxLength(20);
+            e.Property(x => x.EstimatedCostUsd).HasPrecision(12, 6);
+            e.HasIndex(x => x.SlotKey).IsUnique();
+        });
+        modelBuilder.Entity<WhatsAppChannelControl>(e =>
+        {
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.HasData(new WhatsAppChannelControl { Id = 1, Paused = false });
         });
         modelBuilder.Entity<DiscussionSeedingControl>(e =>
         {

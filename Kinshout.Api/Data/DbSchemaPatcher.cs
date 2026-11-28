@@ -30,6 +30,7 @@ public static partial class DbSchemaPatcher
         await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscussionSeedingSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureFeedImportDispatchSchemaAsync(db, connection, sqlServer: true, ct);
+        await EnsureWhatsAppChannelSchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureDiscoverySchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: true, ct);
         await EnsureEditorialDeskSchemaAsync(db, connection, sqlServer: true, ct);
@@ -97,6 +98,7 @@ public static partial class DbSchemaPatcher
         await EnsureVideoMetricSnapshotSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureDiscussionSeedingSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureFeedImportDispatchSchemaAsync(db, connection, sqlServer: false, ct);
+        await EnsureWhatsAppChannelSchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureDiscoverySchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureCanonicalMediaKeySchemaAsync(db, connection, sqlServer: false, ct);
         await EnsureEditorialDeskSchemaAsync(db, connection, sqlServer: false, ct);
