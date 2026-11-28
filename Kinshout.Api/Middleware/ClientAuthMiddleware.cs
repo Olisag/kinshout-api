@@ -30,6 +30,7 @@ public class ClientAuthMiddleware(RequestDelegate next, IOptions<JwtSettings> jw
         if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
             || PublicPaths.Contains(path)
             || path.StartsWith("/api/imports", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/api/operations/whatsapp-channel", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
             || IsVideoWorkerCallback(context.Request.Method, path))
         {
