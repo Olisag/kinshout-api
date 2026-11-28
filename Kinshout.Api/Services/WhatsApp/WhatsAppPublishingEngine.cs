@@ -27,6 +27,7 @@ public sealed class WhatsAppPublishingEngine(
             return 0;
 
         var utc = clock.GetUtcNow().UtcDateTime;
+        await ReleaseEarlyManualRunsAsync(utc, ct);
         var handled = 0;
         foreach (var slot in WhatsAppSchedule.Open(utc, config))
         {
@@ -62,6 +63,21 @@ public sealed class WhatsAppPublishingEngine(
         if (id.Length == 0 || !id.EndsWith("@newsletter", StringComparison.Ordinal))
             return null;
         return id;
+    }
+
+    /// <summary>
+    /// An early manual send keeps its message, but it must not occupy the slot's scheduled key.
+    /// </summary>
+    private async Task ReleaseEarlyManualRunsAsync(DateTime utc, CancellationToken ct)
+    {
+        var early = await db.WhatsAppPublications
+            .Where(p => p.Manual && p.ScheduledAtUtc > utc && !p.IdempotencyKey.EndsWith("|early"))
+            .ToListAsync(ct);
+        if (early.Count == 0)
+            return;
+        foreach (var row in early)
+            row.IdempotencyKey += "|early";
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task<bool> AdvanceAsync(WhatsAppSlot slot, DateTime utc, bool manual, CancellationToken ct)

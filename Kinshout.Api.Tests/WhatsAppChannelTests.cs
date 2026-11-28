@@ -225,6 +225,32 @@ public class WhatsAppChannelTests
     }
 
     [Fact]
+    public async Task AnEarlyManualTrafficPostLeavesTheAfternoonSlotFree()
+    {
+        await using var db = await TestDbFactory.CreateSqliteAsync();
+        var early = new DateTime(2026, 11, 28, 8, 5, 0, DateTimeKind.Utc);
+        var retrieve = WhatsAppSchedule.All.Single(s => s.Id == "traffic-afternoon-retrieve");
+        var publish = WhatsAppSchedule.All.Single(s => s.Id == "traffic-afternoon-publish");
+        var channel = "120363412372960130@newsletter";
+        db.WhatsAppPublications.AddRange(
+            ManualRow(channel, retrieve, early, WhatsAppPublicationStatus.Ready),
+            ManualRow(channel, publish, early, WhatsAppPublicationStatus.Submitted));
+        await db.SaveChangesAsync();
+
+        await Engine(db, new RecordingPublisher(), early, dryRun: false, traffic: true).TickAsync();
+        var parked = await db.WhatsAppPublications.OrderBy(x => x.Slot).ToListAsync();
+        Assert.All(parked, row => Assert.EndsWith("|early", row.IdempotencyKey, StringComparison.Ordinal));
+        Assert.Contains(parked, row => row.Slot == "traffic-afternoon-publish" && row.Status == WhatsAppPublicationStatus.Submitted);
+
+        var duringSlot = new DateTime(2026, 11, 28, 14, 30, 0, DateTimeKind.Utc);
+        await Engine(db, new RecordingPublisher(), duringSlot, dryRun: false, traffic: true).TickAsync();
+        var afternoon = await db.WhatsAppPublications.Where(x => x.Slot == "traffic-afternoon-publish").ToListAsync();
+        Assert.Equal(2, afternoon.Count);
+        Assert.Contains(afternoon, row => row.Status == WhatsAppPublicationStatus.Submitted && row.IdempotencyKey.EndsWith("|early", StringComparison.Ordinal));
+        Assert.Contains(afternoon, row => row.IdempotencyKey == WhatsAppSchedule.Key(channel, publish, duringSlot));
+    }
+
+    [Fact]
     public async Task DisabledEngineDoesNothing()
     {
         await using var db = await TestDbFactory.CreateSqliteAsync();
@@ -233,12 +259,30 @@ public class WhatsAppChannelTests
         Assert.Empty(await db.WhatsAppPublications.ToListAsync());
     }
 
-    private static WhatsAppPublishingEngine Engine(Data.KinshoutDbContext db, RecordingPublisher publisher, DateTime utc, bool dryRun, bool enabled = true)
+    private static WhatsAppPublication ManualRow(string channel, WhatsAppSlot slot, DateTime utc, string status) =>
+        new()
+        {
+            IdempotencyKey = WhatsAppSchedule.Key(channel, slot, utc),
+            ChannelId = channel,
+            Category = slot.Category,
+            Purpose = slot.Purpose,
+            Slot = slot.Id,
+            LocalDate = "2026-11-28",
+            ScheduledAtUtc = WhatsAppSchedule.ScheduledUtc(utc, slot),
+            CreatedAtUtc = utc,
+            Status = status,
+            Manual = true,
+            ProviderMessageId = status == WhatsAppPublicationStatus.Submitted ? "early-message" : null,
+        };
+
+    private static WhatsAppPublishingEngine Engine(Data.KinshoutDbContext db, RecordingPublisher publisher, DateTime utc, bool dryRun, bool enabled = true, bool traffic = false)
     {
         var settings = Options.Create(new WhatsAppPublishingSettings
         {
             Enabled = enabled,
             DryRun = dryRun,
+            TrafficRedistributionPermitted = traffic,
+            ApifyToken = traffic ? "test-token" : "",
             MinimumPublicationSpacingMinutes = 0,
         });
         return new WhatsAppPublishingEngine(
